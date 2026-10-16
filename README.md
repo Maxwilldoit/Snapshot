@@ -8,6 +8,28 @@ A small desktop tool for window screenshots and screen recording, with prompt po
 
 The interface is Chinese only for now; the menu names below are translated into English.
 
+## Interface
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/today.png" alt="Today: timeline and the desktop pet"></td>
+<td width="50%"><img src="docs/screenshots/history.png" alt="Snapshot history"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/companion.png" alt="Companion appearances"></td>
+<td width="50%"><img src="docs/screenshots/settings.png" alt="Shortcuts and preferences"></td>
+</tr>
+</table>
+
+The desktop pet. One click switches the pose:
+
+<p align="center">
+  <img src="docs/screenshots/pet-idle.png" height="220" alt="Idle">
+  <img src="docs/screenshots/pet-jump.png" height="220" alt="Jump">
+  <img src="docs/screenshots/pet-peek.png" height="220" alt="Peek">
+  <img src="docs/screenshots/pet-shy.png" height="220" alt="Shy">
+</p>
+
 ## Features
 
 - **Window snapshots**: capture a chosen application window straight to the clipboard, or open it for annotation or save it as a file. Fullscreen capture is also available, plus scrolling capture on Linux (X11).
@@ -69,7 +91,7 @@ Once started, the companion appears on the desktop (showing the current app's ic
 - **Capture**: by default a capture goes to the clipboard, which is cleared after 60 seconds (unless you copied something else in the meantime). In Preferences you can switch to opening the annotation window or a save dialog instead. The clear delay, image format and snapshot folder are under Shortcuts → Clipboard & saving.
 - **Recording**: recordings are saved as MP4 in your Downloads folder by default. The folder and whether to include system audio and the microphone are under Shortcuts → Recording.
 - **Prompt polishing**: first enter the endpoint URL, model and API key under Preferences → Machine & model. The API key is stored in the OS keychain, never in a config file. Rewrite rules are managed under Preferences → Polishing rules.
-- **Companion**: on the Companion page, import a `.zip` of GIFs or a single GIF. Use one file per action; a file whose name contains `idle` becomes the default idle pose. The pet stays on that pose and does not switch by itself. A left click plays the next action, then returns to idle after 3 seconds; another click continues to the action after that. A double click opens the launchpad: installed apps in a grid, click one to launch it, and the mouse wheel or a horizontal drag moves with the page, then turns it. On Windows, Start Menu shortcuts and packaged apps from the system All Apps catalog are classified after scanning. The grid shows user-installed software, Microsoft Store apps, and clear desktop apps by default. System administration, accessibility, Control Panel, diagnostics, driver utilities, uninstallers, installers, updaters, configuration tools, and background components stay searchable and launchable but are hidden from the grid. Console programs (`cmd`, PowerShell, Node, Python), help files, and web links are excluded. Classification primarily uses resolved targets, installation paths, PE subsystems, and package identities, with names used for configuration and uninstall entries. Drag one icon onto another to make a folder. Folders can be renamed, and dragging an app out of a folder puts it back on the grid. Only GIF is supported and other files in the archive are skipped (each platform's WebView plays different video codecs, so video is not supported for now). Limits: 100 MB per archive, 50 MB per GIF. The size of the pet on the desktop is set under Preferences → Desktop pet (30% to 200%; 100% is 6% of the screen's short edge, matching the previous 30% size).
+- **Companion**: on the Companion page, import a `.zip` of GIFs or a single GIF. Use one file per action; a file whose name contains `idle` becomes the default idle pose. The pet stays on that pose and does not switch by itself. A left click plays the next action, then returns to idle after 3 seconds; another click continues to the action after that. A double click opens the launchpad: installed apps in a grid, click one to launch it, and the mouse wheel or a horizontal drag moves with the page, then turns it. On Windows, Start Menu shortcuts and packaged apps from the system All Apps catalog are classified after scanning. The grid shows user-installed software, Microsoft Store apps, and clear desktop apps by default. System administration, accessibility, Control Panel, diagnostics, driver utilities, uninstallers, installers, updaters, configuration tools, and background components stay searchable and launchable but are hidden from the grid. Console programs (`cmd`, PowerShell, Node, Python), help files, and web links are excluded. Classification primarily uses resolved targets, installation paths, PE subsystems, and package identities, with names used for configuration and uninstall entries. Drag one icon onto another to make a folder. Folders can be renamed, and dragging an app out of a folder puts it back on the grid. Only GIF is supported and other files in the archive are skipped (each platform's WebView plays different video codecs, so video is not supported for now). Limits: 100 MB per archive, 50 MB per GIF. The size of the pet on the desktop is set under Preferences → Desktop pet (30% to 200%; 100% is 60% of the screen's short edge).
   - **Walking**: a file whose name contains `walk`, `run` or `move` is a walking action. It plays only while you drag the companion sideways, and a click does not select it. Add `left` or `right` to the name for its facing (e.g. `walk_left.gif`, `walk_right.gif`). If only one direction is provided it is mirrored for the other; a walk with no direction is used both ways. A walk whose character crosses the canvas is converted to walk in place automatically.
   - **Background**: if the background is painted into the GIF, it is removed automatically on import: only the background connected to the canvas border is cut out, so white parts of the figure such as a shirt stay. Edge pixels blended with the background are un-mixed, so the figure keeps a clean outline on a dark desktop.
 - **Appearance**: the Themes page switches the layout, color scheme and motion.
