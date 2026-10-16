@@ -91,8 +91,12 @@ export function PetWindow() {
     };
   }, []);
 
+  // 算在渲染里：公式或百分比一变，依赖就变，窗口跟着重设大小
+  const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
+  const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale);
+
   useEffect(() => {
-    if (petScale === null) return;
+    if (fittedSize === null || petScale === null) return;
     const petWindow = getCurrentWindow();
     let active = true;
     let lastSize = 0;
@@ -116,7 +120,7 @@ export function PetWindow() {
       void movedListener.then((unlisten) => unlisten());
       void scaleListener.then((unlisten) => unlisten());
     };
-  }, [petScale]);
+  }, [fittedSize, petScale]);
 
   // 拖动时网页收不到指针事件（系统接管了窗口），只能看窗口往哪边移
   useEffect(() => {
