@@ -55,6 +55,8 @@ pub(crate) struct LaunchpadView {
 }
 
 /// 路径或包名的稳定短 id。只为媒体地址里不出现斜杠，不是安全边界。
+/// Windows / macOS 的应用扫描用它；Linux 走另一套 id。
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 pub(crate) fn stable_id(key: &str) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for byte in key.as_bytes() {
