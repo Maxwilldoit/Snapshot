@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 
 /**
  * 从 media:// 协议取的图片：取不到（文件被移走、进程已退出、没有图标）就显示 fallback，
@@ -10,6 +10,7 @@ export function MediaImage({
   className,
   alt = "",
   hidden,
+  style,
 }: {
   src: string | null;
   fallback: ReactNode;
@@ -17,8 +18,19 @@ export function MediaImage({
   alt?: string;
   /** 先藏着但保持加载（桌宠拖动时换成走路图，松手再露出来，不用重新取图） */
   hidden?: boolean;
+  style?: CSSProperties;
 }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) return <>{fallback}</>;
-  return <img className={className} src={src} alt={alt} hidden={hidden} draggable={false} onError={() => setFailed(true)} />;
+  return (
+    <img
+      className={className}
+      style={style}
+      src={src}
+      alt={alt}
+      hidden={hidden}
+      draggable={false}
+      onError={() => setFailed(true)}
+    />
+  );
 }

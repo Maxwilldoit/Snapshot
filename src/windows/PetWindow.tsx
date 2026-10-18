@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { currentMonitor, getCurrentWindow, LogicalSize, PhysicalPosition, type Window } from "@tauri-apps/api/window";
 import { AppWindow, PawPrint } from "lucide-react";
 import {
@@ -6,15 +6,17 @@ import {
   loadSettings,
   onPreviousAppChanged,
   onSettingsChanged,
+  setPetFrameShift,
   showLaunchpad,
   showQuickMenu,
 } from "../lib/backend";
 import { iconUrl, petUrl, petWalkUrl } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
+import { placementForEntry, type PetPlacement } from "../lib/petFrame";
 import { PET_SCALE, petWindowSize } from "../lib/petSize";
 import { cycleEntries, nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
-import type { PreviousApp, Settings } from "../types";
+import type { PetLayout, PreviousApp, Settings } from "../types";
 
 /** 放大后超出了所在屏幕的可用区域，就挪回来 */
 async function keepOnScreen(petWindow: Window) {
@@ -25,6 +27,67 @@ async function keepOnScreen(petWindow: Window) {
   const x = Math.max(origin.x, Math.min(position.x, origin.x + area.width - size.width));
   const y = Math.max(origin.y, Math.min(position.y, origin.y + area.height - size.height));
   if (x !== position.x || y !== position.y) await petWindow.setPosition(new PhysicalPosition(x, y));
+}
+
+/** 平时那个方窗要落在工作区内。返回物理像素的挪动量，脚跟着方窗一起挪 */
+async function nudgeNormalWindow(normalX: number, normalY: number, side: number, factor: number) {
+  const monitor = await currentMonitor();
+  if (!monitor || !(factor > 0)) return { x: 0, y: 0 };
+  const extent = Math.round(side * factor);
+  const { position: origin, size: area } = monitor.workArea;
+  const x = Math.max(origin.x, Math.min(normalX, origin.x + area.width - extent));
+  const y = Math.max(origin.y, Math.min(normalY, origin.y + area.height - extent));
+  return { x: x - normalX, y: y - normalY };
+}
+
+/** 没长出方窗时和老路径用同一个键，拖动换走路动作不会把窗口重摆一遍 */
+function windowKey(side: number, place: PetPlacement | null) {
+  if (!place || (place.shiftX === 0 && place.shiftY === 0 && place.width === side && place.height === side)) {
+    return `square|${side}`;
+  }
+  return `grow|${side}|${place.width}x${place.height}@${place.shiftX},${place.shiftY}`;
+}
+
+async function commitPetWindow(
+  petWindow: Window,
+  side: number,
+  place: PetPlacement | null,
+  shiftRef: { current: { x: number; y: number } },
+) {
+  const grows =
+    place != null && !(place.shiftX === 0 && place.shiftY === 0 && place.width === side && place.height === side);
+  if (!place || !grows) {
+    if (shiftRef.current.x !== 0 || shiftRef.current.y !== 0) {
+      const pos = await petWindow.outerPosition();
+      const nextX = pos.x - shiftRef.current.x;
+      const nextY = pos.y - shiftRef.current.y;
+      shiftRef.current = { x: 0, y: 0 };
+      await setPetFrameShift(0, 0);
+      if (Number.isFinite(nextX) && Number.isFinite(nextY)) {
+        await petWindow.setPosition(new PhysicalPosition(nextX, nextY));
+      }
+    }
+    await petWindow.setSize(new LogicalSize(side, side));
+    await keepOnScreen(petWindow);
+    return;
+  }
+
+  const factor = await petWindow.scaleFactor();
+  const pos = await petWindow.outerPosition();
+  if (!(factor > 0) || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
+    throw new Error("读不到桌宠窗口的位置");
+  }
+  const shiftX = Math.round(place.shiftX * factor);
+  const shiftY = Math.round(place.shiftY * factor);
+  const normalX = pos.x - shiftRef.current.x;
+  const normalY = pos.y - shiftRef.current.y;
+  const nudge = await nudgeNormalWindow(normalX, normalY, side, factor);
+  const nextX = Math.round(normalX + nudge.x + shiftX);
+  const nextY = Math.round(normalY + nudge.y + shiftY);
+  shiftRef.current = { x: shiftX, y: shiftY };
+  await setPetFrameShift(shiftX, shiftY);
+  if (nextX !== pos.x || nextY !== pos.y) await petWindow.setPosition(new PhysicalPosition(nextX, nextY));
+  await petWindow.setSize(new LogicalSize(place.width, place.height));
 }
 
 /** 窗口停下这么久没再动，就算松手了，换回原来的动作 */
@@ -38,6 +101,7 @@ export function PetWindow() {
   const [app, setApp] = useState<PreviousApp>({ id: null, pid: null, name: "", title: "" });
   const [appearanceId, setAppearanceId] = useState("app-icon");
   const [animations, setAnimations] = useState<string[]>([]);
+  const [layout, setLayout] = useState<PetLayout | null>(null);
   const [restingEntry, setRestingEntry] = useState<string | null>(null);
   const [shownEntry, setShownEntry] = useState<string | null>(null);
   const [petSize, setPetSize] = useState(60);
@@ -77,6 +141,7 @@ export function PetWindow() {
       actionCursor.current = Math.max(0, actions.indexOf(nextResting ?? ""));
       setAppearanceId(id);
       setAnimations(entries);
+      setLayout(asset?.layout ?? null);
       setRestingEntry(nextResting);
       setShownEntry(nextResting);
       setPetScale(settings.petScale ?? PET_SCALE.default);
@@ -91,36 +156,75 @@ export function PetWindow() {
     };
   }, []);
 
-  // 算在渲染里：公式或百分比一变，依赖就变，窗口跟着重设大小
+  // 算在渲染里：公式、百分比或当前动作一变，依赖就变，窗口跟着重设大小
+  const currentEntry = shownEntry && cycle.includes(shownEntry) ? shownEntry : resting;
+  const custom = appearanceId !== "app-icon";
+  const walks = custom
+    ? (["left", "right"] as const).map((direction) => ({ direction, choice: pickWalk(animations, direction, currentEntry) }))
+    : [];
+  const shownWalk = walks.find((walk) => walk.direction === walking && walk.choice)?.direction ?? null;
+  const shownChoice = walks.find((walk) => walk.direction === shownWalk)?.choice ?? null;
+  const visibleEntry = shownWalk && shownChoice ? shownChoice.entry : currentEntry;
+  const visibleFlip = Boolean(shownWalk && shownChoice?.flip);
   const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
   const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale);
+  const visiblePlacement = fittedSize === null ? null : placementForEntry(fittedSize, layout, visibleEntry, visibleFlip);
+  const fittedKey = fittedSize === null ? "pending" : windowKey(fittedSize, visiblePlacement);
 
-  useEffect(() => {
+  // 物理像素。放大时窗口左上角相对方窗的偏移，存位置要减掉
+  const frameShift = useRef({ x: 0, y: 0 });
+  const appliedKey = useRef("");
+  const frameModel = useRef({ petScale, layout, visibleEntry, visibleFlip });
+  frameModel.current = { petScale, layout, visibleEntry, visibleFlip };
+
+  useLayoutEffect(() => {
     if (fittedSize === null || petScale === null) return;
     const petWindow = getCurrentWindow();
     let active = true;
-    let lastSize = 0;
+    let running = false;
+    let again = false;
 
-    const fitToScreen = async () => {
-      const shortEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
-      const nextSize = petWindowSize(shortEdge, petScale);
-      if (active) setPetSize(nextSize);
-      if (nextSize === lastSize) return;
-      lastSize = nextSize;
-      await petWindow.setSize(new LogicalSize(nextSize, nextSize));
-      // 只在大小变了时才挪：平常拖动桌宠不去抢它的位置
-      await keepOnScreen(petWindow);
+    const apply = async () => {
+      if (running) {
+        again = true;
+        return;
+      }
+      running = true;
+      try {
+        do {
+          again = false;
+          const model = frameModel.current;
+          if (model.petScale === null) return;
+          const shortEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
+          const side = petWindowSize(shortEdge, model.petScale);
+          if (active) setPetSize(side);
+          const place = placementForEntry(side, model.layout, model.visibleEntry, model.visibleFlip);
+          const key = windowKey(side, place);
+          if (key === appliedKey.current) continue;
+          appliedKey.current = key;
+          await commitPetWindow(petWindow, side, place, frameShift);
+        } while (again);
+      } catch (error) {
+        appliedKey.current = "";
+        console.error("snapshot: pet window resize failed", error);
+      } finally {
+        running = false;
+      }
     };
 
-    void fitToScreen();
-    const movedListener = petWindow.onMoved(() => void fitToScreen());
-    const scaleListener = petWindow.onScaleChanged(() => void fitToScreen());
+    void apply();
+    const movedListener = petWindow.onMoved(() => {
+      void apply();
+    });
+    const scaleListener = petWindow.onScaleChanged(() => {
+      void apply();
+    });
     return () => {
       active = false;
       void movedListener.then((unlisten) => unlisten());
       void scaleListener.then((unlisten) => unlisten());
     };
-  }, [fittedSize, petScale]);
+  }, [fittedSize, petScale, fittedKey]);
 
   // 拖动时网页收不到指针事件（系统接管了窗口），只能看窗口往哪边移
   useEffect(() => {
@@ -200,7 +304,6 @@ export function PetWindow() {
   }
 
   // 换了动作就告诉主窗口，侧栏的猫跟着换；主窗口刚打开来问时也答一声（走路不算，侧栏不跟着走）
-  const currentEntry = shownEntry && cycle.includes(shownEntry) ? shownEntry : resting;
   const current = useRef({ assetId: appearanceId, entry: currentEntry });
   current.current = { assetId: appearanceId, entry: currentEntry };
   useEffect(() => {
@@ -214,13 +317,20 @@ export function PetWindow() {
     [],
   );
 
-  const custom = appearanceId !== "app-icon";
   const petSrc = custom ? petUrl(appearanceId, currentEntry) : null;
-  // 左右两张走路图一直挂着（藏起来），拖起来直接露出，不用临时取图
-  const walks = custom
-    ? (["left", "right"] as const).map((direction) => ({ direction, choice: pickWalk(animations, direction, currentEntry) }))
-    : [];
-  const shownWalk = walks.find((walk) => walk.direction === walking && walk.choice)?.direction ?? null;
+  // 有锚点的图按基准比例摆；窗口长出去的那截已经算进 shift，这里减掉才是相对当前窗口的位置
+  const framedStyle = (entry: string, flip: boolean) => {
+    if (fittedSize === null || !visiblePlacement) return undefined;
+    const place = placementForEntry(fittedSize, layout, entry, flip);
+    if (!place) return undefined;
+    return {
+      left: place.imageX - visiblePlacement.shiftX,
+      top: place.imageY - visiblePlacement.shiftY,
+      width: place.imageWidth,
+      height: place.imageHeight,
+    };
+  };
+  const framed = visiblePlacement != null;
 
   function onContextMenu(event: React.MouseEvent) {
     event.preventDefault();
@@ -235,37 +345,62 @@ export function PetWindow() {
       title={!custom && app.name ? app.name : undefined}
       style={{ "--pet-icon-size": `${petSize - 4}px` } as React.CSSProperties}
     >
-      <div className="pet-orb">
-        {custom ? (
-          <>
-            <MediaImage
-              key={petSrc ?? "none"}
-              className="pet-fade"
-              src={petSrc}
-              hidden={shownWalk !== null}
-              fallback={<PawPrint size={petSize - 10} />}
-            />
-            {walks.map(({ direction, choice }) =>
-              choice ? (
-                <MediaImage
-                  key={`${direction}:${choice.entry}`}
-                  className={choice.flip ? "pet-walk pet-flip" : "pet-walk"}
-                  src={petWalkUrl(appearanceId, choice.entry)}
-                  hidden={shownWalk !== direction}
-                  fallback={null}
-                />
-              ) : null,
-            )}
-          </>
-        ) : (
+      {custom && framed ? (
+        <>
           <MediaImage
-            key={app.pid ?? "none"}
-            src={app.pid === null ? null : iconUrl(app.pid, petSize)}
-            alt={app.name}
-            fallback={<AppWindow size={petSize - 12} />}
+            key={petSrc ?? "none"}
+            className="pet-fade pet-framed"
+            style={framedStyle(currentEntry ?? "", false)}
+            src={petSrc}
+            hidden={shownWalk !== null}
+            fallback={<PawPrint size={petSize - 10} />}
           />
-        )}
-      </div>
+          {walks.map(({ direction, choice }) =>
+            choice ? (
+              <MediaImage
+                key={`${direction}:${choice.entry}`}
+                className={choice.flip ? "pet-walk pet-flip pet-framed" : "pet-walk pet-framed"}
+                style={framedStyle(choice.entry, choice.flip)}
+                src={petWalkUrl(appearanceId, choice.entry)}
+                hidden={shownWalk !== direction}
+                fallback={null}
+              />
+            ) : null,
+          )}
+        </>
+      ) : (
+        <div className="pet-orb">
+          {custom ? (
+            <>
+              <MediaImage
+                key={petSrc ?? "none"}
+                className="pet-fade"
+                src={petSrc}
+                hidden={shownWalk !== null}
+                fallback={<PawPrint size={petSize - 10} />}
+              />
+              {walks.map(({ direction, choice }) =>
+                choice ? (
+                  <MediaImage
+                    key={`${direction}:${choice.entry}`}
+                    className={choice.flip ? "pet-walk pet-flip" : "pet-walk"}
+                    src={petWalkUrl(appearanceId, choice.entry)}
+                    hidden={shownWalk !== direction}
+                    fallback={null}
+                  />
+                ) : null,
+              )}
+            </>
+          ) : (
+            <MediaImage
+              key={app.pid ?? "none"}
+              src={app.pid === null ? null : iconUrl(app.pid, petSize)}
+              alt={app.name}
+              fallback={<AppWindow size={petSize - 12} />}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

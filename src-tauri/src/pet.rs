@@ -26,6 +26,9 @@ pub(crate) struct PetAsset {
     /// 素材文件找不到了（旧版按原路径读取，原文件被移走就会这样）。每次读盘重算
     #[serde(default)]
     pub(crate) missing: bool,
+    /// 压缩包里的 pet.json。没有时每张 GIF 都缩进同一个方窗
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) layout: Option<pet_layout::PetLayout>,
 }
 
 /// 名字超过这个长度就截断，免得形象架上一行放不下
@@ -167,6 +170,7 @@ pub(crate) fn add_pet_assets(
                 existing.path = asset.path;
                 existing.entry = asset.entry;
                 existing.animations = asset.animations;
+                existing.layout = asset.layout;
                 existing.size_bytes = asset.size_bytes;
                 existing.last_used_at = asset.last_used_at;
                 if old_path != existing.path {
@@ -230,6 +234,11 @@ fn prepare_import(state: &AppState, raw_path: &str) -> Result<PetAsset, String> 
         .first()
         .cloned()
         .ok_or_else(|| "这份素材里没有可用动画".to_string())?;
+    let layout = if single_gif {
+        None
+    } else {
+        pet_layout::read_pet_layout(&canonical, &animations)?
+    };
 
     let now = now_millis();
     // 同一毫秒导入多个时靠序号区分
@@ -250,6 +259,7 @@ fn prepare_import(state: &AppState, raw_path: &str) -> Result<PetAsset, String> 
         path: stored.to_string_lossy().to_string(),
         entry,
         animations,
+        layout,
         source: canonical.to_string_lossy().to_string(),
         size_bytes,
         imported_at: now,
@@ -264,6 +274,13 @@ fn remove_owned_file(state: &AppState, path: &str) {
     if path.starts_with(pets_dir(state)) {
         let _ = fs::remove_file(path);
     }
+}
+
+/// 窗口为了包住超出基准画布的动作而挪开时，左上角相对平时那个方窗的偏移（物理像素）。
+/// 拖动、放大都会触发 Moved，存盘时减掉这段，存下来的仍是方窗的位置。
+#[tauri::command]
+pub(crate) fn set_pet_frame_shift(state: State<'_, AppState>, x: i32, y: i32) {
+    *state.pet_frame_shift.lock() = (x, y);
 }
 
 #[tauri::command]
@@ -593,5 +610,14 @@ mod tests {
     fn package_without_any_supported_asset_is_rejected() {
         let path = make_zip("empty", &["readme.txt"]);
         assert!(find_pet_animation_entries(&path).is_err());
+    }
+
+    #[test]
+    fn an_old_pet_asset_without_layout_still_loads() {
+        let asset: PetAsset = serde_json::from_str(
+            r#"{"id":"p","name":"n","path":"a.gif","entry":"a.gif","animations":["a.gif"]}"#,
+        )
+        .expect("旧配置里没有 layout 也应当能读");
+        assert!(asset.layout.is_none());
     }
 }
