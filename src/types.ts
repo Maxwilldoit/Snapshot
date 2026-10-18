@@ -29,6 +29,27 @@ export interface ShortcutBinding {
   accelerator: string | null;
 }
 
+/** 一张 GIF 的画布和脚底锚点。坐标是 GIF 像素，原点在左上，y 向下 */
+export interface PetLayoutFrame {
+  entry: string;
+  width: number;
+  height: number;
+  anchorX: number;
+  anchorY: number;
+}
+
+/**
+ * 压缩包里的 pet.json 解析结果。基准画布对应平时那个方窗，
+ * 每张 GIF 的脚底锚到基准锚点上。没有这份数据的形象跟以前一样。
+ */
+export interface PetLayout {
+  baseWidth: number;
+  baseHeight: number;
+  anchorX: number;
+  anchorY: number;
+  frames: PetLayoutFrame[];
+}
+
 export interface PetAsset {
   id: string;
   name: string;
@@ -42,6 +63,8 @@ export interface PetAsset {
   lastUsedAt?: number;
   /** 素材文件找不到了 */
   missing?: boolean;
+  /** 有 pet.json 时才有。用来让人物在各动作里一样大，画布不够时再把窗口撑大 */
+  layout?: PetLayout | null;
 }
 
 export interface Settings {

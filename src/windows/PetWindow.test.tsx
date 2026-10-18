@@ -1,7 +1,9 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { emit } from "@tauri-apps/api/event";
-import type { PetAsset, Settings } from "../types";
+import type { PetAsset, PetLayout, Settings } from "../types";
+import { petPlacement } from "../lib/petFrame";
+import { petWindowSize } from "../lib/petSize";
 import { setupTauriMock } from "../test/tauri";
 
 const grok: PetAsset = {
@@ -231,5 +233,103 @@ describe("桌宠：拖动时走路", () => {
     });
     await moveTo([0, 0], [20, 0]);
     expect(shown(container).file).toBe("grok_idle.gif");
+  });
+});
+
+describe("桌宠：超出基准画布时把窗口撑大", () => {
+  it("平时仍是方窗，扣篮时窗口变大且脚留在原地，结束后缩回去", async () => {
+    const shortEdge = 340;
+    const side = petWindowSize(shortEdge, 100);
+    const idle = { entry: "gifs/idle.gif", width: 100, height: 100, anchorX: 50, anchorY: 90 };
+    const dunk = { entry: "gifs/dunk.gif", width: 200, height: 180, anchorX: 60, anchorY: 170 };
+    const layout: PetLayout = { baseWidth: 100, baseHeight: 100, anchorX: 50, anchorY: 90, frames: [idle, dunk] };
+    const resting = petPlacement(side, layout, idle)!;
+    const grown = petPlacement(side, layout, dunk)!;
+    const origin = { x: 400, y: 300 };
+    let position = { ...origin };
+    const sizes: Array<{ width: number; height: number }> = [];
+    const shifts: Array<{ x: number; y: number }> = [];
+
+    Object.defineProperty(window.screen, "availWidth", { configurable: true, value: shortEdge });
+    Object.defineProperty(window.screen, "availHeight", { configurable: true, value: 800 });
+
+    vi.useFakeTimers();
+    setupTauriMock(
+      (command, payload) => {
+        const args = (payload ?? {}) as {
+          value?: { size?: { width: number; height: number }; position?: { x: number; y: number } };
+          x?: number;
+          y?: number;
+        };
+        if (command === "load_settings") {
+          return settingsWith({
+            id: "pet-hoop",
+            name: "hoop",
+            path: "",
+            entry: idle.entry,
+            animations: [idle.entry, dunk.entry],
+            layout,
+          });
+        }
+        if (command === "get_previous_app") return { id: null, pid: null, name: "", title: "" };
+        if (command === "plugin:window|scale_factor") return 1;
+        if (command === "plugin:window|outer_position") return position;
+        if (command === "plugin:window|current_monitor") return null;
+        if (command === "plugin:window|set_size" && args.value?.size) {
+          sizes.push({ width: args.value.size.width, height: args.value.size.height });
+        }
+        if (command === "plugin:window|set_position" && args.value?.position) {
+          position = { x: args.value.position.x, y: args.value.position.y };
+        }
+        if (command === "set_pet_frame_shift" && args.x != null && args.y != null) {
+          shifts.push({ x: args.x, y: args.y });
+        }
+        return undefined;
+      },
+      { currentWindow: "pet", shouldMockEvents: true },
+    );
+    vi.resetModules();
+    const { PetWindow, CLICK_DELAY_MS } = await import("./PetWindow");
+    const { container } = render(<PetWindow />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const visible = () => [...container.querySelectorAll<HTMLImageElement>("img.pet-framed")].filter((img) => !img.hidden);
+    const idleImage = visible()[0];
+    expect(decodeURIComponent(idleImage.src)).toContain("idle.gif");
+    expect(idleImage.style.left).toBe(`${resting.imageX}px`);
+    expect(idleImage.style.top).toBe(`${resting.imageY}px`);
+    expect(idleImage.style.width).toBe(`${resting.imageWidth}px`);
+    expect(sizes.at(-1)).toEqual({ width: side, height: side });
+    expect(shifts).toEqual([]);
+    expect(container.querySelector(".pet-orb")).toBeNull();
+
+    await act(async () => click(container));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(CLICK_DELAY_MS);
+    });
+
+    const dunkImage = visible()[0];
+    expect(decodeURIComponent(dunkImage.src)).toContain("dunk.gif");
+    expect(grown.width).toBeGreaterThan(side);
+    expect(grown.shiftY).toBeLessThan(0);
+    expect(dunkImage.style.left).toBe(`${grown.imageX - grown.shiftX}px`);
+    expect(dunkImage.style.top).toBe(`${grown.imageY - grown.shiftY}px`);
+    expect(dunkImage.style.width).toBe(`${grown.imageWidth}px`);
+    expect(dunkImage.style.height).toBe(`${grown.imageHeight}px`);
+    expect(sizes.at(-1)).toEqual({ width: grown.width, height: grown.height });
+    expect(position).toEqual({ x: origin.x + grown.shiftX, y: origin.y + grown.shiftY });
+    expect(shifts.at(-1)).toEqual({ x: grown.shiftX, y: grown.shiftY });
+    const feetY = grown.imageY + dunk.anchorY * (grown.imageHeight / dunk.height);
+    expect(position.y + (feetY - grown.shiftY)).toBeCloseTo(origin.y + resting.imageY + idle.anchorY * (resting.imageHeight / idle.height));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(decodeURIComponent(visible()[0].src)).toContain("idle.gif");
+    expect(sizes.at(-1)).toEqual({ width: side, height: side });
+    expect(position).toEqual(origin);
+    expect(shifts.at(-1)).toEqual({ x: 0, y: 0 });
   });
 });

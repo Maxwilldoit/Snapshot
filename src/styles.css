@@ -272,6 +272,15 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .pet-orb img[hidden] { visibility: hidden; }
 .pet-orb img.pet-fade { animation: pet-pop var(--t-open) var(--ease-cat) both; }
 .pet-orb img.pet-flip { transform: scaleX(-1); }
+/* 有 pet.json 时图按锚点摆，不跟方窗一起被 contain 缩小。藏着的走路图照样解码 */
+.pet-window > img.pet-framed {
+  position: absolute;
+  object-fit: fill;
+  max-width: none;
+}
+.pet-window > img.pet-framed[hidden] { display: block; visibility: hidden; }
+.pet-window > img.pet-framed.pet-fade { animation: pet-pop var(--t-open) var(--ease-cat) both; }
+.pet-window > img.pet-framed.pet-flip { transform: scaleX(-1); }
 @keyframes pet-pop { from { transform: scale(0.86); opacity: 0; } }
 
 /* ---------- 截后标注窗口 ---------- */

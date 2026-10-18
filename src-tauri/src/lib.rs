@@ -7,6 +7,7 @@ mod launchpad;
 mod media;
 mod pet;
 mod pet_key;
+mod pet_layout;
 mod pet_walk;
 mod polish;
 mod recording;
@@ -74,6 +75,9 @@ struct AppState {
     tracker: Arc<Mutex<tracker::TrackerState>>,
     recorder: Mutex<recording::Recorder>,
     pet_position_revision: AtomicU64,
+    /// 放大去容纳超出基准画布的动作时，窗口左上角相对平时那个方窗的偏移（物理像素）。
+    /// 存位置时减掉它，下次启动仍从方窗的位置摆。
+    pet_frame_shift: Mutex<(i32, i32)>,
     quick_menu_anchor: Mutex<Option<(f64, f64)>>,
     /// 标注窗口待编辑 PNG（RGBA 编码前的原始 PNG 字节）
     annotate_png: Mutex<Option<Vec<u8>>>,
@@ -143,6 +147,7 @@ pub fn run() {
             tracker: Arc::new(Mutex::new(tracker::TrackerState::default())),
             recorder: Mutex::new(recording::Recorder::default()),
             pet_position_revision: AtomicU64::new(0),
+            pet_frame_shift: Mutex::new((0, 0)),
             quick_menu_anchor: Mutex::new(None),
             annotate_png: Mutex::new(None),
             annotate_title: Mutex::new(String::new()),
@@ -274,9 +279,10 @@ pub fn run() {
                         let Some(state) = app.try_state::<AppState>() else {
                             return;
                         };
+                        let (shift_x, shift_y) = *state.pet_frame_shift.lock();
                         state.settings.lock().pet_position = Some(settings::PetPosition {
-                            x: position.x,
-                            y: position.y,
+                            x: position.x.saturating_sub(shift_x),
+                            y: position.y.saturating_sub(shift_y),
                         });
                         state.pet_position_revision.fetch_add(1, Ordering::Relaxed) + 1
                     };
@@ -298,6 +304,7 @@ pub fn run() {
             settings::fetch_models,
             settings::default_prompt,
             pet::select_pet_appearance,
+            pet::set_pet_frame_shift,
             pet::add_pet_assets,
             pet::rename_pet_asset,
             pet::delete_pet_asset,

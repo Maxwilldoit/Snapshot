@@ -43,6 +43,12 @@ export const renamePetAsset = (id: string, name: string) =>
 
 export const deletePetAsset = (id: string) => invoke<Settings>("delete_pet_asset", { id });
 
+/**
+ * 窗口比平时那个方窗多出来的偏移（物理像素）。
+ * 放大去容纳扣篮之类的动作时先设上，Moved 存位置时会减掉它。
+ */
+export const setPetFrameShift = (x: number, y: number) => invoke<void>("set_pet_frame_shift", { x, y });
+
 /** 后端校验、注册并落盘；有键注册不上时整组不生效、不保存，错误信息里列出这些键 */
 export const saveShortcuts = (shortcuts: ShortcutBinding[]) =>
   invoke<Settings>("save_shortcuts", { shortcuts });

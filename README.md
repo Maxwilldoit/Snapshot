@@ -94,6 +94,28 @@ Once started, the companion appears on the desktop (showing the current app's ic
 - **Companion**: on the Companion page, import a `.zip` of GIFs or a single GIF. Use one file per action; a file whose name contains `idle` becomes the default idle pose. The pet stays on that pose and does not switch by itself. A left click plays the next action, then returns to idle after 3 seconds; another click continues to the action after that. A double click opens the launchpad: installed apps in a grid, click one to launch it, and the mouse wheel or a horizontal drag moves with the page, then turns it. On Windows, Start Menu shortcuts and packaged apps from the system All Apps catalog are classified after scanning. The grid shows user-installed software, Microsoft Store apps, and clear desktop apps by default. System administration, accessibility, Control Panel, diagnostics, driver utilities, uninstallers, installers, updaters, configuration tools, and background components stay searchable and launchable but are hidden from the grid. Console programs (`cmd`, PowerShell, Node, Python), help files, and web links are excluded. Classification primarily uses resolved targets, installation paths, PE subsystems, and package identities, with names used for configuration and uninstall entries. Drag one icon onto another to make a folder. Folders can be renamed, and dragging an app out of a folder puts it back on the grid. Only GIF is supported and other files in the archive are skipped (each platform's WebView plays different video codecs, so video is not supported for now). Limits: 100 MB per archive, 50 MB per GIF. The size of the pet on the desktop is set under Preferences → Desktop pet (30% to 200%; 100% is 60% of the screen's short edge).
   - **Walking**: a file whose name contains `walk`, `run` or `move` is a walking action. It plays only while you drag the companion sideways, and a click does not select it. Add `left` or `right` to the name for its facing (e.g. `walk_left.gif`, `walk_right.gif`). If only one direction is provided it is mirrored for the other; a walk with no direction is used both ways. A walk whose character crosses the canvas is converted to walk in place automatically.
   - **Background**: if the background is painted into the GIF, it is removed automatically on import: only the background connected to the canvas border is cut out, so white parts of the figure such as a shirt stay. Edge pixels blended with the background are un-mixed, so the figure keeps a clean outline on a dark desktop.
+  - **Oversized actions**: every GIF is scaled to fit the same square window, so a pack keeps the character the same size by giving every action the same canvas. When one action needs more room — a slam dunk with the hoop drawn in the frame — add a `pet.json` at the root of the zip. The normal window stays the square from Preferences. That action grows the window while it plays, then the window shrinks back. The character stays at the same scale, and the feet stay planted: the window grows up and sideways around them. Packs without `pet.json` are unchanged. Walking, dragging, click-to-cycle, double-click launchpad, the saved position and the pet scale setting all keep working; a mirrored walk plants the feet too, so the window may shift sideways if the feet are not centred in the canvas.
+
+    `base` is the reference canvas in GIF pixels. It is fitted into the normal square the same way any GIF is today (`object-fit: contain`). `anchor` is `[x, y]` of the character's feet in that GIF, origin at the top-left, y downward. Every action's anchor is placed on the base anchor. Keys are the GIF's path inside the zip (forward slashes). Canvas size comes from the GIF header. An action whose canvas matches the base keeps the normal window; a larger canvas grows it. An action left out of `animations` is shown the old way, the whole GIF scaled into the square. A broken `pet.json` rejects the import.
+
+    ```json
+    {
+      "version": 1,
+      "base": { "width": 314, "height": 314, "anchor": [174.5, 303] },
+      "animations": {
+        "idle.gif": { "anchor": [174.5, 303] },
+        "drive-dunk.gif": { "anchor": [174.5, 519] }
+      }
+    }
+    ```
+
+    If the pack was padded onto one shared canvas — the character is small and off-centre in every file because one action contains a prop — refit it (pixels are copied, not requantized; the file whose name contains `idle` is the reference pose and fills about 93% of the base canvas, in the same range as other pets):
+
+    ```bash
+    python3 scripts/pet-pack.py hoop-23-gifs.zip hoop-23-fitted.zip
+    ```
+
+    Re-import the new zip. `python3 scripts/pet-pack.py --self-test` checks the converter. Actions that draw outside the idle frame (a raised arm, a jump, the dunk) grow the window; the rest stay on the square.
 - **Appearance**: the Themes page switches the layout, color scheme and motion.
 - **Launch at login**: turn on "Launch silently at startup" in Preferences.
 
