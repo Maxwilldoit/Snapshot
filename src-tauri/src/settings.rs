@@ -2,7 +2,13 @@ use super::{os, AppState};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{fs, path::PathBuf, time::Duration};
+use std::{
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 const KEYRING_SERVICE: &str = "com.appsnapshot.snapshot";
@@ -76,6 +82,9 @@ pub(crate) struct Settings {
     #[serde(default = "default_pet_scale")]
     pub(crate) pet_scale: u32,
     pub(crate) shortcuts: Vec<ShortcutBinding>,
+    /// 只由用户手动切换；暂停时释放系统快捷键，但保留所有绑定。
+    #[serde(default)]
+    pub(crate) shortcuts_paused: bool,
     #[serde(default = "default_clipboard_auto_clear")]
     pub(crate) clipboard_auto_clear: String,
     #[serde(default = "default_snapshot_format")]
@@ -165,6 +174,7 @@ impl Default for Settings {
             pet_position: None,
             pet_scale: default_pet_scale(),
             shortcuts: default_shortcut_bindings(),
+            shortcuts_paused: false,
             clipboard_auto_clear: default_clipboard_auto_clear(),
             snapshot_format: default_snapshot_format(),
             save_dir: String::new(),
@@ -313,13 +323,45 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
 }
 
 pub(crate) fn persist_settings(path: &PathBuf, settings: &Settings) -> Result<(), String> {
+    static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
     let mut stored = settings.clone();
     stored.has_api_key = false;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let json = serde_json::to_string_pretty(&stored).map_err(|error| error.to_string())?;
-    fs::write(path, json).map_err(|error| error.to_string())
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| "设置文件路径缺少文件名".to_string())?;
+    // 同目录临时文件完整写入并同步后才替换原配置，失败时不破坏原文件。
+    let (temp_path, mut temp_file) = loop {
+        let mut temp_name = file_name.to_os_string();
+        temp_name.push(format!(
+            ".{}.{}.tmp",
+            std::process::id(),
+            TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let temp_path = path.with_file_name(temp_name);
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+        {
+            Ok(file) => break (temp_path, file),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    };
+    let result = temp_file
+        .write_all(json.as_bytes())
+        .and_then(|_| temp_file.sync_all());
+    drop(temp_file);
+    let result = result.and_then(|_| fs::rename(&temp_path, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result.map_err(|error| error.to_string())
 }
 
 pub(crate) fn emit_settings<R: Runtime>(app: &AppHandle<R>, settings: &Settings) {
@@ -434,9 +476,8 @@ pub(crate) async fn fetch_models(
 }
 
 #[tauri::command]
-pub(crate) fn save_shortcuts(
+pub(crate) async fn save_shortcuts(
     app: AppHandle,
-    state: State<'_, AppState>,
     shortcuts: Vec<ShortcutBinding>,
 ) -> Result<Settings, String> {
     let shortcuts = shortcuts
@@ -444,20 +485,7 @@ pub(crate) fn save_shortcuts(
         .filter(|item| is_supported_action(&item.action))
         .collect::<Vec<_>>();
     super::shortcuts::validate(&shortcuts)?;
-    let failed = super::shortcuts::register_all(&app, &shortcuts);
-    if !failed.is_empty() {
-        // 存下来的必须就是生效的：有键注册不上，就整组退回旧绑定，不落盘
-        let previous = state.settings.lock().shortcuts.clone();
-        *state.shortcut_conflicts.lock() = super::shortcuts::register_all(&app, &previous);
-        return Err(super::shortcuts::conflict_message(&failed));
-    }
-    state.shortcut_conflicts.lock().clear();
-    let mut settings = state.settings.lock();
-    settings.shortcuts = shortcuts;
-    persist_settings(&state.settings_path, &settings)?;
-    let result = settings.clone();
-    emit_settings(&app, &result);
-    Ok(result)
+    super::shortcuts::save_bindings(app, shortcuts).await
 }
 
 #[tauri::command]
@@ -543,11 +571,118 @@ fn make_models_endpoint(base_url: &str) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    struct SettingsTestDir(PathBuf);
+
+    impl SettingsTestDir {
+        fn new(label: &str) -> Self {
+            static DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+            loop {
+                let path = std::env::temp_dir().join(format!(
+                    "snapshot-settings-{label}-{}-{}",
+                    std::process::id(),
+                    DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+                ));
+                match fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("创建设置测试目录失败：{error}"),
+                }
+            }
+        }
+
+        fn assert_only_settings_file(&self) {
+            let files = fs::read_dir(&self.0)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            assert_eq!(files, vec![self.0.join("settings.json")]);
+        }
+    }
+
+    impl Drop for SettingsTestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(self.0.join("settings.json"));
+            let _ = fs::remove_dir(&self.0);
+        }
+    }
+
     #[test]
     fn old_settings_without_pet_scale_use_the_default_size() {
         let json = r#"{"baseUrl":"","model":"","templates":[],"activeTemplateId":"builtin-default","shortcuts":[]}"#;
         let settings: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.pet_scale, 100);
+        assert!(!settings.shortcuts_paused);
+    }
+
+    #[test]
+    fn manual_shortcut_pause_survives_settings_reload() {
+        let path = std::env::temp_dir().join(format!(
+            "snapshot-paused-shortcuts-{}.json",
+            std::process::id()
+        ));
+        let settings = Settings {
+            shortcuts_paused: true,
+            ..Default::default()
+        };
+        persist_settings(&path, &settings).unwrap();
+        assert!(read_settings(&path).shortcuts_paused);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn atomic_repeated_replacement_preserves_paused_settings() {
+        let directory = SettingsTestDir::new("replace");
+        let path = directory.0.join("settings.json");
+        let mut settings = Settings {
+            model: "original model".repeat(100),
+            has_api_key: true,
+            ..Default::default()
+        };
+        persist_settings(&path, &settings).unwrap();
+
+        settings.shortcuts_paused = true;
+        for model in ["short", "a longer replacement model", "final"] {
+            settings.model = model.into();
+            persist_settings(&path, &settings).unwrap();
+            let stored: Settings = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            assert!(stored.shortcuts_paused);
+            assert_eq!(stored.model, model);
+            assert!(!stored.has_api_key);
+            directory.assert_only_settings_file();
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_atomic_rename_preserves_locked_settings_and_cleans_temp_file() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let directory = SettingsTestDir::new("locked");
+        let path = directory.0.join("settings.json");
+        let mut settings = Settings {
+            model: "original model".into(),
+            shortcuts_paused: true,
+            ..Default::default()
+        };
+        persist_settings(&path, &settings).unwrap();
+        let original = fs::read(&path).unwrap();
+        let locked = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+
+        settings.model = "replacement model".into();
+        settings.shortcuts_paused = false;
+        assert!(persist_settings(&path, &settings).is_err());
+        directory.assert_only_settings_file();
+        drop(locked);
+
+        let retained = fs::read(&path).unwrap();
+        assert_eq!(retained, original);
+        let stored: Settings = serde_json::from_slice(&retained).unwrap();
+        assert!(stored.shortcuts_paused);
+        assert_eq!(stored.model, "original model");
     }
 
     #[test]

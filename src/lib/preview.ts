@@ -53,6 +53,7 @@ let settings: Settings = {
       ]
     : [],
   petScale: 100,
+  shortcutsPaused: false,
   shortcuts: [
     { action: "snapshot", accelerator: demo ? "CommandOrControl+Shift+A" : null },
     { action: "fullscreen", accelerator: demo ? "CommandOrControl+Shift+F" : null },
@@ -169,6 +170,8 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       return update(args.prefs);
     case "save_shortcuts":
       return update({ shortcuts: args.shortcuts });
+    case "set_shortcuts_paused":
+      return update({ shortcutsPaused: args.paused });
     case "select_pet_appearance":
       return update({
         selectedAppearanceId: args.id,
@@ -236,7 +239,7 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
           ]
         : [];
     case "get_shortcut_conflicts":
-      return demo ? ["CommandOrControl+Alt+R"] : [];
+      return demo && !settings.shortcutsPaused ? ["CommandOrControl+Alt+R"] : [];
     case "platform_capabilities":
       return capabilities;
     default:

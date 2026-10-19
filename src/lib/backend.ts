@@ -49,9 +49,13 @@ export const deletePetAsset = (id: string) => invoke<Settings>("delete_pet_asset
  */
 export const setPetFrameShift = (x: number, y: number) => invoke<void>("set_pet_frame_shift", { x, y });
 
-/** 后端校验、注册并落盘；有键注册不上时整组不生效、不保存，错误信息里列出这些键 */
+/** 后端校验并落盘；未暂停时还会注册，有键注册不上时整组不生效、不保存 */
 export const saveShortcuts = (shortcuts: ShortcutBinding[]) =>
   invoke<Settings>("save_shortcuts", { shortcuts });
+
+/** 手动暂停时释放按键、保留绑定；恢复时重新注册 */
+export const setShortcutsPaused = (paused: boolean) =>
+  invoke<Settings>("set_shortcuts_paused", { paused });
 
 /** 启动时没能注册上的键（启动那一刻网页还没加载，只能事后来取） */
 export const getShortcutConflicts = () => invoke<string[]>("get_shortcut_conflicts");

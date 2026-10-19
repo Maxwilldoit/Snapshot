@@ -36,8 +36,8 @@ The desktop pet. One click switches the pose:
 - **Window recording**: record a window to MP4, optionally with system audio and the microphone.
 - **Snapshot history**: captures are kept locally (the latest 200) and can be copied again at any time.
 - **Prompt polishing**: rewrite prompts through any OpenAI-compatible endpoint, with rewrite rules you can add and remove.
-- **Desktop companion**: a small floating window that shows the current app's icon by default, or an animated GIF of your choice. Right-click it to open the input box, from which you can capture, record and polish.
-- **Global shortcuts**: every action above can be bound to a global shortcut, which also works while the main window is minimized.
+- **Desktop companion**: a small floating window that shows the current app's icon by default, or an animated GIF of your choice. Right-click it to open the input box, from which you can capture, record and polish. On Windows, it hides while a foreground app fills the same monitor and returns when you leave fullscreen or switch apps.
+- **Global shortcuts**: every action above can be bound to a global shortcut, which also works while the main window is minimized. Manually pause them from the tray menu or shortcut settings to release the keys while keeping your bindings. The pause survives restarts until you manually resume.
 
 ## Platform support
 

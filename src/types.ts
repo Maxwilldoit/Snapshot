@@ -78,6 +78,8 @@ export interface Settings {
   /** 桌宠大小：按屏幕算出的基准大小的百分比，100 就是原来的大小（见 lib/petSize.ts） */
   petScale: number;
   shortcuts: ShortcutBinding[];
+  /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
+  shortcutsPaused?: boolean;
   clipboardAutoClear: "30s" | "60s" | "5m" | "never";
   snapshotFormat: "png" | "jpeg" | "webp";
   saveDir: string;

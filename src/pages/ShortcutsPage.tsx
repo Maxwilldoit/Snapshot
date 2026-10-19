@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openRecordingsDir, savePreferences, saveShortcuts } from "../lib/backend";
+import { openRecordingsDir, savePreferences, saveShortcuts, setShortcutsPaused } from "../lib/backend";
 import { middleTruncatePath, normalizeKey } from "../lib/format";
 import { Keys } from "../components/ui/Keys";
 import { Choices } from "../components/ui/Choices";
@@ -35,8 +35,21 @@ export function ShortcutsPanel() {
   const [held, setHeld] = useState<string[]>([]);
   const [rejected, setRejected] = useState<{ action: ShortcutAction; key: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [togglingPause, setTogglingPause] = useState(false);
+  const previousSavedShortcuts = useRef(settings.shortcuts);
+  const shortcutsPaused = settings.shortcutsPaused ?? false;
 
-  useEffect(() => setShortcuts(settings.shortcuts), [settings.shortcuts]);
+  useEffect(() => {
+    const previous = previousSavedShortcuts.current;
+    previousSavedShortcuts.current = settings.shortcuts;
+    // 暂停开关、托盘会返回整份设置；绑定没变时保留本页尚未保存的编辑。
+    if (
+      previous.length !== settings.shortcuts.length ||
+      settings.shortcuts.some((item, index) =>
+        item.action !== previous[index].action || item.accelerator !== previous[index].accelerator,
+      )
+    ) setShortcuts(settings.shortcuts);
+  }, [settings.shortcuts]);
 
   const changed = useMemo(
     () =>
@@ -91,14 +104,29 @@ export function ShortcutsPanel() {
   async function save() {
     setSaving(true);
     try {
-      // 校验（含重复）、注册、落盘都在后端一步完成；有键注册不上时整组不生效也不保存
-      onSaved(await saveShortcuts(shortcuts));
+      // 校验、落盘由后端完成；暂停期间只保存绑定，恢复后再注册。
+      const next = await saveShortcuts(shortcuts);
+      onSaved(next);
       setConflicts([]);
-      notify("快捷键已保存，立即生效");
+      notify(next.shortcutsPaused ? "快捷键绑定已保存，全局快捷键仍保持暂停" : "快捷键已保存，立即生效");
     } catch (error) {
       notify(errorText(error), "error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function togglePause(paused: boolean) {
+    setTogglingPause(true);
+    try {
+      const next = await setShortcutsPaused(paused);
+      onSaved(next);
+      setConflicts([]);
+      notify(next.shortcutsPaused ? "全局快捷键已暂停，按键已释放" : "全局快捷键已恢复");
+    } catch (error) {
+      notify(errorText(error), "error");
+    } finally {
+      setTogglingPause(false);
     }
   }
 
@@ -177,7 +205,25 @@ export function ShortcutsPanel() {
           全部清除
         </button>
       </div>
-      <div className="rows">{shortcuts.map(renderRow)}</div>
+      <div className="rows">
+        <div className="row row-stack">
+          <div className="row-line">
+            <label htmlFor="switch-shortcuts-paused" className="row-label">暂停全局快捷键</label>
+            <Switch
+              id="switch-shortcuts-paused"
+              label="暂停全局快捷键"
+              value={shortcutsPaused}
+              disabled={togglingPause || saving}
+              onChange={(value) => void togglePause(value)}
+            />
+          </div>
+          <span className="small ink-2" role="status">
+            {shortcutsPaused ? "已暂停 · 全局快捷键不响应" : "已启用 · 全局快捷键正在响应"}
+          </span>
+          <span className="quiet small">暂停会释放按键，保留已保存的绑定；仍可录入、编辑和保存。</span>
+        </div>
+        {shortcuts.map(renderRow)}
+      </div>
       <div className="save-bar">
         <span className="small ink-2">{changed > 0 ? `改了 ${changed} 处，还没保存` : ""}</span>
         <span className="save-bar-actions">
@@ -189,7 +235,7 @@ export function ShortcutsPanel() {
             className="btn btn-primary"
             aria-label="保存快捷键"
             onClick={() => void save()}
-            disabled={saving || changed === 0}
+            disabled={saving || togglingPause || changed === 0}
           >
             {saving ? "保存中…" : "保存"}
           </button>

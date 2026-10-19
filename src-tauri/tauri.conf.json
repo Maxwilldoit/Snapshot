@@ -28,6 +28,7 @@
       {
         "label": "pet",
         "title": "桌宠",
+        "focus": false,
         "width": 60,
         "height": 60,
         "x": 24,

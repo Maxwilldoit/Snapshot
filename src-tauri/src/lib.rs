@@ -53,7 +53,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WindowEvent,
 };
@@ -84,6 +84,9 @@ struct AppState {
     annotate_title: Mutex<String>,
     /// 启动时没能注册上的全局快捷键，等主窗口加载后再提示用户
     shortcut_conflicts: Mutex<Vec<String>>,
+    /// 系统里实际注册成功的键；释放失败时保留，供下次操作重试。
+    shortcut_registrations: Mutex<Vec<String>>,
+    shortcut_pause_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
     launch_catalog: Mutex<Vec<launchpad::InstalledApp>>,
     launch_icons: Mutex<HashMap<String, Vec<u8>>>,
 }
@@ -152,6 +155,8 @@ pub fn run() {
             annotate_png: Mutex::new(None),
             annotate_title: Mutex::new(String::new()),
             shortcut_conflicts: Mutex::new(Vec::new()),
+            shortcut_registrations: Mutex::new(Vec::new()),
+            shortcut_pause_item: Mutex::new(None),
             launch_catalog: Mutex::new(Vec::new()),
             launch_icons: Mutex::new(HashMap::new()),
         })
@@ -199,8 +204,10 @@ pub fn run() {
                 }
             }
             tracker::start_tracker(app.handle().clone(), tracker);
+            #[cfg(target_os = "windows")]
+            os::start_pet_visibility(app.handle().clone());
 
-            let failed = shortcuts::register_all(app.handle(), &settings.shortcuts);
+            let failed = shortcuts::register_all(app.handle(), &settings);
             if !failed.is_empty() {
                 eprintln!("snapshot: {}", shortcuts::conflict_message(&failed));
                 activity::record_error(app.handle(), "快捷键没注册上", &failed.join("、"));
@@ -217,12 +224,22 @@ pub fn run() {
 
             let open_settings =
                 MenuItem::with_id(app, "open-settings", "打开设置", true, None::<&str>)?;
+            let pause_shortcuts = CheckMenuItem::with_id(
+                app,
+                "pause-shortcuts",
+                "暂停全局快捷键",
+                true,
+                settings.shortcuts_paused,
+                None::<&str>,
+            )?;
+            *state.shortcut_pause_item.lock() = Some(pause_shortcuts.clone());
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open_settings, &quit])?;
+            let menu = Menu::with_items(app, &[&open_settings, &pause_shortcuts, &quit])?;
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open-settings" => actions::show_main_window(app.clone()),
+                    "pause-shortcuts" => shortcuts::toggle_from_tray(app),
                     "quit" => {
                         if let Some(state) = app.try_state::<AppState>() {
                             let _ = state.recorder.lock().stop();
@@ -310,6 +327,7 @@ pub fn run() {
             pet::delete_pet_asset,
             settings::save_shortcuts,
             shortcuts::get_shortcut_conflicts,
+            shortcuts::set_shortcuts_paused,
             settings::save_preferences,
             tracker::get_previous_app,
             tracker::list_capturable_windows,
