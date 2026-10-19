@@ -143,6 +143,11 @@ export function App() {
     };
   }, [notify]);
 
+  // 托盘暂停也会推送设置，清掉已经释放的快捷键上残留的冲突标记。
+  useEffect(() => {
+    if (settings?.shortcutsPaused) setConflicts([]);
+  }, [settings?.shortcutsPaused]);
+
   // 快捷键由后端在启动时注册；那一刻网页还没加载，注册不上的键等到这里再提示
   useEffect(() => {
     getShortcutConflicts()

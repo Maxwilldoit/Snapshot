@@ -117,10 +117,17 @@ pub(crate) fn select_pet_appearance(
     }
     settings.selected_appearance_id = id;
     let result = commit(&app, &state, &mut settings)?;
+    show_pet(&app);
+    Ok(result)
+}
+
+fn show_pet(app: &AppHandle) {
+    #[cfg(target_os = "windows")]
+    os::refresh_pet_visibility(app);
+    #[cfg(not(target_os = "windows"))]
     if let Some(window) = app.get_webview_window("pet") {
         let _ = window.show();
     }
-    Ok(result)
 }
 
 #[derive(Serialize)]
@@ -190,9 +197,7 @@ pub(crate) fn add_pet_assets(
     let result = commit(&app, &state, &mut settings)?;
     drop(settings);
     if count > 0 {
-        if let Some(window) = app.get_webview_window("pet") {
-            let _ = window.show();
-        }
+        show_pet(&app);
     }
     Ok(PetImportResult {
         settings: result,
