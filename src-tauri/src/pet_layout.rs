@@ -31,6 +31,17 @@ struct ManifestFile {
     base: ManifestBase,
     #[serde(default)]
     animations: HashMap<String, ManifestAnimation>,
+    #[serde(default)]
+    events: HashMap<String, String>,
+    #[serde(default)]
+    states: HashMap<String, String>,
+}
+
+#[derive(Debug)]
+pub(crate) struct PetManifest {
+    pub(crate) layout: PetLayout,
+    pub(crate) event_actions: HashMap<String, String>,
+    pub(crate) state_actions: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -106,7 +117,7 @@ fn parse_manifest(bytes: &[u8]) -> Result<ManifestFile, String> {
 pub(crate) fn read_pet_layout(
     path: &Path,
     animations: &[String],
-) -> Result<Option<PetLayout>, String> {
+) -> Result<Option<PetManifest>, String> {
     let file = fs::File::open(path).map_err(|_| "无法读取桌宠压缩包".to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|_| "桌宠压缩包已损坏".to_string())?;
     let mut manifests = Vec::new();
@@ -175,12 +186,54 @@ pub(crate) fn read_pet_layout(
         });
     }
 
-    Ok(Some(PetLayout {
-        base_width,
-        base_height,
-        anchor_x,
-        anchor_y,
-        frames,
+    let known_events = [
+        "capture.success",
+        "capture.failure",
+        "recording.started",
+        "recording.stopped",
+        "recording.failure",
+        "polish.success",
+        "polish.failure",
+        "shortcuts.paused",
+        "shortcuts.resumed",
+    ];
+    let mut event_actions = HashMap::new();
+    for (event, entry) in manifest.events {
+        if !known_events.contains(&event.as_str()) {
+            return Err(format!("pet.json 里有不支持的事件：{event}"));
+        }
+        if !animations
+            .iter()
+            .any(|candidate| zip_path(candidate) == zip_path(&entry))
+        {
+            return Err(format!("事件 {event} 指向的动画不存在：{entry}"));
+        }
+        event_actions.insert(event, entry);
+    }
+    let mut state_actions = HashMap::new();
+    for (state, entry) in manifest.states {
+        if !["recording", "shortcuts-paused"].contains(&state.as_str()) {
+            return Err(format!("pet.json 里有不支持的持续状态：{state}"));
+        }
+        if !animations
+            .iter()
+            .any(|candidate| zip_path(candidate) == zip_path(&entry))
+        {
+            return Err(format!("持续状态 {state} 指向的动画不存在：{entry}"));
+        }
+        state_actions.insert(state, entry);
+    }
+
+    Ok(Some(PetManifest {
+        layout: PetLayout {
+            base_width,
+            base_height,
+            anchor_x,
+            anchor_y,
+            frames,
+        },
+        event_actions,
+        state_actions,
     }))
 }
 
@@ -228,8 +281,8 @@ mod tests {
     #[test]
     fn a_zip_without_pet_json_has_no_layout() {
         let path = zip_with(&[("idle.gif", &gif_bytes(40, 40))]);
-        let layout = read_pet_layout(&path, &["idle.gif".into()]).expect("应当能读");
-        assert!(layout.is_none());
+        let manifest = read_pet_layout(&path, &["idle.gif".into()]).expect("应当能读");
+        assert!(manifest.is_none());
         let _ = fs::remove_file(&path);
     }
 
@@ -238,6 +291,8 @@ mod tests {
         let manifest = br#"{
             "version": 1,
             "base": { "width": 100, "height": 100, "anchor": [50, 90] },
+            "events": { "capture.success": "drive-dunk.gif" },
+            "states": { "recording": "drive-dunk.gif" },
             "animations": {
                 "idle.gif": { "anchor": [50, 90] },
                 "drive-dunk.gif": { "anchor": [80, 240] },
@@ -250,7 +305,7 @@ mod tests {
             ("idle.gif", &gif_bytes(100, 100)),
             ("drive-dunk.gif", &gif_bytes(220, 260)),
         ]);
-        let layout = read_pet_layout(
+        let manifest = read_pet_layout(
             &path,
             &[
                 "idle.gif".into(),
@@ -260,6 +315,9 @@ mod tests {
         )
         .expect("应当能读")
         .expect("有 pet.json 就该有布局");
+        let layout = manifest.layout;
+        assert_eq!(manifest.event_actions["capture.success"], "drive-dunk.gif");
+        assert_eq!(manifest.state_actions["recording"], "drive-dunk.gif");
         assert_eq!(layout.base_width, 100);
         assert_eq!(layout.base_height, 100);
         assert_eq!(layout.anchor_x, 50.0);
@@ -317,6 +375,34 @@ mod tests {
             ),
             ("idle.gif", b"not-a-gif-header!!"),
         ]);
+        assert!(read_pet_layout(&path, &["idle.gif".into()]).is_err());
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn event_actions_must_name_known_events_and_existing_animations() {
+        let base = r#""version":1,"base":{"width":10,"height":10,"anchor":[1,1]}"#;
+        let valid = format!(r#"{{{base},"events":{{"capture.success":"effects/capture.gif"}}}}"#);
+        let path = zip_with(&[
+            ("pet.json", valid.as_bytes()),
+            ("effects/capture.gif", &gif_bytes(10, 10)),
+        ]);
+        let manifest = read_pet_layout(&path, &["effects/capture.gif".into()])
+            .expect("有效事件映射应通过")
+            .expect("应读到清单");
+        assert_eq!(
+            manifest.event_actions["capture.success"],
+            "effects/capture.gif"
+        );
+        let _ = fs::remove_file(&path);
+
+        let missing = format!(r#"{{{base},"events":{{"capture.success":"missing.gif"}}}}"#);
+        let path = zip_with(&[("pet.json", missing.as_bytes())]);
+        assert!(read_pet_layout(&path, &["idle.gif".into()]).is_err());
+        let _ = fs::remove_file(&path);
+
+        let unknown = format!(r#"{{{base},"events":{{"capture.succeeded":"idle.gif"}}}}"#);
+        let path = zip_with(&[("pet.json", unknown.as_bytes())]);
         assert!(read_pet_layout(&path, &["idle.gif".into()]).is_err());
         let _ = fs::remove_file(&path);
     }

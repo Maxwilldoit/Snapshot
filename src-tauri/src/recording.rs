@@ -42,15 +42,17 @@ impl Recorder {
     }
 
     /// 录制可能自己结束了（macOS 的录制组件崩溃等）：发现了就收尾并记下原因。
-    fn refresh(&mut self) {
+    fn refresh(&mut self) -> Option<String> {
         if let Some(reason) = self
             .active
             .as_mut()
             .and_then(|active| active.session.exit_reason())
         {
             self.active = None;
-            self.last_message = Some(reason);
+            self.last_message = Some(reason.clone());
+            return Some(reason);
         }
+        None
     }
 
     pub(crate) fn stop(&mut self) -> Option<Finished> {
@@ -82,10 +84,17 @@ pub(crate) struct RecordingStatus {
 }
 
 #[tauri::command]
-pub(crate) fn get_recording_status(state: State<'_, AppState>) -> RecordingStatus {
+pub(crate) fn get_recording_status(app: AppHandle, state: State<'_, AppState>) -> RecordingStatus {
     let mut recorder = state.recorder.lock();
-    recorder.refresh();
-    recorder.status(None)
+    let failure = recorder.refresh();
+    let status = recorder.status(None);
+    drop(recorder);
+    if let Some(reason) = failure {
+        activity::record_error(&app, "录制意外结束", &reason);
+        let _ = app.emit("recording-changed", &status);
+        let _ = app.emit("pet-event", "recording.failure");
+    }
+    status
 }
 
 /// 按窗口 id 取一份录制目标。窗口在点选之后、开录之前被关掉是常事，
@@ -138,9 +147,17 @@ pub(crate) fn toggle_recording(
     target_id: Option<u32>,
 ) -> Result<RecordingStatus, String> {
     let mut recorder = state.recorder.lock();
-    recorder.refresh();
+    if let Some(reason) = recorder.refresh() {
+        let status = recorder.status(None);
+        drop(recorder);
+        activity::record_error(&app, "录制意外结束", &reason);
+        let _ = app.emit("recording-changed", &status);
+        let _ = app.emit("pet-event", "recording.failure");
+        return Ok(status);
+    }
     if recorder.active.is_some() {
         let finished = recorder.stop();
+        let stopped_successfully = finished.is_some();
         let status = recorder.status(None);
         drop(recorder);
         match finished {
@@ -157,6 +174,12 @@ pub(crate) fn toggle_recording(
             ),
         }
         let _ = app.emit("recording-changed", &status);
+        let event = if stopped_successfully {
+            "recording.stopped"
+        } else {
+            "recording.failure"
+        };
+        let _ = app.emit("pet-event", event);
         return Ok(status);
     }
 
@@ -193,6 +216,7 @@ pub(crate) fn toggle_recording(
     });
     let status = recorder.status(message);
     let _ = app.emit("recording-changed", &status);
+    let _ = app.emit("pet-event", "recording.started");
     Ok(status)
 }
 

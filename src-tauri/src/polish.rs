@@ -102,7 +102,10 @@ fn log_polish(app: &AppHandle, original: &str, result: &Result<(String, String),
                 ))
                 .detail(truncate(polished, 4000)),
         ),
-        Err(error) => activity::record_error(app, "润色失败", error),
+        Err(error) => {
+            activity::record_error(app, "润色失败", error);
+            let _ = app.emit("pet-event", "polish.failure");
+        }
     }
 }
 
@@ -126,6 +129,9 @@ pub(crate) async fn polish_text(
     let original = normalize_draft(&text, "请先输入待润色的草稿")?;
     let result = run_polish(&state, &original, template_id.as_deref()).await;
     log_polish(&app, &original, &result);
+    if result.is_ok() {
+        let _ = app.emit("pet-event", "polish.success");
+    }
     result.map(|(polished, _)| polished)
 }
 
@@ -140,6 +146,9 @@ pub(crate) async fn polish_clipboard(
     let original = normalize_draft(&raw, "剪贴板没有文字，请先复制 Prompt")?;
     let result = run_polish(&state, &original, None).await;
     log_polish(&app, &original, &result);
+    if result.is_ok() {
+        let _ = app.emit("pet-event", "polish.success");
+    }
     let (polished, _) = result?;
     let current = Clipboard::new()
         .and_then(|mut clipboard| clipboard.get_text())

@@ -172,6 +172,54 @@ describe("桌宠：点击切换，平时停在待机", () => {
     await elapse(delay + 3000);
     expect(shown(container).file).toBe("grok_idle.gif");
   });
+
+  it("plays a mapped event briefly, then returns to the current action", async () => {
+    const asset = { ...grok, eventActions: { "capture.success": "gifs/grok_jump.gif" } } satisfies PetAsset;
+    const { container } = await renderPet(asset);
+
+    await act(async () => {
+      await emit("pet-event", "capture.success");
+    });
+    expect(shown(container).file).toBe("grok_jump.gif");
+    await elapse(2600);
+    expect(shown(container).file).toBe("grok_idle.gif");
+  });
+
+  it("does not put event-only animations into the click cycle", async () => {
+    const asset = { ...grok, eventActions: { "capture.success": "gifs/grok_jump.gif" } } satisfies PetAsset;
+    const { container, delay } = await renderPet(asset);
+
+    await act(async () => click(container));
+    await elapse(delay);
+    expect(shown(container).file).toBe("grok_wave.gif");
+  });
+
+  it("keeps manual-pause and recording states above one-shot event animations", async () => {
+    const asset = {
+      ...grok,
+      eventActions: { "capture.success": "gifs/grok_wave.gif" },
+      stateActions: { "shortcuts-paused": "gifs/grok_jump.gif", recording: "gifs/grok_wave.gif" },
+    } satisfies PetAsset;
+    const { container } = await renderPet(asset);
+
+    await act(async () => {
+      await emit("settings-changed", { ...settingsWith(asset), shortcutsPaused: true });
+      await emit("pet-event", "capture.success");
+    });
+    expect(shown(container).file).toBe("grok_jump.gif");
+    await elapse(2600);
+    expect(shown(container).file).toBe("grok_jump.gif");
+
+    await act(async () => {
+      await emit("recording-changed", { active: true, target: "Test", startedAt: 1 });
+      await emit("settings-changed", { ...settingsWith(asset), shortcutsPaused: false });
+    });
+    expect(shown(container).file).toBe("grok_wave.gif");
+    await act(async () => {
+      await emit("recording-changed", { active: false, target: null, startedAt: null });
+    });
+    expect(shown(container).file).toBe("grok_idle.gif");
+  });
 });
 
 describe("桌宠：拖动时走路", () => {
