@@ -118,6 +118,7 @@ pub(crate) fn finalize_capture(
             .meta(format!("{width} × {height}"))
             .snapshot(snapshot_id.clone()),
     );
+    let _ = app.emit("pet-event", "capture.success");
 
     // after_capture：annotate 打开标注窗；saveas 走另存对话框；默认剪贴板。
     let annotate = settings.after_capture == "annotate";

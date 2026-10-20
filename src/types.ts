@@ -56,6 +56,10 @@ export interface PetAsset {
   path: string;
   entry: string;
   animations: string[];
+  /** 作者为截图、润色、录制结束等一次性反馈指定的动作 */
+  eventActions?: Partial<Record<PetEvent, string>>;
+  /** 作者为录制中、快捷键暂停等持续状态指定的动作 */
+  stateActions?: Partial<Record<PetPersistentState, string>>;
   /** 导入时用户选的原文件 */
   source?: string;
   sizeBytes?: number;
@@ -66,6 +70,19 @@ export interface PetAsset {
   /** 有 pet.json 时才有。用来让人物在各动作里一样大，画布不够时再把窗口撑大 */
   layout?: PetLayout | null;
 }
+
+export type PetEvent =
+  | "capture.success"
+  | "capture.failure"
+  | "recording.started"
+  | "recording.stopped"
+  | "recording.failure"
+  | "polish.success"
+  | "polish.failure"
+  | "shortcuts.paused"
+  | "shortcuts.resumed";
+
+export type PetPersistentState = "recording" | "shortcuts-paused";
 
 export interface Settings {
   baseUrl: string;

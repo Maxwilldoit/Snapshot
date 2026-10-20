@@ -107,6 +107,37 @@ Windows 和 macOS 不需要另装东西（Windows 10 上安装程序会按需下
     }
     ```
 
+    **事件驱动动作**：同一份 `pet.json` 还可以用 `events` 把应用事件映射到一次性反馈 GIF，用 `states` 把持续状态映射到循环播放的 GIF。事件和状态的键名固定，值是压缩包内 GIF 的相对路径；这些 GIF 不必写进 `animations`，该字段仍只用于设置画布锚点。映射到 `events` 或 `states` 的 GIF 不会参与点击轮播和拖动走路选择。下面的文件名和路径只是示例，素材包里要有对应文件：
+
+    ```json
+    {
+      "version": 1,
+      "base": { "width": 314, "height": 314, "anchor": [174.5, 303] },
+      "animations": {
+        "idle.gif": { "anchor": [174.5, 303] }
+      },
+      "events": {
+        "capture.success": "effects/capture-ok.gif",
+        "capture.failure": "effects/error.gif",
+        "recording.started": "effects/record-start.gif",
+        "recording.stopped": "effects/record-stop.gif",
+        "recording.failure": "effects/error.gif",
+        "polish.success": "effects/success.gif",
+        "polish.failure": "effects/error.gif",
+        "shortcuts.paused": "effects/paused.gif",
+        "shortcuts.resumed": "effects/resumed.gif"
+      },
+      "states": {
+        "recording": "states/recording.gif",
+        "shortcuts-paused": "states/paused.gif"
+      }
+    }
+    ```
+
+    当前支持的事件名是 `capture.success`、`capture.failure`、`recording.started`、`recording.stopped`、`recording.failure`、`polish.success`、`polish.failure`、`shortcuts.paused` 和 `shortcuts.resumed`；持续状态名是 `recording` 和 `shortcuts-paused`。显示优先级为：**手动暂停状态 > 录制中状态 > 一次性事件反馈 > 点击或拖动动作 > 待机**。暂停、录制中属于持续状态，会压过同时到来的事件反馈；一次性反馈默认显示约 2.6 秒，之后根据当时仍然有效的状态恢复显示，不会回到过期动作。没有配置某个事件或状态映射时，该反馈跳过，桌宠继续显示当前可用的普通动作。
+
+    `events` 和 `states` 都可以省略，也可以只配置部分键；每个已配置的路径必须指向包内存在的 GIF，否则该素材包会导入失败。没有 `pet.json` 的旧素材包，以及只包含原布局字段的旧清单仍可导入，原有动作行为保持不变。建议作者至少准备待机、录制中、手动暂停、成功和失败动作；再按需要为截图、录制、润色和快捷键暂停/恢复补充短促反馈。
+
     如果整包当初被补到同一张大画布上（因为有一个动作带着道具，结果每张图里的人都又小又偏），可以用脚本裁回去。像素原样拷贝，不重新量化颜色；文件名里带 `idle` 的那张当基准姿势，身高大约占基准画布的 93%，和其他桌宠（大约 90%–96%）同一档：
 
     ```bash

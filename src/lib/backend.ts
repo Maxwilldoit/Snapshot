@@ -6,6 +6,7 @@ import type {
   CapturableWindow,
   ClipboardState,
   PetImportResult,
+  PetEvent,
   PlatformCapabilities,
   PreviousApp,
   RecordingStatus,
@@ -80,6 +81,10 @@ export const toggleRecording = (targetId?: number) =>
   invoke<RecordingStatus>("toggle_recording", { targetId: targetId ?? null });
 
 export const getRecordingStatus = () => invoke<RecordingStatus>("get_recording_status");
+
+/** 桌宠的语义反馈；一次性事件错过即可，持续状态由设置和录制状态查询补齐 */
+export const onPetEvent = (callback: (event: PetEvent) => void) =>
+  listen<PetEvent>("pet-event", ({ payload }) => callback(payload));
 
 
 /** 不给 templateId 就用当前生效的规则 */

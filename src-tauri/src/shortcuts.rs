@@ -27,6 +27,9 @@ pub(crate) fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 if let Err(error) = actions::perform(&app, &action).await {
                     eprintln!("snapshot: shortcut action {action} failed: {error}");
                     activity::record_error(&app, actions::action_failure_title(&action), &error);
+                    if action != "polish" {
+                        actions::emit_pet_failure(&app, &action);
+                    }
                 }
             });
         })
@@ -250,6 +253,14 @@ async fn change_configuration(app: AppHandle, change: Change) -> Result<Settings
             Ok(settings) => {
                 state.shortcut_conflicts.lock().clear();
                 settings::emit_settings(&handle, &settings);
+                if previous.shortcuts_paused != settings.shortcuts_paused {
+                    let event = if settings.shortcuts_paused {
+                        "shortcuts.paused"
+                    } else {
+                        "shortcuts.resumed"
+                    };
+                    let _ = handle.emit("pet-event", event);
+                }
                 Ok(settings)
             }
             Err(failure) => {

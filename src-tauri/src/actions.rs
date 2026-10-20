@@ -184,6 +184,9 @@ pub(crate) async fn run_action(
     };
     if let Err(error) = &result {
         activity::record_error(&app, action_failure_title(&action), error);
+        if action != "polish" {
+            emit_pet_failure(&app, &action);
+        }
     }
     result
 }
@@ -197,6 +200,16 @@ pub(crate) fn action_failure_title(action: &str) -> &'static str {
         "polish" => "润色失败",
         _ => "操作失败",
     }
+}
+
+pub(crate) fn emit_pet_failure(app: &AppHandle, action: &str) {
+    let event = match action {
+        "snapshot" | "capture" | "fullscreen" | "scrolling" => "capture.failure",
+        "record" => "recording.failure",
+        "polish" => "polish.failure",
+        _ => return,
+    };
+    let _ = app.emit("pet-event", event);
 }
 
 /// 第二个实例启动时把已有窗口唤到前台。

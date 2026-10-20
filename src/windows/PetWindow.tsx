@@ -3,8 +3,11 @@ import { currentMonitor, getCurrentWindow, LogicalSize, PhysicalPosition, type W
 import { AppWindow, PawPrint } from "lucide-react";
 import {
   getPreviousApp,
+  getRecordingStatus,
   loadSettings,
+  onPetEvent,
   onPreviousAppChanged,
+  onRecordingChanged,
   onSettingsChanged,
   setPetFrameShift,
   showLaunchpad,
@@ -16,7 +19,7 @@ import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { placementForEntry, type PetPlacement } from "../lib/petFrame";
 import { PET_SCALE, petWindowSize } from "../lib/petSize";
 import { cycleEntries, nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
-import type { PetLayout, PreviousApp, Settings } from "../types";
+import type { PetAsset, PetEvent, PetLayout, PreviousApp, RecordingStatus, Settings } from "../types";
 
 /** 放大后超出了所在屏幕的可用区域，就挪回来 */
 async function keepOnScreen(petWindow: Window) {
@@ -94,16 +97,32 @@ async function commitPetWindow(
 const WALK_SETTLE_MS = 250;
 /** 点一下换上的动作只停这么久，然后回到默认待机 */
 const CLICK_ACTION_MS = 3000;
+/** 语义反馈播完回到录制中/待机等当下仍有效的状态 */
+const EVENT_ACTION_MS = 2600;
 /** 等这么久还没来第二下，才算单击。第二下是双击，打开启动台，不换动作 */
 export const CLICK_DELAY_MS = 400;
+
+function ordinaryAnimations(asset: Pick<PetAsset, "animations" | "eventActions" | "stateActions"> | null | undefined) {
+  const reserved = new Set([
+    ...Object.values(asset?.eventActions ?? {}),
+    ...Object.values(asset?.stateActions ?? {}),
+  ]);
+  return (asset?.animations ?? []).filter((entry) => !reserved.has(entry));
+}
 
 export function PetWindow() {
   const [app, setApp] = useState<PreviousApp>({ id: null, pid: null, name: "", title: "" });
   const [appearanceId, setAppearanceId] = useState("app-icon");
   const [animations, setAnimations] = useState<string[]>([]);
   const [layout, setLayout] = useState<PetLayout | null>(null);
+  const [eventActions, setEventActions] = useState<PetAsset["eventActions"]>({});
+  const [stateActions, setStateActions] = useState<PetAsset["stateActions"]>({});
   const [restingEntry, setRestingEntry] = useState<string | null>(null);
   const [shownEntry, setShownEntry] = useState<string | null>(null);
+  const [eventEntry, setEventEntry] = useState<string | null>(null);
+  const [eventPulse, setEventPulse] = useState(0);
+  const [recording, setRecording] = useState(false);
+  const [shortcutsPaused, setShortcutsPaused] = useState(false);
   const [petSize, setPetSize] = useState(60);
   // 读到设置前不定大小，免得先按默认缩放一次再跳到用户设的大小
   const [petScale, setPetScale] = useState<number | null>(null);
@@ -113,10 +132,14 @@ export function PetWindow() {
   const actionCursor = useRef(0);
   const returnTimer = useRef<number | undefined>(undefined);
   const clickTimer = useRef<number | undefined>(undefined);
+  const eventTimer = useRef<number | undefined>(undefined);
   const restingRef = useRef<string | null>(null);
+  const appearanceKey = useRef("");
+  const latestAsset = useRef<PetAsset | null>(null);
 
   // 点击切换只在常规动作里转，走路动作留给拖动
-  const cycle = cycleEntries(animations);
+  const regularAnimations = ordinaryAnimations({ animations, eventActions, stateActions });
+  const cycle = cycleEntries(regularAnimations);
   const resting = restingEntry && cycle.includes(restingEntry) ? restingEntry : (cycle[0] ?? null);
   restingRef.current = resting;
 
@@ -124,26 +147,40 @@ export function PetWindow() {
     () => () => {
       window.clearTimeout(returnTimer.current);
       window.clearTimeout(clickTimer.current);
+      window.clearTimeout(eventTimer.current);
     },
     [],
   );
 
   useEffect(() => {
     const applyAppearance = (settings: Settings) => {
-      window.clearTimeout(returnTimer.current);
-      window.clearTimeout(clickTimer.current);
-      clickTimer.current = undefined;
       const id = settings.selectedAppearanceId;
       const asset = settings.petAssets.find((item) => item.id === id);
-      const entries = asset?.animations ?? [];
-      const actions = cycleEntries(entries);
-      const nextResting = asset && actions.includes(asset.entry) ? asset.entry : (actions[0] ?? null);
-      actionCursor.current = Math.max(0, actions.indexOf(nextResting ?? ""));
-      setAppearanceId(id);
-      setAnimations(entries);
-      setLayout(asset?.layout ?? null);
-      setRestingEntry(nextResting);
-      setShownEntry(nextResting);
+      const key = JSON.stringify([id, asset?.path, asset?.entry, asset?.animations, asset?.layout, asset?.eventActions, asset?.stateActions]);
+      if (appearanceKey.current !== key) {
+        appearanceKey.current = key;
+        window.clearTimeout(returnTimer.current);
+        window.clearTimeout(clickTimer.current);
+        window.clearTimeout(eventTimer.current);
+        clickTimer.current = undefined;
+        eventTimer.current = undefined;
+        setEventEntry(null);
+        setShortcutsPaused(Boolean(settings.shortcutsPaused));
+        const entries = asset?.animations ?? [];
+        const actions = cycleEntries(ordinaryAnimations(asset));
+        const nextResting = asset && actions.includes(asset.entry) ? asset.entry : (actions[0] ?? null);
+        actionCursor.current = Math.max(0, actions.indexOf(nextResting ?? ""));
+        setAppearanceId(id);
+        setAnimations(entries);
+        setLayout(asset?.layout ?? null);
+        setEventActions(asset?.eventActions ?? {});
+        setStateActions(asset?.stateActions ?? {});
+        latestAsset.current = asset ?? null;
+        setRestingEntry(nextResting);
+        setShownEntry(nextResting);
+      } else {
+        setShortcutsPaused(Boolean(settings.shortcutsPaused));
+      }
       setPetScale(settings.petScale ?? PET_SCALE.default);
     };
     void getPreviousApp().then(setApp);
@@ -156,15 +193,58 @@ export function PetWindow() {
     };
   }, []);
 
+  // 状态先订阅再查询快照：持续录制状态即使在桌宠窗口没挂监听时改变也能恢复。
+  useEffect(() => {
+    let revision = 0;
+    let active = true;
+    const recordingListener = onRecordingChanged((status: RecordingStatus) => {
+      revision += 1;
+      setRecording(Boolean(status?.active));
+    });
+    void recordingListener.then(() => {
+      const observed = revision;
+      void getRecordingStatus().then((status) => {
+        if (active && observed === revision) setRecording(Boolean(status?.active));
+      });
+    });
+    const eventListener = onPetEvent((event: PetEvent) => {
+      if (event === "shortcuts.paused") setShortcutsPaused(true);
+      if (event === "shortcuts.resumed") setShortcutsPaused(false);
+      const asset = latestAsset.current;
+      const entry = asset?.eventActions?.[event];
+      if (!entry || !asset?.animations.includes(entry)) return;
+      window.clearTimeout(eventTimer.current);
+      setEventEntry(entry);
+      setEventPulse((value) => value + 1);
+      eventTimer.current = window.setTimeout(() => setEventEntry(null), EVENT_ACTION_MS);
+    });
+    return () => {
+      active = false;
+      void recordingListener.then((unlisten) => unlisten());
+      void eventListener.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!recording) return;
+    const timer = window.setInterval(() => {
+      void getRecordingStatus().then((status) => setRecording(Boolean(status?.active)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [recording]);
+
   // 算在渲染里：公式、百分比或当前动作一变，依赖就变，窗口跟着重设大小
   const currentEntry = shownEntry && cycle.includes(shownEntry) ? shownEntry : resting;
   const custom = appearanceId !== "app-icon";
   const walks = custom
-    ? (["left", "right"] as const).map((direction) => ({ direction, choice: pickWalk(animations, direction, currentEntry) }))
+    ? (["left", "right"] as const).map((direction) => ({ direction, choice: pickWalk(regularAnimations, direction, currentEntry) }))
     : [];
-  const shownWalk = walks.find((walk) => walk.direction === walking && walk.choice)?.direction ?? null;
+  const stateEntry = (shortcutsPaused ? stateActions?.["shortcuts-paused"] : undefined) ??
+    (recording ? stateActions?.recording : null);
+  const shownWalk = stateEntry || eventEntry ? null : walks.find((walk) => walk.direction === walking && walk.choice)?.direction ?? null;
   const shownChoice = walks.find((walk) => walk.direction === shownWalk)?.choice ?? null;
-  const visibleEntry = shownWalk && shownChoice ? shownChoice.entry : currentEntry;
+  const visibleEntry = stateEntry ?? eventEntry ?? (shownWalk && shownChoice ? shownChoice.entry : currentEntry);
+  const visiblePulse = eventEntry && !stateEntry ? eventPulse : 0;
   const visibleFlip = Boolean(shownWalk && shownChoice?.flip);
   const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
   const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale);
@@ -317,7 +397,7 @@ export function PetWindow() {
     [],
   );
 
-  const petSrc = custom ? petUrl(appearanceId, currentEntry) : null;
+  const petSrc = custom ? petUrl(appearanceId, visibleEntry) : null;
   // 有锚点的图按基准比例摆；窗口长出去的那截已经算进 shift，这里减掉才是相对当前窗口的位置
   const framedStyle = (entry: string, flip: boolean) => {
     if (fittedSize === null || !visiblePlacement) return undefined;
@@ -348,9 +428,9 @@ export function PetWindow() {
       {custom && framed ? (
         <>
           <MediaImage
-            key={petSrc ?? "none"}
+            key={`${petSrc ?? "none"}:${visiblePulse}`}
             className="pet-fade pet-framed"
-            style={framedStyle(currentEntry ?? "", false)}
+            style={framedStyle(visibleEntry ?? "", visibleFlip)}
             src={petSrc}
             hidden={shownWalk !== null}
             fallback={<PawPrint size={petSize - 10} />}
@@ -373,7 +453,7 @@ export function PetWindow() {
           {custom ? (
             <>
               <MediaImage
-                key={petSrc ?? "none"}
+                key={`${petSrc ?? "none"}:${visiblePulse}`}
                 className="pet-fade"
                 src={petSrc}
                 hidden={shownWalk !== null}

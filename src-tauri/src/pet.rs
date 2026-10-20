@@ -13,6 +13,11 @@ pub(crate) struct PetAsset {
     pub(crate) entry: String,
     #[serde(default)]
     pub(crate) animations: Vec<String>,
+    /// 作者按语义事件指定的 GIF 动作
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) event_actions: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) state_actions: HashMap<String, String>,
     /// 导入时用户选的原文件，只做展示
     #[serde(default)]
     pub(crate) source: String,
@@ -178,6 +183,8 @@ pub(crate) fn add_pet_assets(
                 existing.entry = asset.entry;
                 existing.animations = asset.animations;
                 existing.layout = asset.layout;
+                existing.event_actions = asset.event_actions;
+                existing.state_actions = asset.state_actions;
                 existing.size_bytes = asset.size_bytes;
                 existing.last_used_at = asset.last_used_at;
                 if old_path != existing.path {
@@ -239,7 +246,7 @@ fn prepare_import(state: &AppState, raw_path: &str) -> Result<PetAsset, String> 
         .first()
         .cloned()
         .ok_or_else(|| "这份素材里没有可用动画".to_string())?;
-    let layout = if single_gif {
+    let manifest = if single_gif {
         None
     } else {
         pet_layout::read_pet_layout(&canonical, &animations)?
@@ -264,7 +271,15 @@ fn prepare_import(state: &AppState, raw_path: &str) -> Result<PetAsset, String> 
         path: stored.to_string_lossy().to_string(),
         entry,
         animations,
-        layout,
+        layout: manifest.as_ref().map(|manifest| manifest.layout.clone()),
+        event_actions: manifest
+            .as_ref()
+            .map(|manifest| manifest.event_actions.clone())
+            .unwrap_or_default(),
+        state_actions: manifest
+            .as_ref()
+            .map(|manifest| manifest.state_actions.clone())
+            .unwrap_or_default(),
         source: canonical.to_string_lossy().to_string(),
         size_bytes,
         imported_at: now,
