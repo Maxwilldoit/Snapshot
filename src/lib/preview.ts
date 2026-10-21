@@ -1,6 +1,6 @@
 import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { ActivityEntry, PlatformCapabilities, Settings, SnapshotRecord } from "../types";
+import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, Settings, SnapshotRecord } from "../types";
 
 /**
  * 浏览器预览（直接 `npm run dev` 打开页面）用的假后端。
@@ -19,6 +19,33 @@ const windowLabel = params.get("window") ?? "main";
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 
 const BUILTIN_PROMPT = "你是提示词改写专家。保持原意不变，将用户草稿整理为清晰、完整、可执行的指令。只输出改写后的提示词。";
+
+/** 素材库的演示图内嵌在预览后端，不访问真实仓库，也不代表真实素材或授权。 */
+function demoCatalogPreview(body: string, color: string) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="130" viewBox="0 0 160 130"><g stroke="#403d36" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M48 119h64" stroke="#c9c3b7"/><g fill="${color}">${body}</g><path d="M68 71v5m24-5v5m-17 10q5 5 10 0" fill="none"/><path d="M60 113v5m40-5v5"/></g></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+const catalogFixtures: PetCatalogAsset[] = [
+  {
+    id: "demo-paper", name: "演示 · 纸团", description: "圆滚滚的纸面小伙伴。这是浏览器演示素材，供预览和试用导入流程。",
+    tags: ["演示", "纸面", "安静"], version: "1.0.0-demo", file: "demo-paper.zip", sizeBytes: 1_572_864,
+    previewUrl: demoCatalogPreview('<path d="M42 53 45 24 65 43Q80 37 95 43L115 24 118 53Q132 75 117 101Q108 116 80 115Q52 116 43 101Q28 75 42 53Z"/><path d="M47 56 57 60m52-4-10 4" fill="none"/>', "#e8d8bc"),
+    sha256: "0".repeat(64), downloadUrl: "https://example.invalid/snapshot-demo/demo-paper.zip", licenseStatus: "演示数据 · 不代表素材授权",
+  },
+  {
+    id: "demo-block", name: "演示 · 方块", description: "一位有棱有角的桌面伙伴。示例图与素材信息均为本地演示数据。",
+    tags: ["演示", "几何"], version: "1.2.0-demo", file: "demo-block.zip", sizeBytes: 3_145_728,
+    previewUrl: demoCatalogPreview('<rect x="41" y="43" width="78" height="70" rx="10"/><path d="M80 43V27m-8 0h16M41 80H30v15m89-15h11v15" fill="none"/>', "#b5c7c3"),
+    sha256: "1".repeat(64), downloadUrl: "https://example.invalid/snapshot-demo/demo-block.zip", licenseStatus: "演示数据 · 不代表素材授权",
+  },
+  {
+    id: "demo-sprout", name: "演示 · 绿芽", description: "顶着一片新叶的小伙伴。可以试着导入、改名，再回到素材库重新导入。",
+    tags: ["演示", "植物", "轻巧"], version: "1.0.0-demo", file: "demo-sprout.zip", sizeBytes: 786_432,
+    previewUrl: demoCatalogPreview('<path d="M80 48Q42 45 40 81Q37 114 80 114Q123 114 120 81Q118 45 80 48Z"/><path d="M80 48Q79 18 106 19Q107 44 80 48Z" fill="#a8b895"/><path d="M80 46 94 32" fill="none"/>', "#ded4b8"),
+    sha256: "2".repeat(64), downloadUrl: "https://example.invalid/snapshot-demo/demo-sprout.zip", licenseStatus: "演示数据 · 不代表素材授权",
+  },
+];
 
 let settings: Settings = {
   baseUrl: demo ? "https://api.deepseek.com/v1" : "",
@@ -177,6 +204,31 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
         selectedAppearanceId: args.id,
         petAssets: settings.petAssets.map((asset) => (asset.id === args.id ? { ...asset, lastUsedAt: Date.now() } : asset)),
       });
+    case "fetch_pet_catalog":
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      return structuredClone(catalogFixtures);
+    case "install_catalog_pet": {
+      const item = catalogFixtures.find((asset) => asset.id === args.id);
+      if (!item) throw new Error("演示素材不存在，请刷新素材库");
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const source = `https://github.com/Maxworkinghard/Pets#${item.id}`;
+      const existing = settings.petAssets.find((asset) => asset.source === source);
+      const asset: PetAsset = {
+        id: existing?.id ?? `catalog-${item.id}`,
+        name: existing?.name ?? item.name,
+        path: `preview/${item.file}`,
+        entry: "preview.svg",
+        animations: ["preview.svg"],
+        source,
+        sizeBytes: item.sizeBytes,
+        importedAt: existing?.importedAt ?? Date.now(),
+        lastUsedAt: Date.now(),
+      };
+      return update({
+        selectedAppearanceId: asset.id,
+        petAssets: existing ? settings.petAssets.map((pet) => pet.id === existing.id ? asset : pet) : [...settings.petAssets, asset],
+      });
+    }
     case "add_pet_assets": {
       const added = (args.paths as string[]).map((path, index) => ({
         id: `pet-${Date.now()}-${index}`,
@@ -251,5 +303,17 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
 export function installPreviewBackend() {
   mockWindows(windowLabel);
   mockConvertFileSrc("windows");
+  // 导入演示素材后，舞台与形象架也使用同一张内嵌预览图。
+  const internals = (window as unknown as { __TAURI_INTERNALS__: { convertFileSrc: (path: string, protocol?: string) => string } }).__TAURI_INTERNALS__;
+  const convertFileSrc = internals.convertFileSrc;
+  internals.convertFileSrc = (path, protocol) => {
+    const [kind, id] = path.split("/");
+    if (protocol === "media" && (kind === "pet" || kind === "pet-thumb")) {
+      const source = settings.petAssets.find((asset) => asset.id === id)?.source;
+      const item = catalogFixtures.find((asset) => source === `https://github.com/Maxworkinghard/Pets#${asset.id}`);
+      if (item) return item.previewUrl;
+    }
+    return convertFileSrc(path, protocol);
+  };
   mockIPC(handle, { shouldMockEvents: true });
 }

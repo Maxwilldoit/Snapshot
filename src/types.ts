@@ -71,6 +71,20 @@ export interface PetAsset {
   layout?: PetLayout | null;
 }
 
+export interface PetCatalogAsset {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  version: string;
+  file: string;
+  sizeBytes: number;
+  sha256: string;
+  downloadUrl: string;
+  previewUrl: string;
+  licenseStatus: string;
+}
+
 export type PetEvent =
   | "capture.success"
   | "capture.failure"

@@ -1,7 +1,6 @@
 use super::settings::{default_appearance_id, emit_settings, persist_settings, Settings};
 use super::*;
 use serde::Deserialize;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PetAsset {
@@ -168,10 +167,23 @@ pub(crate) fn add_pet_assets(
             Err(reason) => failed.push(PetImportFailure { path, reason }),
         }
     }
+    register_imports(&app, &state, imported, failed)
+}
+
+fn register_imports(
+    app: &AppHandle,
+    state: &AppState,
+    imported: Vec<PetAsset>,
+    failed: Vec<PetImportFailure>,
+) -> Result<PetImportResult, String> {
     let count = imported.len();
     let mut settings = state.settings.lock();
+    let mut next = settings.clone();
+    let new_paths: Vec<_> = imported.iter().map(|asset| asset.path.clone()).collect();
+    let mut obsolete = Vec::new();
+    let mut updated_ids = Vec::new();
     for asset in imported {
-        let id = match settings
+        let id = match next
             .pet_assets
             .iter_mut()
             .find(|existing| !existing.source.is_empty() && existing.source == asset.source)
@@ -188,29 +200,58 @@ pub(crate) fn add_pet_assets(
                 existing.size_bytes = asset.size_bytes;
                 existing.last_used_at = asset.last_used_at;
                 if old_path != existing.path {
-                    remove_owned_file(&state, &old_path);
+                    obsolete.push(old_path);
                 }
-                remove_derived_cache(&state, &existing.id);
+                updated_ids.push(existing.id.clone());
                 existing.id.clone()
             }
             None => {
                 let id = asset.id.clone();
-                settings.pet_assets.push(asset);
+                next.pet_assets.push(asset);
                 id
             }
         };
-        settings.selected_appearance_id = id;
+        next.selected_appearance_id = id;
     }
-    let result = commit(&app, &state, &mut settings)?;
+    // 保存失败时保留原来的设置和素材；不要让一次下载更新破坏已安装的宠物。
+    refresh_missing(&mut next.pet_assets);
+    if let Err(error) = persist_settings(&state.settings_path, &next) {
+        for path in new_paths {
+            remove_owned_file(state, &path);
+        }
+        return Err(error);
+    }
+    *settings = next.clone();
+    for path in obsolete {
+        remove_owned_file(state, &path);
+    }
+    for id in updated_ids {
+        remove_derived_cache(state, &id);
+    }
+    emit_settings(app, &next);
     drop(settings);
     if count > 0 {
-        show_pet(&app);
+        show_pet(app);
     }
     Ok(PetImportResult {
-        settings: result,
+        settings: next,
         imported: count,
         failed,
     })
+}
+
+pub(crate) fn import_catalog_asset(
+    app: &AppHandle,
+    state: &AppState,
+    path: &str,
+    id: &str,
+    name: &str,
+) -> Result<Settings, String> {
+    let mut asset = prepare_import(state, path)?;
+    asset.name = truncate(name, PET_NAME_LIMIT);
+    // 稳定的库内身份：重新导入或升级同一只时保留用户的名字与 id。
+    asset.source = format!("https://github.com/Maxworkinghard/Pets#{id}");
+    register_imports(app, state, vec![asset], vec![]).map(|result| result.settings)
 }
 
 /// 校验一个文件、复制进应用目录、读出动作表；还没登记进设置

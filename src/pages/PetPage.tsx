@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CatShape } from "../components/ui/CatShape";
+import { PetCatalog } from "../components/PetCatalog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { addPetAssets, deletePetAsset, renamePetAsset, selectPetAppearance } from "../lib/backend";
@@ -285,57 +286,60 @@ export function PetPage() {
         )}
       </section>
 
-      <section className="pet-shelf-area" aria-label="全部形象">
-        <div className="panel-head">
-          <span className="panel-head-left">
-            <h2 className="panel-title">全部形象</h2>
-            <span className="mono small quiet">{settings.petAssets.length}</span>
-          </span>
-          <span className="panel-head-right">
-            {settings.petAssets.length > 5 && (
-              <label className="search search-small">
-                <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" strokeWidth="1.2" /><path d="M8 8l3.5 3.5" stroke="currentColor" strokeWidth="1.2" /></svg>
-                <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="按名称筛选" aria-label="按名称筛选形象" />
-              </label>
-            )}
-            <button type="button" className="btn btn-small" onClick={() => void pickFiles()} disabled={importing}>
-              {importing ? "导入中…" : "导入…"}
-            </button>
-          </span>
-        </div>
-
-        {failures.length > 0 && (
-          <div className="import-failures" role="alert">
-            <span className="small">
-              <span className="signal">这 {failures.length} 个没导进来：</span>
-              {failures.map((item) => `${fileNameOf(item.path)}（${item.reason}）`).join("、")}
+      <div className="pet-collection">
+        <section className="pet-shelf-area" aria-label="全部形象">
+          <div className="panel-head">
+            <span className="panel-head-left">
+              <h2 className="panel-title">全部形象</h2>
+              <span className="mono small quiet">{settings.petAssets.length}</span>
             </span>
-            <button type="button" className="link small" onClick={() => setFailures([])}>知道了</button>
+            <span className="panel-head-right">
+              {settings.petAssets.length > 5 && (
+                <label className="search search-small">
+                  <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" strokeWidth="1.2" /><path d="M8 8l3.5 3.5" stroke="currentColor" strokeWidth="1.2" /></svg>
+                  <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="按名称筛选" aria-label="按名称筛选形象" />
+                </label>
+              )}
+              <button type="button" className="btn btn-small" onClick={() => void pickFiles()} disabled={importing}>
+                {importing ? "导入中…" : "导入…"}
+              </button>
+            </span>
           </div>
-        )}
 
-        <div className="shelf" role="radiogroup" aria-label="选择伴侣" ref={shelfRef}>
-          {!filter && <ShelfItem asset={null} index={0} selected={selectedId === "app-icon"} onChoose={() => void choose("app-icon")} />}
-          {shelf.map((asset, index) => (
-            <ShelfItem
-              key={asset.id}
-              index={index + 1}
-              asset={asset}
-              selected={asset.id === selectedId}
-              onChoose={() => void choose(asset.id)}
-              onRemove={() => void remove(asset.id)}
-            />
-          ))}
-          {dropping && <div className="shelf-drop small">松手导入</div>}
-        </div>
-        {filter && shelf.length === 0 && (
-          <p className="empty-line">
-            没有名字含「{filter.trim()}」的形象。
-            <button type="button" className="link" onClick={() => setFilter("")}>清除筛选</button>
-          </p>
-        )}
+          {failures.length > 0 && (
+            <div className="import-failures" role="alert">
+              <span className="small">
+                <span className="signal">这 {failures.length} 个没导进来：</span>
+                {failures.map((item) => `${fileNameOf(item.path)}（${item.reason}）`).join("、")}
+              </span>
+              <button type="button" className="link small" onClick={() => setFailures([])}>知道了</button>
+            </div>
+          )}
 
-      </section>
+          <div className="shelf" role="radiogroup" aria-label="选择伴侣" ref={shelfRef}>
+            {!filter && <ShelfItem asset={null} index={0} selected={selectedId === "app-icon"} onChoose={() => void choose("app-icon")} />}
+            {shelf.map((asset, index) => (
+              <ShelfItem
+                key={asset.id}
+                index={index + 1}
+                asset={asset}
+                selected={asset.id === selectedId}
+                onChoose={() => void choose(asset.id)}
+                onRemove={() => void remove(asset.id)}
+              />
+            ))}
+            {dropping && <div className="shelf-drop small">松手导入</div>}
+          </div>
+          {filter && shelf.length === 0 && (
+            <p className="empty-line">
+              没有名字含「{filter.trim()}」的形象。
+              <button type="button" className="link" onClick={() => setFilter("")}>清除筛选</button>
+            </p>
+          )}
+
+        </section>
+        <PetCatalog />
+      </div>
     </div>
   );
 }

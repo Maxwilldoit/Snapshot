@@ -6,6 +6,7 @@ mod clipboard;
 mod launchpad;
 mod media;
 mod pet;
+mod pet_catalog;
 mod pet_key;
 mod pet_layout;
 mod pet_walk;
@@ -323,6 +324,8 @@ pub fn run() {
             pet::select_pet_appearance,
             pet::set_pet_frame_shift,
             pet::add_pet_assets,
+            pet_catalog::fetch_pet_catalog,
+            pet_catalog::install_catalog_pet,
             pet::rename_pet_asset,
             pet::delete_pet_asset,
             settings::save_shortcuts,
