@@ -12,6 +12,34 @@ const PREVIEW_PREFIX: &str =
 const MAX_CATALOG_BYTES: u64 = 1024 * 1024;
 const MAX_ASSET_BYTES: u64 = 100 * 1024 * 1024;
 
+/// 延迟创建独立窗口；重复打开复用它，关闭隐藏以保留下载和筛选状态。
+#[tauri::command]
+pub(crate) async fn show_pet_catalog(app: AppHandle) -> Result<(), String> {
+    // async command 在工作线程创建 WebView，避免 Windows 主线程死锁。
+    // 创建期间串行化，防止快速点击产生两个相同 label 的窗口。
+    static OPEN_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = OPEN_LOCK.lock();
+    let window = match app.get_webview_window("pet-catalog") {
+        Some(window) => window,
+        None => tauri::WebviewWindowBuilder::new(
+            &app,
+            "pet-catalog",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("桌宠素材库 · Snapshot")
+        .inner_size(920.0, 720.0)
+        .min_inner_size(560.0, 440.0)
+        .resizable(true)
+        .center()
+        .visible(false)
+        .build()
+        .map_err(|error| format!("无法创建素材库窗口：{error}"))?,
+    };
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PetCatalogAsset {

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CatShape } from "../components/ui/CatShape";
-import { PetCatalog } from "../components/PetCatalog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { addPetAssets, deletePetAsset, renamePetAsset, selectPetAppearance } from "../lib/backend";
+import { addPetAssets, deletePetAsset, renamePetAsset, selectPetAppearance, showPetCatalog } from "../lib/backend";
 import { petThumbUrl, petUrl } from "../lib/media";
 import { fileNameOf, formatBytes } from "../lib/format";
 import { commonPrefix, entryLabel } from "../lib/petNames";
@@ -303,6 +302,9 @@ export function PetPage() {
               <button type="button" className="btn btn-small" onClick={() => void pickFiles()} disabled={importing}>
                 {importing ? "导入中…" : "导入…"}
               </button>
+              <button type="button" className="btn btn-small" title="在独立窗口中浏览" onClick={() => void showPetCatalog().catch((error) => notify(`打开素材库失败：${errorText(error)}`, "error"))}>
+                浏览素材库 ↗
+              </button>
             </span>
           </div>
 
@@ -338,7 +340,6 @@ export function PetPage() {
           )}
 
         </section>
-        <PetCatalog />
       </div>
     </div>
   );

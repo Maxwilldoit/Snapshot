@@ -6,6 +6,7 @@ import { PetWindow } from "./windows/PetWindow";
 import { QuickMenuWindow } from "./windows/QuickMenuWindow";
 import { AnnotateWindow } from "./windows/AnnotateWindow";
 import { LaunchpadWindow } from "./windows/LaunchpadWindow";
+import { PetCatalogWindow } from "./windows/PetCatalogWindow";
 import { applyTheme, listenThemeChanges, readTheme } from "./lib/theme";
 import { applyMotion, listenMotionChanges, readMotionPreference, resolveMotion } from "./lib/prefs";
 import "./styles/variables.css";
@@ -30,6 +31,7 @@ function mount() {
     : label === "quick-menu" ? QuickMenuWindow
     : label === "annotate" ? AnnotateWindow
     : label === "launchpad" ? LaunchpadWindow
+    : label === "pet-catalog" ? PetCatalogWindow
     : App;
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

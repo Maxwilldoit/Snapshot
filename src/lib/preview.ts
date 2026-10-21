@@ -204,6 +204,14 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
         selectedAppearanceId: args.id,
         petAssets: settings.petAssets.map((asset) => (asset.id === args.id ? { ...asset, lastUsedAt: Date.now() } : asset)),
       });
+    case "show_pet_catalog": {
+      const url = new URL(window.location.href);
+      url.searchParams.set("window", "pet-catalog");
+      const catalog = window.open(url, "snapshot-pet-catalog", "popup,width=920,height=720");
+      if (!catalog) throw new Error("请允许弹出素材库窗口");
+      catalog.focus();
+      return;
+    }
     case "fetch_pet_catalog":
       await new Promise((resolve) => setTimeout(resolve, 350));
       return structuredClone(catalogFixtures);

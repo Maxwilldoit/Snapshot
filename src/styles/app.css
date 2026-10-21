@@ -395,7 +395,8 @@
 
 .pet-collection { display: flex; flex-direction: column; gap: 32px; min-width: 0; }
 .pet-shelf-area { display: flex; flex-direction: column; min-width: 0; }
-.pet-shelf-area .panel-head { min-height: 32px; align-items: center; }
+.pet-shelf-area .panel-head { min-height: 32px; align-items: center; flex-wrap: wrap; }
+.pet-shelf-area .panel-head-right { flex-wrap: wrap; margin-left: auto; }
 .import-failures { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 8px 0; border-top: 1px solid var(--signal-soft); border-bottom: 1px solid var(--signal-soft); animation: rise-in var(--t-open) var(--ease-enter); }
 .shelf { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); row-gap: 16px; margin-top: 4px; }
 .shelf-item { display: flex; flex-direction: column; min-width: 0; animation: rise-in var(--t-open) var(--ease-enter) both; animation-delay: calc(var(--i, 0) * var(--stagger)); }
@@ -424,7 +425,8 @@
 }
 
 /* 素材库延续形象架的纸面与落地线，不另加卡片底色 */
-.pet-catalog { min-width: 0; padding-top: 16px; border-top: 1px solid var(--rule-strong); }
+.pet-catalog-window { height: 100%; overflow-y: auto; padding: 28px 32px; }
+.pet-catalog { min-width: 0; max-width: 1200px; margin: 0 auto; }
 .pet-catalog .panel-head { align-items: center; flex-wrap: wrap; }
 .pet-catalog-intro { margin: 10px 0 0; }
 .pet-catalog-search { width: 100%; margin-top: 16px; font-size: var(--text-small); }

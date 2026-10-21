@@ -280,7 +280,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "main" {
+            if matches!(window.label(), "main" | "pet-catalog") {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
@@ -325,6 +325,7 @@ pub fn run() {
             pet::set_pet_frame_shift,
             pet::add_pet_assets,
             pet_catalog::fetch_pet_catalog,
+            pet_catalog::show_pet_catalog,
             pet_catalog::install_catalog_pet,
             pet::rename_pet_asset,
             pet::delete_pet_asset,

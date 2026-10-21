@@ -84,7 +84,7 @@ Windows and macOS need nothing extra (on Windows 10 the installer downloads the 
 
 ## Usage
 
-Open **Companion → 素材库 (Asset library)** to browse the [public Pets catalog](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md) and download a companion. The catalog and previews load on demand. Snapshot checks each ZIP's size and SHA-256 before importing it into app storage, where it remains available offline. Reimporting the same library pet updates its assets while keeping its custom name. Asset licensing is listed separately from Snapshot's code license. The library includes [event-animation guidance for creators](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md).
+Open **Companion → 浏览素材库 (Browse asset library)** in a separate, resizable window to browse the [public Pets catalog](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md) and download a companion. Opening it again focuses the same window; closing it preserves filters and ongoing downloads. The catalog and previews load on demand. Snapshot checks each ZIP's size and SHA-256 before importing it into app storage, where it remains available offline. Reimporting the same library pet updates its assets while keeping its custom name. Asset licensing is listed separately from Snapshot's code license. The library includes [event-animation guidance for creators](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md).
 
 Once started, the companion appears on the desktop (showing the current app's icon by default) and the app has an icon in the system tray.
 
