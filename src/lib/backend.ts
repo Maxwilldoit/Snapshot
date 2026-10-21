@@ -5,6 +5,7 @@ import type {
   ActivityEntry,
   CapturableWindow,
   ClipboardState,
+  PetCatalogAsset,
   PetImportResult,
   PetEvent,
   PlatformCapabilities,
@@ -38,6 +39,11 @@ export const selectPetAppearance = (id: string) => invoke<Settings>("select_pet_
 
 /** 一次导入多个；坏的那几个单独列在 failed 里，不连累其它 */
 export const addPetAssets = (paths: string[]) => invoke<PetImportResult>("add_pet_assets", { paths });
+
+/** 只在用户打开素材库时请求；下载、校验与导入都交给后端 */
+export const fetchPetCatalog = () => invoke<PetCatalogAsset[]>("fetch_pet_catalog");
+
+export const installCatalogPet = (id: string) => invoke<Settings>("install_catalog_pet", { id });
 
 export const renamePetAsset = (id: string, name: string) =>
   invoke<Settings>("rename_pet_asset", { id, name });

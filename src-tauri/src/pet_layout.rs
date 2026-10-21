@@ -145,7 +145,12 @@ pub(crate) fn read_pet_layout(
         let mut entry = archive
             .by_name(&manifest_name)
             .map_err(|_| "pet.json 读不出来".to_string())?;
+        if entry.size() > 1024 * 1024 {
+            return Err("pet.json 不能超过 1MB".into());
+        }
         entry
+            .by_ref()
+            .take(1024 * 1024 + 1)
             .read_to_end(&mut manifest_bytes)
             .map_err(|_| "pet.json 读不出来".to_string())?;
     }

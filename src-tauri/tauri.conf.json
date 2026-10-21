@@ -84,7 +84,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' customprotocol: media: http://media.localhost; img-src 'self' media: http://media.localhost data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https:"
+      "csp": "default-src 'self' customprotocol: media: http://media.localhost; img-src 'self' media: http://media.localhost https://raw.githubusercontent.com/Maxworkinghard/Pets/ data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https:"
     }
   },
   "bundle": {
