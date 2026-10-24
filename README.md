@@ -1,6 +1,6 @@
 # Snapshot
 
-[![Check](https://github.com/Maxworkinghard/Snapshot/actions/workflows/check.yml/badge.svg)](https://github.com/Maxworkinghard/Snapshot/actions/workflows/check.yml)
+[![Check](https://github.com/Maxwilldoit/Snapshot/actions/workflows/check.yml/badge.svg)](https://github.com/Maxwilldoit/Snapshot/actions/workflows/check.yml)
 
 [简体中文](README.zh-CN.md) | English
 
@@ -16,7 +16,7 @@ Built with Tauri 2, React, and native platform APIs for Windows, macOS, and Linu
 
 ### Makima's actions
 
-The Makima companion comes from the [Pets library](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md). Click the companion to play the next action; drag it sideways to walk.
+The Makima companion comes from the [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md). Click the companion to play the next action; drag it sideways to walk.
 
 <table>
   <tr>
@@ -69,7 +69,7 @@ Capabilities are detected at runtime. Windows has received the most hardware tes
 
 ## Install
 
-Download the package for your platform from [Releases](https://github.com/Maxworkinghard/Snapshot/releases).
+Download the package for your platform from [Releases](https://github.com/Maxwilldoit/Snapshot/releases).
 
 | Platform | Package |
 |---|---|
@@ -105,7 +105,7 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 
 **Prompt rewriting.** Configure the API URL and model under **Preferences → System and model**, then edit reusable rules under **Rewrite rules**. Start a rewrite from the quick menu or its global shortcut. Successful results, along with the original text, are added to History.
 
-**Companion and launchpad.** Import a ZIP of GIFs or a single GIF from the Companion page. Click once to play another action; double-click to open the launchpad. The launchpad supports search, folders, drag-and-drop organization, and paged navigation. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md).
+**Companion and launchpad.** Import a ZIP of GIFs or a single GIF from the Companion page. Click once to play another action; double-click to open the launchpad. The launchpad supports search, folders, drag-and-drop organization, and paged navigation. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md).
 
 **Language and appearance.** Choose **System**, **Simplified Chinese**, or **English** under **Preferences → Interface language**. The Themes page controls layout, color, and motion.
 
@@ -115,7 +115,7 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 - Files containing `walk`, `run`, or `move` become directional walking actions. Include `left` or `right` in the filename to select a direction; the other direction is mirrored when only one is available.
 - Painted backgrounds are removed on import while interior colors such as a white shirt are preserved.
 - Archives are limited to 100 MB; individual GIFs are limited to 50 MB.
-- Actions with a larger canvas can use a `pet.json` file for a shared base canvas and foot anchors. The [Pets authoring guide](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md#给素材作者按事件设计动作) documents the format.
+- Actions with a larger canvas can use a `pet.json` file for a shared base canvas and foot anchors. The [Pets authoring guide](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md#给素材作者按事件设计动作) documents the format.
 
 ## Build from source
 

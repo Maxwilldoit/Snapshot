@@ -18,12 +18,12 @@ const first: PetCatalogAsset = {
   id: "example-moon", name: "示例月亮", description: "测试目录里的一位安静伙伴。", tags: ["安静", "夜晚"],
   version: "1.2.3", file: "example-moon.zip", sizeBytes: 1_572_864, sha256: "a".repeat(64),
   downloadUrl: "https://example.invalid/example-moon.zip",
-  previewUrl: "https://raw.githubusercontent.com/Maxworkinghard/Pets/main/catalog/previews/example-moon.png",
+  previewUrl: "https://raw.githubusercontent.com/Maxwilldoit/Pets/main/catalog/previews/example-moon.png",
   licenseStatus: "pending-review",
 };
 const second: PetCatalogAsset = {
   ...first, id: "example-star", name: "示例星星", description: "喜欢散步的小伙伴。", tags: ["活泼"],
-  previewUrl: "https://raw.githubusercontent.com/Maxworkinghard/Pets/main/catalog/previews/example-star.png",
+  previewUrl: "https://raw.githubusercontent.com/Maxwilldoit/Pets/main/catalog/previews/example-star.png",
 };
 
 const imported: Settings = {
@@ -32,7 +32,7 @@ const imported: Settings = {
   selectedAppearanceId: "local-imported-01",
   petAssets: [{
     id: "local-imported-01", name: first.name, path: "pets/imported.zip", entry: "idle.gif", animations: ["idle.gif"],
-    source: `https://github.com/Maxworkinghard/Pets#${first.id}`, sizeBytes: first.sizeBytes,
+    source: `https://github.com/Maxwilldoit/Pets#${first.id}`, sizeBytes: first.sizeBytes,
   }],
 };
 

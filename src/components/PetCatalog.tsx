@@ -211,7 +211,7 @@ export function PetCatalog({ settings, onSaved }: { settings: Settings; onSaved:
           )}
           <div className="pet-catalog-grid">
             {visible.map((asset) => {
-              const installed = settings.petAssets.find((item) => item.source === `https://github.com/Maxworkinghard/Pets#${asset.id}`);
+              const installed = settings.petAssets.find((item) => item.source === `https://github.com/Maxwilldoit/Pets#${asset.id}`);
               return (
                 <CatalogItem
                   key={`${asset.id}-${asset.previewUrl}`}

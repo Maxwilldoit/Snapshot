@@ -238,7 +238,7 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       const item = catalogFixtures.find((asset) => asset.id === args.id);
       if (!item) throw new Error("演示素材不存在，请刷新素材库");
       await new Promise((resolve) => setTimeout(resolve, 700));
-      const source = `https://github.com/Maxworkinghard/Pets#${item.id}`;
+      const source = `https://github.com/Maxwilldoit/Pets#${item.id}`;
       const existing = settings.petAssets.find((asset) => asset.source === source);
       const asset: PetAsset = {
         id: existing?.id ?? `catalog-${item.id}`,
@@ -345,7 +345,7 @@ export function installPreviewBackend() {
     const [kind, id] = path.split("/");
     if (protocol === "media" && (kind === "pet" || kind === "pet-thumb")) {
       const source = settings.petAssets.find((asset) => asset.id === id)?.source;
-      const item = catalogFixtures.find((asset) => source === `https://github.com/Maxworkinghard/Pets#${asset.id}`);
+      const item = catalogFixtures.find((asset) => source === `https://github.com/Maxwilldoit/Pets#${asset.id}`);
       if (item) return item.previewUrl;
     }
     return convertFileSrc(path, protocol);

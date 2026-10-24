@@ -1,6 +1,6 @@
 # 应用快照
 
-[![Check](https://github.com/Maxworkinghard/Snapshot/actions/workflows/check.yml/badge.svg)](https://github.com/Maxworkinghard/Snapshot/actions/workflows/check.yml)
+[![Check](https://github.com/Maxwilldoit/Snapshot/actions/workflows/check.yml/badge.svg)](https://github.com/Maxwilldoit/Snapshot/actions/workflows/check.yml)
 
 简体中文 | [English](README.md)
 
@@ -16,7 +16,7 @@
 
 ### Makima 的动作
 
-来自 [Pets 素材库](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md)的「玛奇玛 · 像素」。单击桌宠依次播放下一个动作，向左右拖动时行走。
+来自 [Pets 素材库](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md)的「玛奇玛 · 像素」。单击桌宠依次播放下一个动作，向左右拖动时行走。
 
 <table>
   <tr>
@@ -69,7 +69,7 @@
 
 ## 安装
 
-从 [Releases](https://github.com/Maxworkinghard/Snapshot/releases) 下载对应平台的安装包。
+从 [Releases](https://github.com/Maxwilldoit/Snapshot/releases) 下载对应平台的安装包。
 
 | 平台 | 安装包 |
 |---|---|
@@ -105,7 +105,7 @@ Windows 和 macOS 不需要额外运行工具。Linux 可按需安装：
 
 **Prompt 润色。** 在 **偏好设置 → 本机与模型** 中填写接口地址和模型，在 **润色规则** 中维护可复用规则。通过快捷菜单或全局快捷键开始润色，成功结果会连同原文、规则和时间进入历史记录。
 
-**桌面伴侣与启动台。** 在桌面伴侣页导入 GIF 压缩包或单个 GIF。单击播放下一个动作，双击打开启动台。启动台支持搜索、文件夹、拖动整理和分页。也可以直接从内置的 [Pets 素材库](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md) 安装已发布的伴侣。
+**桌面伴侣与启动台。** 在桌面伴侣页导入 GIF 压缩包或单个 GIF。单击播放下一个动作，双击打开启动台。启动台支持搜索、文件夹、拖动整理和分页。也可以直接从内置的 [Pets 素材库](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md) 安装已发布的伴侣。
 
 **语言与外观。** 在 **偏好设置 → 界面语言** 中选择 **跟随系统**、**简体中文** 或 **English**。布局、颜色和动效在主题库中调整。
 
@@ -115,7 +115,7 @@ Windows 和 macOS 不需要额外运行工具。Linux 可按需安装：
 - 文件名包含 `walk`、`run` 或 `move` 的文件属于走路动作；加入 `left` 或 `right` 指定方向。只有一个方向时，另一方向使用镜像。
 - 导入时会移除与画布边缘相连的背景色，人物内部的颜色（例如白衬衫）会保留。
 - 压缩包上限 100 MB，单个 GIF 上限 50 MB。
-- 超出基准画布的动作可通过 `pet.json` 共用基准尺寸和脚底锚点，具体格式见 [Pets 素材作者说明](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md#给素材作者按事件设计动作)。
+- 超出基准画布的动作可通过 `pet.json` 共用基准尺寸和脚底锚点，具体格式见 [Pets 素材作者说明](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md#给素材作者按事件设计动作)。
 
 ## 从源码构建
 

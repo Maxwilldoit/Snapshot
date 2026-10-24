@@ -30,7 +30,7 @@ describe("素材库浏览器演示", () => {
     const settings = await install;
     const selected = settings.petAssets.find((asset) => asset.id === settings.selectedAppearanceId)!;
     expect(selected.name).toBe(catalog[0].name);
-    expect(selected.source).toBe(`https://github.com/Maxworkinghard/Pets#${catalog[0].id}`);
+    expect(selected.source).toBe(`https://github.com/Maxwilldoit/Pets#${catalog[0].id}`);
     const { petUrl, petThumbUrl } = await import("./media");
     expect(petUrl(selected.id, selected.entry)).toBe(catalog[0].previewUrl);
     expect(petThumbUrl(selected.id)).toBe(catalog[0].previewUrl);

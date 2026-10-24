@@ -250,7 +250,7 @@ pub(crate) fn import_catalog_asset(
     let mut asset = prepare_import(state, path)?;
     asset.name = truncate(name, PET_NAME_LIMIT);
     // 稳定的库内身份：重新导入或升级同一只时保留用户的名字与 id。
-    asset.source = format!("https://github.com/Maxworkinghard/Pets#{id}");
+    asset.source = format!("https://github.com/Maxwilldoit/Pets#{id}");
     register_imports(app, state, vec![asset], vec![]).map(|result| result.settings)
 }
 

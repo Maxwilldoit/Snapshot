@@ -85,6 +85,17 @@ pub(crate) fn default_appearance_id() -> String {
     "app-icon".into()
 }
 
+/// GitHub 用户名改过以后，旧设置里的素材来源仍可能指向老 owner。
+/// 素材身份看的是 `/Pets#` 后面的 id，读取时统一到当前地址。
+fn normalize_pet_source(source: &str) -> String {
+    if let Some(rest) = source.strip_prefix("https://github.com/") {
+        if let Some((_, fragment)) = rest.split_once("/Pets#") {
+            return format!("https://github.com/Maxwilldoit/Pets#{fragment}");
+        }
+    }
+    source.to_string()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Settings {
@@ -317,6 +328,7 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
     }
     // annotate / scrolling 已实现：读盘时保留用户选择与绑定。
     for asset in &mut settings.pet_assets {
+        asset.source = normalize_pet_source(&asset.source);
         if asset.animations.is_empty() {
             if let Ok(animations) =
                 super::pet::find_pet_animation_entries(&PathBuf::from(&asset.path))
@@ -661,6 +673,22 @@ mod tests {
         let settings: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.pet_scale, 100);
         assert!(!settings.shortcuts_paused);
+    }
+
+    #[test]
+    fn pet_sources_follow_the_current_github_owner() {
+        assert_eq!(
+            normalize_pet_source("https://github.com/legacy-owner/Pets#makima-pixel"),
+            "https://github.com/Maxwilldoit/Pets#makima-pixel"
+        );
+        assert_eq!(
+            normalize_pet_source("https://github.com/Maxwilldoit/Pets#makima-pixel"),
+            "https://github.com/Maxwilldoit/Pets#makima-pixel"
+        );
+        assert_eq!(
+            normalize_pet_source(r"C:\pets\makima.zip"),
+            r"C:\pets\makima.zip"
+        );
     }
 
     #[test]
