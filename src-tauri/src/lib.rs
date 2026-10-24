@@ -110,7 +110,23 @@ fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
+/// WebKitGTK、窗口捕获和托盘会在不同线程里使用 Xlib；未在第一次调用前开启线程支持时，
+/// Ubuntu 22.04 的无头启动会在渲染几帧后触发 xcb 的多线程断言。
+#[cfg(target_os = "linux")]
+fn init_x11_threads() {
+    if let Ok(xlib) = x11_dl::xlib::Xlib::open() {
+        // SAFETY: XInitThreads only enables the library's global locking and must run first.
+        unsafe {
+            (xlib.XInitThreads)();
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn init_x11_threads() {}
+
 pub fn run() {
+    init_x11_threads();
     // 配置文件里定义的窗口在 setup() 之前就已创建并开始加载前端，
     // 若把 manage() 留在 setup() 里，前端可能抢先发出命令并撞上
     // "state not managed"。所以状态提到 Builder 阶段准备好。
