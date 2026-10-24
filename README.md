@@ -29,7 +29,16 @@ The Makima companion comes from the [Pets library](https://github.com/Maxworking
     <td align="center"><img src="docs/screenshots/makima/jump.gif" width="108" alt="Jump"><br>Jump</td>
     <td align="center"><img src="docs/screenshots/makima/walk-left.gif" width="108" alt="Walk left"><br>Walk left</td>
     <td align="center"><img src="docs/screenshots/makima/walk-right.gif" width="108" alt="Walk right"><br>Walk right</td>
-    <td align="left" valign="middle">Success reuses <strong>Wave</strong>; failure and recording reuse <strong>Thinking</strong>; paused reuses <strong>Peeking</strong>.</td>
+    <td align="left" valign="middle"><strong>Feedback</strong><br>Four dedicated actions below.</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/makima/feedback-success.gif" width="108" alt="Success"><br>Success</td>
+    <td align="center"><img src="docs/screenshots/makima/feedback-failure.gif" width="108" alt="Failure"><br>Failure</td>
+    <td align="center"><img src="docs/screenshots/makima/feedback-recording.gif" width="108" alt="Recording"><br>Recording</td>
+    <td align="center"><img src="docs/screenshots/makima/feedback-paused.gif" width="108" alt="Paused"><br>Paused</td>
   </tr>
 </table>
 

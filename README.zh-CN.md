@@ -29,7 +29,16 @@
     <td align="center"><img src="docs/screenshots/makima/jump.gif" width="108" alt="跳跃"><br>跳跃</td>
     <td align="center"><img src="docs/screenshots/makima/walk-left.gif" width="108" alt="向左走"><br>向左走</td>
     <td align="center"><img src="docs/screenshots/makima/walk-right.gif" width="108" alt="向右走"><br>向右走</td>
-    <td align="left" valign="middle">成功复用<strong>招手</strong>；失败和录制中复用<strong>思考</strong>；暂停复用<strong>探头</strong>。</td>
+    <td align="left" valign="middle"><strong>事件反馈</strong><br>四个独立动作见下。</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/makima/feedback-success.gif" width="108" alt="成功"><br>成功</td>
+    <td align="center"><img src="docs/screenshots/makima/feedback-failure.gif" width="108" alt="失败"><br>失败</td>
+    <td align="center"><img src="docs/screenshots/makima/feedback-recording.gif" width="108" alt="录制中"><br>录制中</td>
+    <td align="center"><img src="docs/screenshots/makima/feedback-paused.gif" width="108" alt="已暂停"><br>已暂停</td>
   </tr>
 </table>
 
