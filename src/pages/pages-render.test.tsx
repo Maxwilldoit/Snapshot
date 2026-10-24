@@ -180,9 +180,9 @@ describe("B2 拆页后逐页渲染", () => {
       expect(calls.find((call) => call.command === "save_preferences")?.payload).toEqual({ prefs: { petScale: 150 } }),
     );
     await user.click(screen.getByRole("button", { name: "恢复默认" }));
-    expect(await screen.findByText("120%")).toBeTruthy();
+    expect(await screen.findByText("100%")).toBeTruthy();
     await waitFor(() =>
-      expect(calls.filter((call) => call.command === "save_preferences").at(-1)?.payload).toEqual({ prefs: { petScale: 120 } }),
+      expect(calls.filter((call) => call.command === "save_preferences").at(-1)?.payload).toEqual({ prefs: { petScale: 100 } }),
     );
   });
 

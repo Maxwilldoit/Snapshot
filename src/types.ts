@@ -105,7 +105,7 @@ export interface Settings {
   activeTemplateId: string;
   selectedAppearanceId: string;
   petAssets: PetAsset[];
-  /** 悬浮大小：基准大小的百分比，100 时应用图标为屏幕短边的 8%、宠物为 16%（见 lib/petSize.ts） */
+  /** 悬浮大小：基准大小的百分比，100 时应用图标为屏幕短边的 8%、宠物为 19%（见 lib/petSize.ts） */
   petScale: number;
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
