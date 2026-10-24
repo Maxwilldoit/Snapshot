@@ -15,10 +15,8 @@ import {
   runAction,
   toggleRecording,
 } from "../lib/backend";
-import { iconUrl, petThumbUrl, petUrl } from "../lib/media";
+import { iconUrl } from "../lib/media";
 import { formatDuration } from "../lib/format";
-import { typingEntry } from "../lib/petNames";
-import { motionReduced } from "../lib/motion";
 import { MediaImage } from "../components/MediaImage";
 import { Keys } from "../components/ui/Keys";
 import type { CapturableWindow, RecordingStatus, Settings, ShortcutAction } from "../types";
@@ -29,8 +27,8 @@ type Item = { id: string; label: ReactNode; hint?: ReactNode; run: () => void };
 
 /** 成功类提示停留多久后自动收起 */
 const OK_HIDE_DELAY_MS = 900;
-/** 面板上方留给猫的空间（窗口本身透明） */
-const CAT_ROOM = 112;
+/** 面板上方的透明边，与 .palette-root 的 padding-top 一致 */
+const TOP_EDGE = 24;
 /** 面板左右和下方的透明边 */
 const EDGE = 40;
 /** 各视图的面板宽度：菜单装得下一行动作和快捷键就够；窗口列表多给点看标题；润色要放下底栏四个按钮 */
@@ -131,9 +129,6 @@ export function QuickMenuWindow() {
     return () => window.clearInterval(timer);
   }, [recording.active, running]);
 
-  const asset = settings?.petAssets.find((item) => item.id === settings.selectedAppearanceId && !item.missing) ?? null;
-  const headroom = asset ? CAT_ROOM : 24;
-
   // 窗口大小跟着面板走：换视图时变宽变窄，进润色、展开窗口列表时变高。
   // 每次打开都会重新挂一个面板（key={opening}），要改量新的那个；旧面板移出页面时量到的是 0，不能拿来缩窗口。
   // 用 offsetWidth / offsetHeight：getBoundingClientRect 会把入场动画的 scale(0.97) 算进去，量小一圈。
@@ -142,7 +137,7 @@ export function QuickMenuWindow() {
     if (!panel) return;
     const apply = () => {
       if (!panel.isConnected || panel.offsetHeight === 0) return;
-      void resizeQuickMenu(panel.offsetWidth + EDGE * 2, panel.offsetHeight + headroom + EDGE).catch(() => {});
+      void resizeQuickMenu(panel.offsetWidth + EDGE * 2, panel.offsetHeight + TOP_EDGE + EDGE).catch(() => {});
     };
     apply();
     if (typeof ResizeObserver === "undefined") return;
@@ -150,7 +145,7 @@ export function QuickMenuWindow() {
     observer.observe(panel);
     return () => observer.disconnect();
     // view 变了宽度就变（PANEL_WIDTH），当场重量一次，不等 ResizeObserver
-  }, [headroom, opening, view]);
+  }, [opening, view]);
 
   function showStatus(next: Status | null, hideAfter = false) {
     if (hideTimer.current !== null) window.clearTimeout(hideTimer.current);
@@ -372,15 +367,12 @@ export function QuickMenuWindow() {
 
   const templates = settings?.templates ?? [];
   const templateName = templates.find((item) => item.id === templateId)?.name ?? "默认规则";
-  const catEntry = asset ? (view === "polish" ? typingEntry(asset.animations) ?? asset.entry : asset.entry) : null;
-  const catSrc = asset ? (motionReduced() ? petThumbUrl(asset.id) : petUrl(asset.id, catEntry || null)) : null;
 
   return (
     <div
       ref={rootRef}
       tabIndex={-1}
       className="palette-root"
-      style={{ paddingTop: headroom }}
       onMouseDown={(event) => {
         // 点在面板外面（透明区域）就收起
         if (event.target === event.currentTarget) void hideQuickMenu();
@@ -388,7 +380,6 @@ export function QuickMenuWindow() {
       onKeyDown={onKeyDown}
     >
       <div className="palette-wrap" key={opening} style={{ width: PANEL_WIDTH[view] }}>
-        {catSrc && <img className="palette-cat" key={catSrc} src={catSrc} alt="" draggable={false} />}
         <div className="palette" ref={panelRef} role="dialog" aria-label="应用快照快捷菜单">
           {view === "polish" ? (
             <div className={`palette-polish ${enterClass.current}`}>

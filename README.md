@@ -57,7 +57,7 @@ Windows has had the most testing on real hardware. Some features on macOS and Li
 
 ## Installation
 
-Download the package for your platform from [Releases](https://github.com/Maxworkinghard/Snapshot/releases). Windows (x64 / ARM64) and Linux (x86_64 / aarch64) packages are available; macOS follows later. You can also [build from source](#build-from-source).
+Download the package for your platform from [Releases](https://github.com/Maxworkinghard/Snapshot/releases). Windows (x64 / ARM64), macOS (universal), and Linux (x86_64 / aarch64) packages are available. You can also [build from source](#build-from-source).
 
 System requirements:
 

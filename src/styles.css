@@ -301,7 +301,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 
 .palette-root {
   display: flex; justify-content: flex-start; width: 100vw; height: 100vh;
-  padding: 112px 40px 40px; overflow: hidden;
+  padding: 24px 40px 40px; overflow: hidden;
 }
 /* 宽度按视图由页面给（PANEL_WIDTH），窗口跟着它变 */
 .palette-wrap { position: relative; flex: 0 0 auto; height: fit-content; }
@@ -319,14 +319,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .enter-back { animation: view-back var(--t-open) var(--ease-enter) both; }
 @keyframes view-forward { from { opacity: 0; transform: translateX(calc(var(--shift) * 0.75)); } }
 @keyframes view-back { from { opacity: 0; transform: translateX(calc(var(--shift) * -0.75)); } }
-/* 猫晚 60ms 落在上沿，带一点回弹——全应用只有它能弹 */
-.palette-cat {
-  position: absolute; right: 44px; bottom: calc(100% - 6px); z-index: 1;
-  height: 104px; width: auto; pointer-events: none;
-  animation: cat-drop 420ms var(--ease-cat) 90ms both;
-}
-@keyframes cat-drop { from { opacity: 0; transform: translateY(-18px); } }
-[data-motion="reduced"] .palette, [data-motion="reduced"] .palette-cat { animation-name: fade-in; }
+[data-motion="reduced"] .palette { animation-name: fade-in; }
 
 .palette-window-head { display: flex; align-items: center; gap: 12px; height: 50px; padding: 0 18px; border-bottom: 1px solid var(--rule); }
 .palette-window-heading { flex: 1; min-width: 0; font-size: 14px; }
