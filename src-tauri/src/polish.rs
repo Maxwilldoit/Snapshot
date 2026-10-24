@@ -1,4 +1,4 @@
-use super::settings::{keyring_entry, DEFAULT_PROMPT};
+use super::settings::{default_prompt, keyring_entry, DEFAULT_PROMPT, DEFAULT_PROMPT_EN};
 use super::*;
 use regex::Regex;
 
@@ -49,10 +49,17 @@ async fn run_polish(
                 .find(|item| item.id == settings.active_template_id)
         });
     // 刚新建、还没写正文的规则按内置规则润色，别把空的系统提示发出去
-    let prompt = template
-        .map(|item| item.content.as_str())
-        .filter(|content| !content.trim().is_empty())
-        .unwrap_or(DEFAULT_PROMPT);
+    let prompt = match template.map(|item| item.content.as_str()) {
+        Some(content)
+            if !content.trim().is_empty()
+                && content == DEFAULT_PROMPT
+                && interface_is_english() =>
+        {
+            DEFAULT_PROMPT_EN
+        }
+        Some(content) if !content.trim().is_empty() => content,
+        _ => default_prompt(),
+    };
     let rule_name = template
         .map(|item| item.name.clone())
         .unwrap_or_else(|| "润色".into());
@@ -97,11 +104,19 @@ fn log_polish(app: &AppHandle, original: &str, result: &Result<(String, String),
             activity::record(
                 app,
                 activity::Activity::new("polish", rule.clone())
-                    .meta(format!(
-                        "{} → {} 字",
-                        original.chars().count(),
-                        polished.chars().count()
-                    ))
+                    .meta(if interface_is_english() {
+                        format!(
+                            "{} → {} characters",
+                            original.chars().count(),
+                            polished.chars().count()
+                        )
+                    } else {
+                        format!(
+                            "{} → {} 字",
+                            original.chars().count(),
+                            polished.chars().count()
+                        )
+                    })
                     .detail(truncate(polished, 4000)),
             );
         }
@@ -162,7 +177,11 @@ pub(crate) async fn polish_clipboard(
     Clipboard::new()
         .and_then(|mut clipboard| clipboard.set_text(polished))
         .map_err(|error| format!("写入剪贴板失败：{error}"))?;
-    Ok("润色完成，结果已替换剪贴板".into())
+    Ok(ui_text(
+        "润色完成，结果已替换剪贴板",
+        "Rewrite complete. The clipboard has been updated.",
+    )
+    .into())
 }
 
 fn make_endpoint(base_url: &str) -> Result<String, String> {

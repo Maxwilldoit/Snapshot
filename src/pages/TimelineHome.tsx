@@ -7,22 +7,25 @@ import { SnapshotThumb } from "../components/SnapshotThumb";
 import { Companion } from "../components/Companion";
 import { useNow } from "../hooks/useLive";
 import { errorText, useApp } from "../app/context";
+import { useI18n } from "../lib/i18n";
 import type { ActivityEntry } from "../types";
 
 type Filter = "all" | "capture" | "record" | "polish";
 
-const FILTERS: Array<{ key: Filter; label: string }> = [
-  { key: "all", label: "全部" },
-  { key: "capture", label: "截图" },
-  { key: "record", label: "录制" },
-  { key: "polish", label: "润色" },
-];
+const FILTERS: Filter[] = ["all", "capture", "record", "polish"];
 
 /** 「时间线」布局的首页：今天做过的事排成一条。 */
 export function TimelineHome() {
   const { activity, clipboard, navigate, notify } = useApp();
+  const { t } = useI18n();
   const [filter, setFilter] = useState<Filter>("all");
   const now = useNow(Boolean(clipboard?.clearAt));
+  const filters: Array<{ key: Filter; label: string }> = [
+    { key: "all", label: t("全部") },
+    { key: "capture", label: t("截图") },
+    { key: "record", label: t("录制") },
+    { key: "polish", label: t("润色") },
+  ];
 
   const counts = useMemo(() => {
     const result: Record<Filter, number> = { all: 0, capture: 0, record: 0, polish: 0 };
@@ -63,9 +66,11 @@ export function TimelineHome() {
           )}
           <span className="entry-text">
             <span className="entry-title" title={entry.title}>{entry.title}</span>
-            <span className="mono small quiet">{entry.meta}{entry.snapshotId ? "" : " · 没存进历史"}</span>
+            <span className="mono small quiet">{entry.meta}{entry.snapshotId ? "" : ` · ${t("没存进历史")}`}</span>
             {inClipboard && clipboard?.clearAt && (
-              <span className="small ink-2">在剪贴板里，<span className="mono">{Math.max(0, Math.ceil((clipboard.clearAt - now) / 1000))}</span> 秒后清空</span>
+              <span className="small ink-2">{t("在剪贴板里，{seconds} 秒后清空", {
+                seconds: Math.max(0, Math.ceil((clipboard.clearAt - now) / 1000)),
+              })}</span>
             )}
           </span>
         </div>
@@ -73,31 +78,31 @@ export function TimelineHome() {
     } else if (entry.kind === "record") {
       body = (
         <span className="entry-text">
-          <span className="entry-title">{entry.title} · 录制</span>
+          <span className="entry-title">{entry.title} · {t("录制")}</span>
           <span className="small quiet">
             <span className="mono">{entry.meta}</span>
             {entry.detail && <span className="mono"> · {entry.detail.split(/[\\/]/).pop()}</span>}
             {" "}
-            <button type="button" className="link" onClick={() => openRecordingsDir().catch((error) => notify(errorText(error), "error"))}>打开文件夹</button>
+            <button type="button" className="link" onClick={() => openRecordingsDir().catch((error) => notify(errorText(error), "error"))}>{t("打开文件夹")}</button>
           </span>
         </span>
       );
     } else if (entry.kind === "polish") {
       body = (
         <span className="entry-text">
-          <span className="small quiet">润色 · {entry.title} · <span className="mono">{entry.meta}</span></span>
+          <span className="small quiet">{t("润色")} · {entry.title} · <span className="mono">{entry.meta}</span></span>
           <span className="entry-snippet">{entry.detail}</span>
           {entry.detail && (
             <span className="small entry-links">
               <button
                 type="button"
                 className="link"
-                onClick={() => copyText(entry.detail!).then(() => notify("结果已复制")).catch((error) => notify(errorText(error), "error"))}
+                onClick={() => copyText(entry.detail!).then(() => notify(t("结果已复制"))).catch((error) => notify(errorText(error), "error"))}
               >
-                复制结果
+                {t("复制结果")}
               </button>
               <button type="button" className="link" onClick={() => navigate("history")}>
-                查看历史
+                {t("查看历史")}
               </button>
             </span>
           )}
@@ -125,8 +130,8 @@ export function TimelineHome() {
         <div className="stream">
           {groups.length === 0 ? (
             <div className="empty">
-              <h2 className="empty-title">{filter === "all" ? "这里还空着" : "这一类还没有记录"}</h2>
-              <p className="empty-body">截一张图、录一段、润色一次，都会按时间排在这里。</p>
+              <h2 className="empty-title">{filter === "all" ? t("这里还空着") : t("这一类还没有记录")}</h2>
+              <p className="empty-body">{t("截一张图、录一段、润色一次，都会按时间排在这里。")}</p>
             </div>
           ) : (
             groups.map((group) => (
@@ -140,9 +145,9 @@ export function TimelineHome() {
       </div>
 
       <aside className="timeline-side">
-        <nav className="filter" aria-label="只看某一类">
-          <span className="small quiet filter-label">只看</span>
-          {FILTERS.map((item) => (
+        <nav className="filter" aria-label={t("只看某一类")}>
+          <span className="small quiet filter-label">{t("只看")}</span>
+          {filters.map((item) => (
             <button
               key={item.key}
               type="button"

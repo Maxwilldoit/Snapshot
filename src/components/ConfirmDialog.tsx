@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useI18n } from "../lib/i18n";
 
 /** 不可恢复的操作前问一句。只有一句标题、一句后果、两个按钮 */
 export function ConfirmDialog({
@@ -20,6 +21,7 @@ export function ConfirmDialog({
   leaving?: boolean;
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const { t } = useI18n();
   useEffect(() => {
     confirmRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
@@ -45,9 +47,9 @@ export function ConfirmDialog({
         <h2 id="confirm-title" className="dialog-title">{title}</h2>
         <p id="confirm-body" className="dialog-body">{body}</p>
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onCancel} disabled={busy}>取消</button>
+          <button type="button" className="btn" onClick={onCancel} disabled={busy}>{t("取消")}</button>
           <button ref={confirmRef} type="button" className="btn btn-danger" onClick={onConfirm} disabled={busy}>
-            {busy ? "正在删除…" : confirmLabel}
+            {busy ? t("正在删除…") : confirmLabel}
           </button>
         </div>
       </div>

@@ -108,16 +108,17 @@
     ],
     "windows": {
       "wix": {
-        "language": "zh-CN"
+        "language": ["en-US", "zh-CN"]
       },
       "nsis": {
         "languages": [
+          "English",
           "SimpChinese"
         ]
       }
     },
-    "shortDescription": "应用快照、Prompt 润色、桌宠和快捷键",
-    "longDescription": "将应用快照、窗口录制、Prompt 润色、桌宠和全局快捷键统一在一个 Tauri 桌面端。",
+    "shortDescription": "Capture, record, and annotate application windows with prompt rewriting and a desktop companion.",
+    "longDescription": "Snapshot combines application capture, window recording, screenshot annotation, prompt rewriting, a desktop companion, a launchpad, and global shortcuts in one cross-platform desktop app.",
     "linux": {
       "deb": {
         "depends": [

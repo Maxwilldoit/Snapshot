@@ -9,6 +9,7 @@ import type {
   RecordingStatus,
   Settings,
 } from "../types";
+import { localizeMessage } from "../lib/i18n";
 
 export type NoticeKind = "info" | "error";
 export type Notice = { id: number; text: string; kind: NoticeKind; at: number };
@@ -50,5 +51,5 @@ export function useApp(): AppContextValue {
 }
 
 export function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return localizeMessage(error instanceof Error ? error.message : String(error));
 }

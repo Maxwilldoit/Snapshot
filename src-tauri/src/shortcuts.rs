@@ -300,10 +300,17 @@ pub(crate) fn toggle_from_tray(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = change_configuration(app.clone(), Change::TogglePaused).await {
             use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-            activity::record_error(&app, "快捷键设置未生效", &error);
+            activity::record_error(
+                &app,
+                ui_text("快捷键设置未生效", "Shortcut settings did not apply"),
+                &error,
+            );
             app.dialog()
                 .message(error)
-                .title("快捷键设置未生效")
+                .title(ui_text(
+                    "快捷键设置未生效",
+                    "Shortcut settings did not apply",
+                ))
                 .kind(MessageDialogKind::Error)
                 .show(|_| {});
         }
@@ -311,10 +318,17 @@ pub(crate) fn toggle_from_tray(app: &AppHandle) {
 }
 
 pub(crate) fn conflict_message(failed: &[String]) -> String {
-    format!(
-        "这些快捷键没能注册，可能已被其他程序占用：{}",
-        failed.join("、")
-    )
+    if interface_is_english() {
+        format!(
+            "These shortcuts could not be registered and may be used by another app: {}",
+            failed.join(", ")
+        )
+    } else {
+        format!(
+            "这些快捷键没能注册，可能已被其他程序占用：{}",
+            failed.join("、")
+        )
+    }
 }
 
 /// 启动时没注册上的键。启动那一刻网页还没加载，没法当场提示，由主窗口加载后来取。

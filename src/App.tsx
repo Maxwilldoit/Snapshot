@@ -43,6 +43,7 @@ import { ThemesPage } from "./pages/ThemesPage";
 import { TimelineHome } from "./pages/TimelineHome";
 import { SettingsDoc } from "./pages/SettingsDoc";
 import type { NavPage, PlatformCapabilities, Settings } from "./types";
+import { useI18n, useWindowTitle } from "./lib/i18n";
 
 /** 每种布局能到的页面，以及打开时落在哪一页 */
 const LAYOUT_PAGES: Record<LayoutTheme, { home: NavPage; pages: NavPage[] }> = {
@@ -100,6 +101,8 @@ function PageView({ page }: { page: NavPage }) {
 }
 
 export function App() {
+  const { t } = useI18n();
+  useWindowTitle(t("应用快照"));
   // 默认值只在后端有一份；拿到之前显示加载态，不在前端再抄一份默认设置
   const [settings, setSettings] = useState<Settings | null>(null);
   const [layout, setLayoutState] = useState<LayoutTheme>(() => readLayout());
@@ -129,7 +132,7 @@ export function App() {
   useEffect(() => {
     loadSettings()
       .then(setSettings)
-      .catch((error) => notify(`读取设置失败：${errorText(error)}`, "error"));
+      .catch((error) => notify(t("读取设置失败：{detail}", { detail: errorText(error) }), "error"));
     platformCapabilities()
       .then((value) => setCaps(value ?? null))
       .catch(() => setCaps(null));
@@ -150,7 +153,9 @@ export function App() {
       .then((failed) => {
         if (!Array.isArray(failed) || failed.length === 0) return;
         setConflicts(failed);
-        notify(`${failed.map((key) => shortcutKeys(key).join(" ")).join("、")} 没能注册，可能被别的程序占用了`, "error");
+        notify(t("{keys} 没能注册，可能被别的程序占用了", {
+          keys: failed.map((key) => shortcutKeys(key).join(" ")).join(" / "),
+        }), "error");
       })
       // 只是一条提示，取不到不影响使用
       .catch(() => {});
@@ -330,9 +335,10 @@ export function App() {
 
 /** 设置还没读到时也得能拖动、关闭窗口 */
 function BareTitleBar() {
+  const { t } = useI18n();
   return (
     <header className="titlebar" data-tauri-drag-region>
-      <span className="titlebar-name">应用快照</span>
+      <span className="titlebar-name">{t("应用快照")}</span>
     </header>
   );
 }
@@ -340,14 +346,15 @@ function BareTitleBar() {
 /** 「时间线」布局的标题栏右侧：回到今天、全部历史、形象、设置 */
 function TimelineLinks() {
   const { page, navigate } = useApp();
+  const { t } = useI18n();
   const links: Array<{ page: NavPage; label: string }> = [
-    { page: "home", label: "今天" },
-    { page: "history", label: "历史记录" },
-    { page: "pet", label: "形象" },
-    { page: "settings", label: "设置" },
+    { page: "home", label: t("今天") },
+    { page: "history", label: t("历史记录") },
+    { page: "pet", label: t("形象") },
+    { page: "settings", label: t("设置") },
   ];
   return (
-    <nav className="top-nav top-nav-right" aria-label="主导航">
+    <nav className="top-nav top-nav-right" aria-label={t("主导航")}>
       {links.map((link) => (
         <button
           key={link.page}

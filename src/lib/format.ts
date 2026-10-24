@@ -1,3 +1,5 @@
+import { getActiveLanguage } from "./i18n";
+
 export function fileNameOf(path: string | null): string {
   if (!path) return "";
   return path.split(/[\\/]/).pop() ?? path;
@@ -34,6 +36,12 @@ export function formatBytes(bytes: number): string {
 
 export function formatWhen(timestamp: number): string {
   const diff = Date.now() - timestamp;
+  if (getActiveLanguage() === "en") {
+    if (diff < 60_000) return "Just now";
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} min ago`;
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hr ago`;
+    return new Date(timestamp).toLocaleString("en-US");
+  }
   if (diff < 60_000) return "刚刚";
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
@@ -57,6 +65,17 @@ function startOfDay(timestamp: number): number {
 /** 今天 / 昨天 / 9 月 21 日 / 2025 年 12 月 3 日 */
 export function dayLabel(timestamp: number, now = Date.now()): string {
   const days = Math.round((startOfDay(now) - startOfDay(timestamp)) / 86_400_000);
+  if (getActiveLanguage() === "en") {
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    const date = new Date(timestamp);
+    const sameYear = date.getFullYear() === new Date(now).getFullYear();
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      ...(sameYear ? {} : { year: "numeric" }),
+    });
+  }
   if (days === 0) return "今天";
   if (days === 1) return "昨天";
   const date = new Date(timestamp);

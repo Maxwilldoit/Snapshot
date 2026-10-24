@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 
 type Tool = "pen" | "rect";
 
@@ -8,6 +9,8 @@ type Tool = "pen" | "rect";
  * 截后标注：展示捕获图，支持画笔/矩形，完成后复制、另存或关闭。
  */
 export function AnnotateWindow() {
+  const { t } = useI18n();
+  useWindowTitle(t("标注截图"));
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   const start = useRef<{ x: number; y: number } | null>(null);
@@ -18,14 +21,14 @@ export function AnnotateWindow() {
   const [undoCount, setUndoCount] = useState(0);
   const [ready, setReady] = useState(false);
   const [tool, setTool] = useState<Tool>("pen");
-  const [title, setTitle] = useState("标注截图");
+  const [title, setTitle] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
 
   const loadImage = useCallback(async () => {
     const version = ++loadVersion.current;
     setReady(false);
-    setStatus("正在读取截图…");
+    setStatus(t("正在读取截图…"));
     drawing.current = false;
     start.current = null;
     snapshot.current = null;
@@ -38,11 +41,11 @@ export function AnnotateWindow() {
         invoke<string>("annotate_get_title"),
       ]);
       if (version !== loadVersion.current) return;
-      setTitle(nextTitle || "标注截图");
+      setTitle(nextTitle);
       if (!dataUrl) {
         const canvas = canvasRef.current;
         canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
-        setStatus("没有待标注的截图");
+        setStatus(t("没有待标注的截图"));
         return;
       }
       const img = new Image();
@@ -60,13 +63,13 @@ export function AnnotateWindow() {
         setStatus("");
       };
       img.onerror = () => {
-        if (version === loadVersion.current) setStatus("图片加载失败");
+        if (version === loadVersion.current) setStatus(t("图片加载失败"));
       };
       img.src = dataUrl;
     } catch (error) {
-      if (version === loadVersion.current) setStatus(error instanceof Error ? error.message : String(error));
+      if (version === loadVersion.current) setStatus(localizeMessage(error instanceof Error ? error.message : String(error)));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let alive = true;
@@ -168,7 +171,7 @@ export function AnnotateWindow() {
 
   async function exportPng(): Promise<string> {
     const canvas = canvasRef.current;
-    if (!canvas || !ready) throw new Error("截图尚未加载完成");
+    if (!canvas || !ready) throw new Error(t("截图尚未加载完成"));
     return canvas.toDataURL("image/png");
   }
 
@@ -178,9 +181,9 @@ export function AnnotateWindow() {
     try {
       const imageData = await exportPng();
       const message = await invoke<string>("annotate_copy", { imageData });
-      setStatus(message);
+      setStatus(localizeMessage(message));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      setStatus(localizeMessage(error instanceof Error ? error.message : String(error)));
     } finally {
       setBusy(false);
     }
@@ -192,9 +195,9 @@ export function AnnotateWindow() {
     try {
       const imageData = await exportPng();
       const message = await invoke<string>("annotate_save", { imageData });
-      setStatus(message);
+      setStatus(localizeMessage(message));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      setStatus(localizeMessage(error instanceof Error ? error.message : String(error)));
     } finally {
       setBusy(false);
     }
@@ -205,9 +208,9 @@ export function AnnotateWindow() {
     setStatus("");
     try {
       const imageData = await exportPng();
-      setStatus(await invoke<string>("annotate_save_copy", { imageData }));
+      setStatus(localizeMessage(await invoke<string>("annotate_save_copy", { imageData })));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      setStatus(localizeMessage(error instanceof Error ? error.message : String(error)));
     } finally {
       setBusy(false);
     }
@@ -220,8 +223,8 @@ export function AnnotateWindow() {
   return (
     <div className="annotate-root">
       <header className="annotate-toolbar">
-        <strong className="annotate-title">{title || "标注截图"}</strong>
-        <div className="annotate-tools" role="group" aria-label="标注工具">
+        <strong className="annotate-title">{title || t("标注截图")}</strong>
+        <div className="annotate-tools" role="group" aria-label={t("标注工具")}>
           <button
             type="button"
             className={tool === "pen" ? "is-active" : ""}
@@ -229,7 +232,7 @@ export function AnnotateWindow() {
             disabled={!ready || busy}
             onClick={() => setTool("pen")}
           >
-            画笔
+            {t("画笔")}
           </button>
           <button
             type="button"
@@ -238,30 +241,30 @@ export function AnnotateWindow() {
             disabled={!ready || busy}
             onClick={() => setTool("rect")}
           >
-            矩形
+            {t("矩形")}
           </button>
-          <button type="button" disabled={!ready || busy || !undoCount} onClick={undo}>撤销</button>
-          <button type="button" disabled={!ready || busy || !undoCount} onClick={reset}>清空标注</button>
+          <button type="button" disabled={!ready || busy || !undoCount} onClick={undo}>{t("撤销")}</button>
+          <button type="button" disabled={!ready || busy || !undoCount} onClick={reset}>{t("清空标注")}</button>
         </div>
         <div className="annotate-actions">
-          <button type="button" className="primary-button" title="保存到历史记录，不覆盖原图" disabled={!ready || busy} onClick={() => void saveCopy()}>
-            保存副本
+          <button type="button" className="primary-button" title={t("保存到历史记录，不覆盖原图")} disabled={!ready || busy} onClick={() => void saveCopy()}>
+            {t("保存副本")}
           </button>
           <button type="button" disabled={!ready || busy} onClick={() => void copy()}>
-            复制
+            {t("复制")}
           </button>
           <button type="button" disabled={!ready || busy} onClick={() => void save()}>
-            另存为…
+            {t("另存为…")}
           </button>
           <button type="button" disabled={busy} onClick={() => void close()}>
-            关闭
+            {t("关闭")}
           </button>
         </div>
       </header>
       <div className="annotate-stage">
         <canvas
           ref={canvasRef}
-          aria-label="截图标注画布"
+          aria-label={t("截图标注画布")}
           className="annotate-canvas"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}

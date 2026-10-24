@@ -49,7 +49,7 @@ use std::{
     io::{Cursor, Read},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     thread,
@@ -92,8 +92,24 @@ struct AppState {
     /// 系统里实际注册成功的键；释放失败时保留，供下次操作重试。
     shortcut_registrations: Mutex<Vec<String>>,
     shortcut_pause_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
+    tray_open_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+    tray_quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     launch_catalog: launchpad_cache::CatalogCache,
     launch_icons: Mutex<HashMap<String, Vec<u8>>>,
+}
+
+static INTERFACE_ENGLISH: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn interface_is_english() -> bool {
+    INTERFACE_ENGLISH.load(Ordering::Relaxed)
+}
+
+pub(crate) fn ui_text(zh: &'static str, en: &'static str) -> &'static str {
+    if interface_is_english() {
+        en
+    } else {
+        zh
+    }
 }
 
 pub(crate) fn truncate(value: &str, max: usize) -> String {
@@ -192,6 +208,8 @@ pub fn run() {
             shortcut_conflicts: Mutex::new(Vec::new()),
             shortcut_registrations: Mutex::new(Vec::new()),
             shortcut_pause_item: Mutex::new(None),
+            tray_open_item: Mutex::new(None),
+            tray_quit_item: Mutex::new(None),
             launch_catalog: launchpad_cache::CatalogCache::new(
                 data_dir.join("launchpad-catalog.json"),
             ),
@@ -249,7 +267,11 @@ pub fn run() {
             let failed = shortcuts::register_all(app.handle(), &settings);
             if !failed.is_empty() {
                 eprintln!("snapshot: {}", shortcuts::conflict_message(&failed));
-                activity::record_error(app.handle(), "快捷键没注册上", &failed.join("、"));
+                activity::record_error(
+                    app.handle(),
+                    ui_text("快捷键没注册上", "Shortcuts were not registered"),
+                    &failed.join("、"),
+                );
                 *state.shortcut_conflicts.lock() = failed;
             }
 
@@ -273,6 +295,8 @@ pub fn run() {
             )?;
             *state.shortcut_pause_item.lock() = Some(pause_shortcuts.clone());
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            *state.tray_open_item.lock() = Some(open_settings.clone());
+            *state.tray_quit_item.lock() = Some(quit.clone());
             let menu = Menu::with_items(app, &[&open_settings, &pause_shortcuts, &quit])?;
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
@@ -360,6 +384,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            actions::set_app_language,
             settings::load_settings,
             settings::save_prompt_settings,
             settings::fetch_models,

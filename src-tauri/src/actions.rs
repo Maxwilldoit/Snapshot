@@ -1,5 +1,41 @@
 use super::*;
 
+#[tauri::command]
+pub(crate) fn set_app_language(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    language: String,
+) -> Result<(), String> {
+    let english = language == "en";
+    super::INTERFACE_ENGLISH.store(english, Ordering::Relaxed);
+    if let Some(item) = state.tray_open_item.lock().as_ref() {
+        item.set_text(ui_text("打开设置", "Open Settings"))
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(item) = state.shortcut_pause_item.lock().as_ref() {
+        item.set_text(ui_text("暂停全局快捷键", "Pause global shortcuts"))
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(item) = state.tray_quit_item.lock().as_ref() {
+        item.set_text(ui_text("退出", "Quit"))
+            .map_err(|error| error.to_string())?;
+    }
+    let updated = {
+        let mut settings = state.settings.lock();
+        let changed = settings::sync_builtin_prompt(&mut settings, english);
+        if changed {
+            settings::persist_settings(&state.settings_path, &settings)?;
+            Some(settings.clone())
+        } else {
+            None
+        }
+    };
+    if let Some(settings) = updated {
+        settings::emit_settings(&app, &settings);
+    }
+    Ok(())
+}
+
 /// 输入框窗口的逻辑大小由页面按当前视图量好再告诉这里（resize_quick_menu）；
 /// 这是页面还没量过时的初始值，以及防止量错的上下限
 const PALETTE_INITIAL_SIZE: (f64, f64) = (400.0, 360.0);
@@ -193,12 +229,12 @@ pub(crate) async fn run_action(
 
 pub(crate) fn action_failure_title(action: &str) -> &'static str {
     match action {
-        "snapshot" | "capture" => "截图失败",
-        "fullscreen" => "全屏截图失败",
-        "scrolling" => "滚动长截图失败",
-        "record" => "录制失败",
-        "polish" => "润色失败",
-        _ => "操作失败",
+        "snapshot" | "capture" => ui_text("截图失败", "Capture failed"),
+        "fullscreen" => ui_text("全屏截图失败", "Fullscreen capture failed"),
+        "scrolling" => ui_text("滚动长截图失败", "Scrolling capture failed"),
+        "record" => ui_text("录制失败", "Recording failed"),
+        "polish" => ui_text("润色失败", "Rewrite failed"),
+        _ => ui_text("操作失败", "Action failed"),
     }
 }
 
@@ -239,9 +275,11 @@ pub(crate) async fn perform(app: &AppHandle, action: &str) -> Result<String, Str
         "palette" => show_palette_centered(app).map(|_| String::new()),
         "record" => recording::toggle_recording(app.clone(), state, None).map(|status| {
             if status.active {
-                status.message.unwrap_or_else(|| "录制已开始".into())
+                status
+                    .message
+                    .unwrap_or_else(|| ui_text("录制已开始", "Recording started").into())
             } else {
-                "录制已保存".into()
+                ui_text("录制已保存", "Recording saved").into()
             }
         }),
         "polish" => polish::polish_clipboard(app.clone(), state).await,
@@ -269,7 +307,13 @@ pub(crate) async fn perform(app: &AppHandle, action: &str) -> Result<String, Str
             })
             .await
             .map_err(|error| error.to_string())??;
-            capture::finalize_capture(app, &state, image, "滚动长截图", None)
+            capture::finalize_capture(
+                app,
+                &state,
+                image,
+                ui_text("滚动长截图", "Scrolling capture"),
+                None,
+            )
         }
         _ => Err("未知快捷键动作".into()),
     }

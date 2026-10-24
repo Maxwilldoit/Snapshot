@@ -15,9 +15,9 @@ import { Lightbox } from "../components/Lightbox";
 import { PromptHistoryRow } from "../components/PromptHistoryRow";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
-import { Keys } from "../components/ui/Keys";
 import { acceleratorOf } from "./ShortcutsPage";
 import { errorText, useApp } from "../app/context";
+import { useI18n } from "../lib/i18n";
 import type { PromptHistoryEntry, SnapshotRecord } from "../types";
 
 type HistoryItem =
@@ -26,6 +26,7 @@ type HistoryItem =
 
 export function HistoryPage() {
   const { settings, onSaved, notify, pendingPreviewId, consumePreviewId } = useApp();
+  const { t } = useI18n();
   const [records, setRecords] = useState<SnapshotRecord[] | null>(null);
   const [promptRecords, setPromptRecords] = useState<PromptHistoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
@@ -180,7 +181,7 @@ export function HistoryPage() {
       setRecords(next);
       setLeaving(new Set());
       setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))));
-      notify(ids.length === 1 ? "删掉了 1 张快照" : `删掉了 ${ids.length} 张快照`);
+      notify(t(ids.length === 1 ? "删掉了 1 张快照" : "删掉了 {count} 张快照", { count: ids.length }));
     } catch (error) {
       setLeaving(new Set());
       notify(errorText(error), "error");
@@ -215,55 +216,59 @@ export function HistoryPage() {
   const confirmDialog = usePresence(
     confirming
       ? {
-          title: allSelected ? `删除全部 ${total} 张快照？` : `删除选中的 ${selected.size} 张快照？`,
-          label: `删除 ${selected.size} 张`,
+          title: allSelected
+            ? t(total === 1 ? "删除全部 1 张快照？" : "删除全部 {count} 张快照？", { count: total })
+            : t(selected.size === 1 ? "删除选中的 1 张快照？" : "删除选中的 {count} 张快照？", { count: selected.size }),
+          label: t("删除 {count} 张", { count: selected.size }),
         }
       : null,
   );
 
   if (records === null || promptRecords === null) {
-    return <LoadingState text="正在读取历史记录…" />;
+    return <LoadingState text={t("正在读取历史记录…")} />;
   }
 
   const header = selecting ? (
     <div className="history-bar">
-      <span className="strong">已选 {selected.size} 张</span>
+      <span className="strong">{t("已选 {count} 张", { count: selected.size })}</span>
       {selected.size > 0 && <span className="mono small quiet">{formatBytes(selectedBytes)}</span>}
       <button
         type="button"
         className="link small"
         onClick={() => setSelected(allSelected ? new Set() : new Set(filtered.flatMap((item) => (item.kind === "snapshot" ? [item.snapshot.id] : []))))}
       >
-        {allSelected ? "全不选" : query ? `全选 ${filtered.length} 张` : `全选 ${total} 张`}
+        {allSelected
+          ? t("全不选")
+          : t("全选 {count} 张", { count: query ? filtered.length : total })}
       </button>
       <span className="spacer" />
-      <button type="button" className="text-btn ink-2" onClick={exitSelecting}>取消</button>
+      <button type="button" className="text-btn ink-2" onClick={exitSelecting}>{t("取消")}</button>
       <button
         type="button"
         className="btn btn-danger btn-small"
         disabled={selected.size === 0}
         onClick={() => setConfirming(true)}
       >
-        删除 {selected.size || ""} 张
+        {selected.size > 0 ? t("删除 {count} 张", { count: selected.size }) : t("删除")}
       </button>
     </div>
   ) : (
     <div className="history-bar">
       <label className="search">
         <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" strokeWidth="1.2" /><path d="M8 8l3.5 3.5" stroke="currentColor" strokeWidth="1.2" /></svg>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索历史记录" aria-label="搜索历史记录" />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索历史记录")} aria-label={t("搜索历史记录")} />
         {query && (
-          <button type="button" className="search-clear" aria-label="清除筛选" onClick={() => setQuery("")}>
+          <button type="button" className="search-clear" aria-label={t("清除筛选")} onClick={() => setQuery("")}>
             <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M.5.5l7 7M7.5.5l-7 7" stroke="currentColor" strokeWidth="1.2" /></svg>
           </button>
         )}
       </label>
       <span className="mono small quiet">
-        {query ? `${filtered.length} / ${totalItems}` : `${totalItems} 项`}
+        {query ? `${filtered.length} / ${totalItems}` : totalItems === 1 ? t("1 项") : t("{count} 项", { count: totalItems })}
       </span>
       <span className="spacer" />
-      <button type="button" className="text-btn small ink-2" onClick={() => void revealFolder()}>打开快照文件夹</button>
-      <button type="button" className="btn btn-small" onClick={() => setSelecting(true)} disabled={total === 0}>选择快照</button>
+      <button type="button" className="text-btn small ink-2" onClick={() => void revealFolder()}>{t("打开快照文件夹")}</button>
+      <button type="button" className="btn btn-small" onClick={() => setSelecting(true)} disabled={total === 0}>{t("选择快照")}</button>
     </div>
   );
 
@@ -272,16 +277,20 @@ export function HistoryPage() {
     const shortcut = acceleratorOf(settings, "snapshot");
     body = settings.autoSaveLocal ? (
       <div className="empty">
-        <h2 className="empty-title">还没有历史记录</h2>
+        <h2 className="empty-title">{t("还没有历史记录")}</h2>
         <p className="empty-body">
-          截取窗口或成功润色后，记录会按时间显示在这里。右键桌宠可打开快捷菜单
-          {shortcut && <>；按 <Keys value={shortcut} /> 也可以直接截取当前窗口</>}。
+          {shortcut
+            ? <>
+                {t("截取窗口或成功润色后，记录会按时间显示在这里。右键桌宠可打开快捷菜单")}
+                {t("；按 {keys} 也可以直接截取当前窗口。", { keys: shortcut })}
+              </>
+            : t("截取窗口或成功润色后，记录会按时间显示在这里。右键桌宠可打开快捷菜单。")}
         </p>
       </div>
     ) : (
       <div className="empty">
-        <h2 className="empty-title">还没有历史记录</h2>
-        <p className="empty-body">快照和 Prompt 历史会显示在这里；「截图同时存进历史」现在是关的，截图只进剪贴板。</p>
+        <h2 className="empty-title">{t("还没有历史记录")}</h2>
+        <p className="empty-body">{t("快照和 Prompt 历史会显示在这里；「截图同时存进历史」现在是关的，截图只进剪贴板。")}</p>
         <div className="empty-actions">
           <button
             type="button"
@@ -290,12 +299,12 @@ export function HistoryPage() {
               savePreferences({ autoSaveLocal: true })
                 .then((next) => {
                   onSaved(next);
-                  notify("打开了：之后的截图会留在这里");
+                  notify(t("打开了：之后的截图会留在这里"));
                 })
                 .catch((error) => notify(errorText(error), "error"))
             }
           >
-            同时保存截图
+            {t("同时保存截图")}
           </button>
         </div>
       </div>
@@ -303,8 +312,8 @@ export function HistoryPage() {
   } else if (filtered.length === 0) {
     body = (
       <p className="empty-line">
-        没有含「{query.trim()}」的历史记录。
-        <button type="button" className="link" onClick={() => setQuery("")}>清除筛选</button>
+        {t("没有含「{query}」的历史记录。", { query: query.trim() })}
+        <button type="button" className="link" onClick={() => setQuery("")}>{t("清除筛选")}</button>
       </p>
     );
   } else {
@@ -319,10 +328,14 @@ export function HistoryPage() {
             <section className="day" key={group.key} aria-label={group.label}>
               <div className="day-label">
                 <h3 className="day-title">{group.label}</h3>
-                <span className="small quiet">{selecting && picked ? `选了 ${picked} / ${ids.length}` : `${group.items.length} 项`}</span>
+                <span className="small quiet">
+                  {selecting && picked
+                    ? t("选了 {picked} / {count}", { picked, count: ids.length })
+                    : group.items.length === 1 ? t("1 项") : t("{count} 项", { count: group.items.length })}
+                </span>
                 {selecting && ids.length > 0 && (
                   <button type="button" className="link small" onClick={() => toggleGroup(ids)}>
-                    {picked === ids.length ? "取消整组" : "选整组"}
+                    {picked === ids.length ? t("取消整组") : t("选整组")}
                   </button>
                 )}
               </div>
@@ -379,7 +392,7 @@ export function HistoryPage() {
       {confirmDialog.item && (
         <ConfirmDialog
           title={confirmDialog.item.title}
-          body="图片文件会从本机一起删掉，没法恢复。"
+          body={t("图片文件会从本机一起删掉，没法恢复。")}
           confirmLabel={confirmDialog.item.label}
           busy={deleting}
           leaving={confirmDialog.leaving}

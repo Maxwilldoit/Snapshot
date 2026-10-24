@@ -9,6 +9,7 @@ import { LaunchpadWindow } from "./windows/LaunchpadWindow";
 import { PetCatalogWindow } from "./windows/PetCatalogWindow";
 import { applyTheme, listenThemeChanges, readTheme } from "./lib/theme";
 import { applyMotion, listenMotionChanges, readMotionPreference, resolveMotion } from "./lib/prefs";
+import { I18nProvider } from "./lib/i18n";
 import "./styles/variables.css";
 import "./styles.css";
 import "./styles/app.css";
@@ -35,7 +36,9 @@ function mount() {
     : App;
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <CurrentWindow />
+      <I18nProvider>
+        <CurrentWindow />
+      </I18nProvider>
     </StrictMode>,
   );
 }

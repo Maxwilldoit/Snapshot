@@ -90,7 +90,11 @@ pub(crate) fn get_recording_status(app: AppHandle, state: State<'_, AppState>) -
     let status = recorder.status(None);
     drop(recorder);
     if let Some(reason) = failure {
-        activity::record_error(&app, "录制意外结束", &reason);
+        activity::record_error(
+            &app,
+            ui_text("录制意外结束", "Recording stopped unexpectedly"),
+            &reason,
+        );
         let _ = app.emit("recording-changed", &status);
         let _ = app.emit("pet-event", "recording.failure");
     }
@@ -157,7 +161,11 @@ pub(crate) fn toggle_recording(
     if let Some(reason) = recorder.refresh() {
         let status = recorder.status(None);
         drop(recorder);
-        activity::record_error(&app, "录制意外结束", &reason);
+        activity::record_error(
+            &app,
+            ui_text("录制意外结束", "Recording stopped unexpectedly"),
+            &reason,
+        );
         let _ = app.emit("recording-changed", &status);
         let _ = app.emit("pet-event", "recording.failure");
         return Ok(status);
@@ -176,7 +184,7 @@ pub(crate) fn toggle_recording(
             ),
             None => activity::record_error(
                 &app,
-                "录制没能保存",
+                ui_text("录制没能保存", "Recording was not saved"),
                 status.message.as_deref().unwrap_or("录制组件没有正常结束"),
             ),
         }
@@ -203,10 +211,12 @@ pub(crate) fn toggle_recording(
     let settings = state.settings.lock().clone();
     let output_dir = resolve_recording_dir(&settings)?;
     fs::create_dir_all(&output_dir).map_err(|error| error.to_string())?;
-    let output = output_dir.join(format!(
-        "应用快照-{}.mp4",
-        Local::now().format("%Y-%m-%d_%H-%M-%S")
-    ));
+    let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
+    let output = output_dir.join(if interface_is_english() {
+        format!("Snapshot-{timestamp}.mp4")
+    } else {
+        format!("应用快照-{timestamp}.mp4")
+    });
     recorder.last_message = None;
 
     let options = RecordOptions {

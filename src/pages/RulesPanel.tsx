@@ -5,6 +5,7 @@ import { DURATION, useFlip, usePresence } from "../lib/motion";
 import { persistAutoCopy, readAutoCopy } from "../lib/prefs";
 import { Switch } from "../components/ui/Switch";
 import { errorText, useApp } from "../app/context";
+import { useI18n } from "../lib/i18n";
 import type { PromptTemplate } from "../types";
 
 type Draft = { name: string; content: string };
@@ -20,6 +21,7 @@ type Editing = { rule: PromptTemplate | null; nonce: number };
  */
 export function RulesPanel() {
   const { settings, onSaved, notify } = useApp();
+  const { t } = useI18n();
   const [rules, setRules] = useState<PromptTemplate[]>(settings.templates);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [freshId, setFreshId] = useState<string | null>(null);
@@ -137,13 +139,13 @@ export function RulesPanel() {
   return (
     <section className="panel panel-rules">
       <div className="panel-head">
-        <h2 className="panel-title">润色规则</h2>
+        <h2 className="panel-title">{t("润色规则")}</h2>
         <button type="button" className="text-btn small ink-2" onClick={() => setEditing({ rule: null, nonce: Date.now() })}>
-          新建
+          {t("新建")}
         </button>
       </div>
 
-      <div className="rules" ref={listRef} role="radiogroup" aria-label="润色规则">
+      <div className="rules" ref={listRef} role="radiogroup" aria-label={t("润色规则")}>
         <span className="rules-bar" ref={barRef} aria-hidden="true" />
         {rules.map((rule) => (
           <div
@@ -153,16 +155,18 @@ export function RulesPanel() {
             className={`rule ${rule.id === activeId ? "is-on" : ""} ${rule.id === freshId ? "is-fresh" : ""} ${rule.id === leavingId ? "is-leaving" : ""}`}
           >
             <button type="button" role="radio" aria-checked={rule.id === activeId} className="rule-pick" onClick={() => choose(rule.id)}>
-              <span className="rule-title">{rule.name.trim() || "未命名"}</span>
+              <span className="rule-title">{t(rule.name.trim() || "未命名")}</span>
             </button>
-            <span className="mono small quiet rule-count">{rule.content.length.toLocaleString()} 字</span>
+            <span className="mono small quiet rule-count">
+              {t("{count} 字", { count: rule.content.length.toLocaleString() })}
+            </span>
             <button
               type="button"
               className="text-btn small ink-2 rule-edit"
-              aria-label={`编辑「${rule.name}」`}
+              aria-label={t("编辑「{name}」", { name: t(rule.name) })}
               onClick={() => setEditing({ rule, nonce: Date.now() })}
             >
-              编辑
+              {t("编辑")}
             </button>
           </div>
         ))}
@@ -170,10 +174,10 @@ export function RulesPanel() {
 
       <div className="rows rows-flush">
         <div className="row">
-          <label className="row-label" htmlFor="pref-auto-copy">生成后自动复制</label>
+          <label className="row-label" htmlFor="pref-auto-copy">{t("生成后自动复制")}</label>
           <Switch
             id="pref-auto-copy"
-            label="生成后自动复制"
+            label={t("生成后自动复制")}
             value={autoCopy}
             onChange={(value) => {
               setAutoCopy(value);
@@ -217,6 +221,7 @@ function RuleDialog({
   onRemove: () => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const [name, setName] = useState(rule?.name ?? "");
   const [content, setContent] = useState(rule?.content ?? "");
   const [armed, setArmed] = useState<"delete" | "discard" | null>(null);
@@ -273,7 +278,7 @@ function RuleDialog({
 
   const trimmed = name.trim();
   // 名字没改就存成「原名 副本」，免得列表里出现两条同名规则
-  const copyName = rule && trimmed === rule.name.trim() ? `${trimmed} 副本` : trimmed;
+  const copyName = rule && trimmed === rule.name.trim() ? t("{name} 副本", { name: trimmed }) : trimmed;
 
   return createPortal(
     <div className={`dialog-backdrop ${leaving ? "is-leaving" : ""}`} onClick={requestClose}>
@@ -285,34 +290,36 @@ function RuleDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="dialog-rule-head">
-          <h2 className="dialog-title" id="rule-dialog-title">{rule ? "编辑规则" : "新建规则"}</h2>
-          <span className="mono small quiet">{content.length.toLocaleString()} 字</span>
+          <h2 className="dialog-title" id="rule-dialog-title">{rule ? t("编辑规则") : t("新建规则")}</h2>
+          <span className="mono small quiet">
+            {t("{count} 字", { count: content.length.toLocaleString() })}
+          </span>
         </div>
         <label className="form-field">
-          <span className="form-label">名称</span>
+          <span className="form-label">{t("名称")}</span>
           <input
             ref={nameRef}
             className="input"
             value={name}
             onChange={(event) => edit(() => setName(event.target.value))}
-            placeholder="比如：翻成英文"
-            aria-label="规则名称"
+            placeholder={t("比如：翻成英文")}
+            aria-label={t("规则名称")}
             spellCheck={false}
           />
         </label>
         <label className="form-field">
-          <span className="form-label">正文</span>
+          <span className="form-label">{t("正文")}</span>
           <textarea
             ref={bodyRef}
             className="rule-body-input"
             value={content}
             onChange={(event) => edit(() => setContent(event.target.value))}
-            placeholder="写给模型的改写要求"
-            aria-label="规则正文"
+            placeholder={t("写给模型的改写要求")}
+            aria-label={t("规则正文")}
             spellCheck={false}
           />
         </label>
-        {armed === "discard" && <p className="signal small" role="alert">改动还没保存，再点一次「放弃修改」就不要了</p>}
+        {armed === "discard" && <p className="signal small" role="alert">{t("改动还没保存，再点一次「放弃修改」就不要了")}</p>}
         <div className="dialog-rule-foot">
           <span className="rule-actions small">
             {rule && !rule.builtin && (
@@ -321,12 +328,12 @@ function RuleDialog({
                 className={`text-btn ${armed === "delete" ? "signal" : "ink-2"}`}
                 onClick={() => (armed === "delete" ? onRemove() : setArmed("delete"))}
               >
-                {armed === "delete" ? "再点一次删除" : "删除"}
+                {armed === "delete" ? t("再点一次删除") : t("删除")}
               </button>
             )}
             {canRestore && (
               <button type="button" className="text-btn ink-2" onClick={() => edit(() => setContent(builtinText ?? content))}>
-                恢复原文
+                {t("恢复原文")}
               </button>
             )}
             {rule && (
@@ -336,13 +343,13 @@ function RuleDialog({
                 onClick={() => void run(onSaveAsNew, { name: copyName, content })}
                 disabled={!complete || busy}
               >
-                存为新规则
+                {t("存为新规则")}
               </button>
             )}
           </span>
           <span className="dialog-actions">
             <button type="button" className={`btn ${armed === "discard" ? "is-armed" : ""}`} onClick={requestClose}>
-              {armed === "discard" ? "放弃修改" : "取消"}
+              {armed === "discard" ? t("放弃修改") : t("取消")}
             </button>
             <button
               type="button"
@@ -350,7 +357,7 @@ function RuleDialog({
               onClick={() => void run(onSave, { name: trimmed, content })}
               disabled={!complete || !dirty || busy}
             >
-              {busy ? "保存中…" : "保存"}
+              {busy ? t("保存中…") : t("保存")}
             </button>
           </span>
         </div>

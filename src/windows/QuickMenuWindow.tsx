@@ -17,6 +17,7 @@ import {
 } from "../lib/backend";
 import { iconUrl } from "../lib/media";
 import { formatDuration } from "../lib/format";
+import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 import { MediaImage } from "../components/MediaImage";
 import { Keys } from "../components/ui/Keys";
 import type { CapturableWindow, RecordingStatus, Settings, ShortcutAction } from "../types";
@@ -34,7 +35,7 @@ const EDGE = 40;
 /** 各视图的面板宽度：菜单装得下一行动作和快捷键就够；窗口列表多给点看标题；润色要放下底栏四个按钮 */
 const PANEL_WIDTH: Record<View, number> = { menu: 260, windows: 360, polish: 480 };
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const errorText = (error: unknown) => localizeMessage(error instanceof Error ? error.message : String(error));
 
 /**
  * 快捷菜单：右键桌宠或按「呼出快捷菜单」快捷键出来。
@@ -42,6 +43,8 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
  * 键盘就能走完：↑ ↓ 选、↵ 执行、Esc 返回或关掉；润色时 Tab 换规则、Ctrl R 再来一次、Ctrl ← 看原文。
  */
 export function QuickMenuWindow() {
+  const { t } = useI18n();
+  useWindowTitle(t("快速操作"));
   const [settings, setSettings] = useState<Settings | null>(null);
   const [view, setView] = useState<View>("menu");
   // 往里走（选窗口、润色）新内容从右边进来，退回菜单从左边回来；刚打开时不额外动
@@ -158,7 +161,7 @@ export function QuickMenuWindow() {
   const shortcutHint = (action: ShortcutAction) => {
     const value = accelerator(action);
     if (!value) return null;
-    if (conflicts.includes(value)) return <span className="signal small">快捷键被占用</span>;
+    if (conflicts.includes(value)) return <span className="signal small">{t("快捷键被占用")}</span>;
     return <Keys value={value} quiet />;
   };
 
@@ -172,7 +175,7 @@ export function QuickMenuWindow() {
       setWindows(await listWindows());
     } catch (error) {
       setWindows([]);
-      showStatus({ kind: "error", text: errorText(error) });
+      showStatus({ kind: "error", text: t(errorText(error)) });
     }
     rootRef.current?.focus();
   }
@@ -183,25 +186,29 @@ export function QuickMenuWindow() {
       void runAction("capture", item.id).catch(() => {});
       return;
     }
-    showStatus({ kind: "busy", text: `正在开始录 ${item.appName}…` });
+    showStatus({ kind: "busy", text: t("正在开始录 {app}…", { app: item.appName }) });
     try {
       const next = await toggleRecording(item.id);
       setRecording(next);
       setView("menu");
-      showStatus({ kind: "ok", text: next.message?.trim() || `开始录制 ${next.target ?? item.appName}` }, true);
+      const message = next.message?.trim();
+      showStatus({
+        kind: "ok",
+        text: message ? localizeMessage(message) : t("开始录制 {target}", { target: next.target ?? item.appName }),
+      }, true);
     } catch (error) {
-      showStatus({ kind: "error", text: errorText(error) });
+      showStatus({ kind: "error", text: t(errorText(error)) });
     }
   }
 
   async function stopRecording() {
-    showStatus({ kind: "busy", text: "正在停止并保存录像…" });
+    showStatus({ kind: "busy", text: t("正在停止并保存录像…") });
     try {
       const next = await toggleRecording();
       setRecording(next);
-      showStatus({ kind: "ok", text: next.active ? "录制还在继续" : "录制已保存" }, !next.active);
+      showStatus({ kind: "ok", text: next.active ? t("录制还在继续") : t("录制已保存") }, !next.active);
     } catch (error) {
-      showStatus({ kind: "error", text: errorText(error) });
+      showStatus({ kind: "error", text: t(errorText(error)) });
     }
   }
 
@@ -218,12 +225,12 @@ export function QuickMenuWindow() {
         setResult(polished);
       } catch (error) {
         if (token !== runToken.current) return;
-        setPolishError(errorText(error));
+        setPolishError(t(errorText(error)));
       } finally {
         if (token === runToken.current) setRunning(false);
       }
     },
-    [],
+    [t],
   );
 
   function enterPolish(text: string) {
@@ -236,7 +243,7 @@ export function QuickMenuWindow() {
     setView("polish");
     showStatus(null);
     if (!settings?.baseUrl || !settings?.model) {
-      setPolishError("还没填模型接口，润色用不了。请在主窗口的「偏好设置」里填写。");
+      setPolishError(t("还没填模型接口，润色用不了。请在主窗口的「偏好设置」里填写。"));
       return;
     }
     void run(trimmed, template);
@@ -246,7 +253,7 @@ export function QuickMenuWindow() {
     try {
       enterPolish(await readClipboardText());
     } catch (error) {
-      showStatus({ kind: "error", text: errorText(error) });
+      showStatus({ kind: "error", text: t(errorText(error)) });
     }
   }
 
@@ -265,7 +272,7 @@ export function QuickMenuWindow() {
       await copyText(result);
       void hideQuickMenu();
     } catch (error) {
-      showStatus({ kind: "error", text: errorText(error) });
+      showStatus({ kind: "error", text: t(errorText(error)) });
     }
   }
 
@@ -273,20 +280,20 @@ export function QuickMenuWindow() {
     const list: Item[] = [
       {
         id: "capture",
-        label: "快照",
+        label: t("快照"),
         hint: shortcutHint("snapshot"),
         run: () => void openPicker("capture"),
       },
       {
         id: "fullscreen",
-        label: "全屏截图",
+        label: t("全屏截图"),
         hint: shortcutHint("fullscreen"),
         run: () => void runAction("fullscreen").catch(() => {}),
       },
       recording.active
         ? {
             id: "record",
-            label: <>停止录制 · {recording.target ?? "窗口"}</>,
+            label: t("停止录制 · {target}", { target: recording.target ?? t("窗口") }),
             // 时长放在右边：窗口名太长时左边会被截掉，时长不能跟着没了
             hint: (
               <>
@@ -298,20 +305,20 @@ export function QuickMenuWindow() {
           }
         : {
             id: "record",
-            label: "录制",
+            label: t("录制"),
             hint: shortcutHint("record"),
             run: () => void openPicker("record"),
           },
       {
         id: "polish",
-        label: "润色 Prompt",
+        label: t("润色 Prompt"),
         hint: shortcutHint("polish"),
         run: () => void polishClipboardText(),
       },
     ];
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, recording, conflicts, now]);
+  }, [settings, recording, conflicts, now, t]);
 
   const visibleWindows = windows ?? [];
 
@@ -366,7 +373,7 @@ export function QuickMenuWindow() {
   }
 
   const templates = settings?.templates ?? [];
-  const templateName = templates.find((item) => item.id === templateId)?.name ?? "默认规则";
+  const templateName = t(templates.find((item) => item.id === templateId)?.name ?? "默认规则");
 
   return (
     <div
@@ -380,26 +387,33 @@ export function QuickMenuWindow() {
       onKeyDown={onKeyDown}
     >
       <div className="palette-wrap" key={opening} style={{ width: PANEL_WIDTH[view] }}>
-        <div className="palette" ref={panelRef} role="dialog" aria-label="应用快照快捷菜单">
+        <div className="palette" ref={panelRef} role="dialog" aria-label={t("应用快照快捷菜单")}>
           {view === "polish" ? (
             <div className={`palette-polish ${enterClass.current}`}>
               <div className="palette-source small">
-                <span className="quiet">原文</span>
+                <span className="quiet">{t("原文")}</span>
                 <span className="palette-source-text">{source}</span>
-                {result && <span className="mono quiet">{source.length} → {result.length} 字</span>}
+                {result && (
+                  <span className="mono quiet">
+                    {t("{sourceCount} → {resultCount} 字", { sourceCount: source.length, resultCount: result.length })}
+                  </span>
+                )}
               </div>
               <div className="palette-result" tabIndex={-1} ref={resultRef} aria-live="polite">
                 {running ? (
                   <p className="palette-busy">
                     <span className="busy-line" aria-hidden="true" />
                     <span>
-                      正在按「{templateName}」润色 · <span className="mono">{Math.floor((now - startedAt) / 1000)}</span> 秒
+                      {t("正在按「{template}」润色 · {seconds} 秒", {
+                        template: templateName,
+                        seconds: Math.floor((now - startedAt) / 1000),
+                      })}
                     </span>
                   </p>
                 ) : polishError ? (
                   <p className="signal">
                     {polishError}　{settings?.baseUrl && settings.model && (
-                      <button type="button" className="link" onClick={() => void run(source, templateId)}>重试</button>
+                      <button type="button" className="link" onClick={() => void run(source, templateId)}>{t("重试")}</button>
                     )}
                   </p>
                 ) : (
@@ -412,13 +426,13 @@ export function QuickMenuWindow() {
                 </button>
                 <span className="spacer" />
                 <button type="button" className="text-btn ink-2" onClick={() => setPeek((value) => !value)} disabled={!result}>
-                  {peek ? "看结果" : "看原文"}<span className="mono quiet">Ctrl ←</span>
+                  {peek ? t("看结果") : t("看原文")}<span className="mono quiet">Ctrl ←</span>
                 </button>
                 <button type="button" className="text-btn ink-2" onClick={() => void run(source, templateId)} disabled={running}>
-                  再来一次<span className="mono quiet">Ctrl R</span>
+                  {t("再来一次")}<span className="mono quiet">Ctrl R</span>
                 </button>
                 <button type="button" className="btn btn-primary" onClick={() => void copyAndClose()} disabled={!result || running}>
-                  复制并关闭<span className="mono">↵</span>
+                  {t("复制并关闭")}<span className="mono">↵</span>
                 </button>
               </div>
             </div>
@@ -426,18 +440,18 @@ export function QuickMenuWindow() {
             <>
               {view === "windows" && (
                 <div className="palette-window-head">
-                  <button type="button" className="palette-back" aria-label="返回" onClick={() => setView("menu")}>
+                  <button type="button" className="palette-back" aria-label={t("返回")} onClick={() => setView("menu")}>
                     <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
                   </button>
                   <span className="palette-window-heading">
-                    {pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口"}
+                    {t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}
                   </span>
                   <span className="mono small quiet">Esc</span>
                 </div>
               )}
 
               {view === "menu" ? (
-                <div className={`palette-list ${enterClass.current}`} role="listbox" aria-label="动作">
+                <div className={`palette-list ${enterClass.current}`} role="listbox" aria-label={t("动作")}>
                   {items.map((item, index) => (
                     <button
                       key={item.id}
@@ -454,10 +468,10 @@ export function QuickMenuWindow() {
                   ))}
                 </div>
               ) : (
-                <div className={`palette-list palette-windows ${enterClass.current}`} role="listbox" aria-label={pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口"}>
-                  {windows === null && <p className="palette-empty small quiet">正在读取窗口…</p>}
+                <div className={`palette-list palette-windows ${enterClass.current}`} role="listbox" aria-label={t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}>
+                  {windows === null && <p className="palette-empty small quiet">{t("正在读取窗口…")}</p>}
                   {windows !== null && visibleWindows.length === 0 && (
-                    <p className="palette-empty small quiet">没有找到可用的窗口</p>
+                    <p className="palette-empty small quiet">{t("没有找到可用的窗口")}</p>
                   )}
                   {visibleWindows.map((item, index) => (
                     <button

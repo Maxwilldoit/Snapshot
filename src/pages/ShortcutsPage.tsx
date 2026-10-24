@@ -14,6 +14,7 @@ import { Keys } from "../components/ui/Keys";
 import { Choices } from "../components/ui/Choices";
 import { Switch } from "../components/ui/Switch";
 import { errorText, useApp } from "../app/context";
+import { useI18n } from "../lib/i18n";
 import type { Settings, ShortcutAction, ShortcutBinding } from "../types";
 
 const ACTION_LABELS: Record<ShortcutAction, { name: string }> = {
@@ -38,6 +39,7 @@ function pressedModifiers(event: React.KeyboardEvent): string[] {
 /** 全局快捷键列表 + 保存条。改动先留在本页，按「保存」才交给后端校验、注册、落盘 */
 export function ShortcutsPanel() {
   const { settings, onSaved, notify, conflicts, setConflicts, caps } = useApp();
+  const { t } = useI18n();
   const [shortcuts, setShortcuts] = useState(settings.shortcuts);
   const [recording, setRecording] = useState<ShortcutAction | null>(null);
   const [held, setHeld] = useState<string[]>([]);
@@ -111,7 +113,7 @@ export function ShortcutsPanel() {
       const saved = await saveShortcuts(next);
       onSaved(saved);
       setConflicts([]);
-      notify(saved.shortcutsPaused ? "快捷键绑定已保存，全局快捷键仍保持暂停" : "快捷键已保存，立即生效");
+      notify(saved.shortcutsPaused ? t("快捷键绑定已保存，全局快捷键仍保持暂停") : t("快捷键已保存，立即生效"));
     } catch (error) {
       setShortcuts(previous);
       notify(errorText(error), "error");
@@ -133,7 +135,7 @@ export function ShortcutsPanel() {
       const next = await setShortcutsPaused(paused);
       onSaved(next);
       setConflicts([]);
-      notify(next.shortcutsPaused ? "全局快捷键已暂停，按键已释放" : "全局快捷键已恢复");
+      notify(next.shortcutsPaused ? t("全局快捷键已暂停，按键已释放") : t("全局快捷键已恢复"));
     } catch (error) {
       notify(errorText(error), "error");
     } finally {
@@ -143,6 +145,7 @@ export function ShortcutsPanel() {
 
   const renderRow = (binding: ShortcutBinding) => {
     const label = ACTION_LABELS[binding.action] ?? { name: binding.action };
+    const labelName = t(label.name);
     const isRecording = recording === binding.action;
     const saved = settings.shortcuts.find((item) => item.action === binding.action)?.accelerator ?? null;
     const conflicted = Boolean(binding.accelerator && binding.accelerator === saved && conflicts.includes(binding.accelerator));
@@ -153,7 +156,10 @@ export function ShortcutsPanel() {
         <button
           type="button"
           className="key-row-main"
-          aria-label={`快捷键：${label.name}，当前按键：${binding.accelerator || "未设置"}`}
+          aria-label={t("快捷键：{name}，当前按键：{keys}", {
+            name: labelName,
+            keys: binding.accelerator || t("未设置"),
+          })}
           disabled={saving}
           onClick={() => {
             // 这一行是「录快捷键」的选中态，不是执行功能：点它开始录，再点一次取消
@@ -167,12 +173,14 @@ export function ShortcutsPanel() {
         >
           <span className="key-row-text">
             <span className="key-row-name">
-              <span className={isRecording ? "strong" : ""}>{label.name}</span>
+              <span className={isRecording ? "strong" : ""}>{labelName}</span>
             </span>
-            {conflicted && <span className="signal small">没注册上，这组键已被其他程序占用</span>}
-            {unavailable && !conflicted && <span className="quiet small">不可用</span>}
+            {conflicted && <span className="signal small">{t("没注册上，这组键已被其他程序占用")}</span>}
+            {unavailable && !conflicted && <span className="quiet small">{t("不可用")}</span>}
             {rejection && (
-              <span className="signal small">只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个</span>
+              <span className="signal small">
+                {t("只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个", { rejection })}
+              </span>
             )}
           </span>
           <span className="key-row-value">
@@ -184,7 +192,7 @@ export function ShortcutsPanel() {
             ) : binding.accelerator ? (
               <Keys value={binding.accelerator} struck={conflicted} />
             ) : (
-              <span className="quiet small">未设置</span>
+              <span className="quiet small">{t("未设置")}</span>
             )}
           </span>
         </button>
@@ -192,11 +200,11 @@ export function ShortcutsPanel() {
           <button
             type="button"
             className="key-row-clear"
-            aria-label={`清除「${label.name}」的快捷键`}
+            aria-label={t("清除「{name}」的快捷键", { name: labelName })}
             disabled={saving}
             onClick={() => changeBinding(binding.action, null)}
           >
-            清除
+            {t("清除")}
           </button>
         )}
       </div>
@@ -206,19 +214,19 @@ export function ShortcutsPanel() {
   return (
     <section className="panel panel-shortcuts">
       <div className="panel-head">
-        <h2 className="panel-title">全局快捷键</h2>
+        <h2 className="panel-title">{t("全局快捷键")}</h2>
       </div>
       <div className="rows">
         <div className="row">
           <span className="pause-setting">
-            <label htmlFor="switch-shortcuts-paused" className="row-label pause-label">暂停全局快捷键</label>
+            <label htmlFor="switch-shortcuts-paused" className="row-label pause-label">{t("暂停全局快捷键")}</label>
             <span className="pause-state small" role="status">
-              {shortcutsPaused ? "未启用" : "启用中"}
+              {shortcutsPaused ? t("未启用") : t("启用中")}
             </span>
           </span>
           <Switch
             id="switch-shortcuts-paused"
-            label="暂停全局快捷键"
+            label={t("暂停全局快捷键")}
             value={shortcutsPaused}
             disabled={togglingPause || saving}
             onChange={(value) => void togglePause(value)}
@@ -233,6 +241,7 @@ export function ShortcutsPanel() {
 /** 剪贴板、图片格式、保存位置、录制——这一组和快捷键页放在一起，都是截图的去向 */
 export function StoragePanel() {
   const { settings, onSaved, notify, caps } = useApp();
+  const { t } = useI18n();
   const [snapshotPath, setSnapshotPath] = useState("");
   const [recordingPath, setRecordingPath] = useState("");
 
@@ -260,9 +269,9 @@ export function StoragePanel() {
   async function pickDir(key: "saveDir" | "recordingDir") {
     try {
       const selected = await open({ directory: true, multiple: false });
-      if (typeof selected === "string") await update({ [key]: selected }, key === "saveDir" ? "快照保存位置已更改" : "录像保存位置已更改");
+      if (typeof selected === "string") await update({ [key]: selected }, key === "saveDir" ? t("快照保存位置已更改") : t("录像保存位置已更改"));
     } catch {
-      notify("当前环境不支持选择目录", "error");
+      notify(t("当前环境不支持选择目录"), "error");
     }
   }
 
@@ -284,26 +293,26 @@ export function StoragePanel() {
 
   return (
     <section className="panel panel-storage">
-      <h2 className="panel-title">剪贴板与保存</h2>
+      <h2 className="panel-title">{t("剪贴板与保存")}</h2>
       <div className="rows">
         <div className="row">
-          <span className="row-label">自动清空剪贴板</span>
+          <span className="row-label">{t("自动清空剪贴板")}</span>
           <Choices
-            ariaLabel="自动清空剪贴板"
+            ariaLabel={t("自动清空剪贴板")}
             value={settings.clipboardAutoClear}
             onChange={(value) => void update({ clipboardAutoClear: value })}
             options={[
-              { value: "30s", label: "30 秒" },
-              { value: "60s", label: "60 秒" },
-              { value: "5m", label: "5 分钟" },
-              { value: "never", label: "不清空" },
+              { value: "30s", label: t("30 秒") },
+              { value: "60s", label: t("60 秒") },
+              { value: "5m", label: t("5 分钟") },
+              { value: "never", label: t("不清空") },
             ]}
           />
         </div>
         <div className="row">
-          <span className="row-label">图像格式</span>
+          <span className="row-label">{t("图像格式")}</span>
           <Choices
-            ariaLabel="图像格式"
+            ariaLabel={t("图像格式")}
             value={settings.snapshotFormat}
             onChange={(value) => void update({ snapshotFormat: value })}
             options={[
@@ -315,30 +324,30 @@ export function StoragePanel() {
         </div>
         <div className="row row-stack storage-path-row">
           <div className="row-line">
-            <span className="row-label">保存快照到</span>
-            <button type="button" className="link" onClick={() => void pickDir("saveDir")}>更改</button>
+            <span className="row-label">{t("保存快照到")}</span>
+            <button type="button" className="link" onClick={() => void pickDir("saveDir")}>{t("更改")}</button>
           </div>
           <button
             type="button"
             className="storage-path mono small"
             title={snapshotPath || undefined}
-            aria-label={`打开快照文件夹：${snapshotPath || "正在读取路径"}`}
+            aria-label={t("打开快照文件夹：{path}", { path: snapshotPath || t("正在读取路径") })}
             onClick={() => void openSnapshotFolder()}
           >
-            {snapshotPath ? middleTruncatePath(snapshotPath) : "正在读取路径…"}
+            {snapshotPath ? middleTruncatePath(snapshotPath) : t("正在读取路径…")}
           </button>
         </div>
       </div>
 
-      <h2 className="panel-title panel-title-gap">录制</h2>
+      <h2 className="panel-title panel-title-gap">{t("录制")}</h2>
       <div className="rows">
         <div className="row row-stack storage-path-row">
           <div className="row-line">
-            <span className="row-label">保存录像到</span>
+            <span className="row-label">{t("保存录像到")}</span>
             <span className="row-links small">
-              <button type="button" className="link" onClick={() => void pickDir("recordingDir")}>更改</button>
+              <button type="button" className="link" onClick={() => void pickDir("recordingDir")}>{t("更改")}</button>
               {settings.recordingDir && (
-                <button type="button" className="link" onClick={() => void update({ recordingDir: "" }, "已恢复默认录像位置")}>恢复默认</button>
+                <button type="button" className="link" onClick={() => void update({ recordingDir: "" }, t("已恢复默认录像位置"))}>{t("恢复默认")}</button>
               )}
             </span>
           </div>
@@ -346,27 +355,27 @@ export function StoragePanel() {
             type="button"
             className="storage-path mono small"
             title={recordingPath || undefined}
-            aria-label={`打开录像文件夹：${recordingPath || "正在读取路径"}`}
+            aria-label={t("打开录像文件夹：{path}", { path: recordingPath || t("正在读取路径") })}
             onClick={() => void openRecordingFolder()}
           >
-            {recordingPath ? middleTruncatePath(recordingPath) : "正在读取路径…"}
+            {recordingPath ? middleTruncatePath(recordingPath) : t("正在读取路径…")}
           </button>
         </div>
         <div className="row">
-          <label htmlFor="switch-system-audio" className="row-label">同时录系统声音</label>
+          <label htmlFor="switch-system-audio" className="row-label">{t("同时录系统声音")}</label>
           <Switch
             id="switch-system-audio"
-            label="同时录系统声音"
+            label={t("同时录系统声音")}
             value={settings.recordSystemAudio}
             disabled={Boolean(caps && !caps.recordingSystemAudio.available && !settings.recordSystemAudio)}
             onChange={(value) => void update({ recordSystemAudio: value })}
           />
         </div>
         <div className="row">
-          <label htmlFor="switch-microphone" className="row-label">同时录麦克风</label>
+          <label htmlFor="switch-microphone" className="row-label">{t("同时录麦克风")}</label>
           <Switch
             id="switch-microphone"
-            label="同时录麦克风"
+            label={t("同时录麦克风")}
             value={settings.recordMicrophone}
             disabled={Boolean(caps && !caps.recordingMicrophone.available && !settings.recordMicrophone)}
             onChange={(value) => void update({ recordMicrophone: value })}

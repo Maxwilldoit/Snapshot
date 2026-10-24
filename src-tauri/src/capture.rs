@@ -85,6 +85,9 @@ fn capture_area(
 
 /// 把光标合成失败的原因压成短中文，附在截图成功 toast 后。
 fn cursor_degrade_note(error: &str) -> String {
+    if interface_is_english() {
+        return " (The pointer could not be included; the capture was saved without it.)".into();
+    }
     let head = error.split(" / ").next().unwrap_or(error).trim();
     let short: String = head.chars().take(48).collect();
     let ellipsis = if head.chars().count() > 48 { "…" } else { "" };
@@ -130,7 +133,12 @@ pub(crate) fn finalize_capture(
     if annotate {
         open_annotate_window(app, state, &image, app_name)?;
     } else if !only_save {
-        clipboard::copy_image(app, state, image, &format!("{app_name} 截图"), snapshot_id)?;
+        let title = if interface_is_english() {
+            format!("{app_name} screenshot")
+        } else {
+            format!("{app_name} 截图")
+        };
+        clipboard::copy_image(app, state, image, &title, snapshot_id)?;
     }
 
     let _ = app.emit(
@@ -148,6 +156,36 @@ pub(crate) fn finalize_capture(
     }
 
     let suffix = cursor_degraded.unwrap_or_default();
+    if interface_is_english() {
+        return if annotate {
+            if archived {
+                Ok(format!(
+                    "Opened annotation for {app_name} · saved to history{suffix}"
+                ))
+            } else if settings.auto_save_local {
+                Ok(format!(
+                    "Opened annotation for {app_name} · history save failed{suffix}"
+                ))
+            } else {
+                Ok(format!("Opened annotation for {app_name}{suffix}"))
+            }
+        } else if only_save {
+            Ok(format!("Saved {app_name} to history{suffix}"))
+        } else {
+            let clear_label = snapshots::format_clear_label(&settings.clipboard_auto_clear);
+            if archived {
+                Ok(format!(
+                    "Copied {app_name} and saved it to history · {clear_label}{suffix}"
+                ))
+            } else if settings.auto_save_local {
+                Ok(format!(
+                    "Copied {app_name} · history save failed · {clear_label}{suffix}"
+                ))
+            } else {
+                Ok(format!("Copied {app_name} · {clear_label}{suffix}"))
+            }
+        };
+    }
     if annotate {
         if archived {
             Ok(format!("已打开标注：{app_name}（已存入历史）{suffix}"))
@@ -278,7 +316,7 @@ pub(crate) fn annotate_copy(
     }
     activity::record(
         &app,
-        activity::Activity::new("capture", "标注图")
+        activity::Activity::new("capture", ui_text("标注图", "Annotated image"))
             .meta(format!("{} × {}", image.width(), image.height()))
             .snapshot(snapshot_id.clone()),
     );
@@ -299,10 +337,14 @@ pub(crate) fn annotate_save(
     let image = decode_png_base64(&image_data)?;
     let format = state.settings.lock().snapshot_format.clone();
     if !save_image_as_dialog(&app, &image, &format)? {
-        return Ok("已取消另存，标注仍保留".into());
+        return Ok(ui_text(
+            "已取消另存，标注仍保留",
+            "Save canceled. Your annotations are still here.",
+        )
+        .into());
     }
     hide_annotate_window(&app, &state);
-    Ok("已保存标注图".into())
+    Ok(ui_text("已保存标注图", "Annotated image saved").into())
 }
 
 #[tauri::command]
@@ -312,11 +354,19 @@ pub(crate) fn annotate_save_copy(
     image_data: String,
 ) -> Result<String, String> {
     let image = decode_png_base64(&image_data)?;
-    let title = format!("{} · 标注", state.annotate_title.lock());
+    let title = if interface_is_english() {
+        format!("{} · Annotation", state.annotate_title.lock())
+    } else {
+        format!("{} · 标注", state.annotate_title.lock())
+    };
     snapshots::store_snapshot(&state, &image, &title)?;
     let _ = app.emit("snapshots-changed", ());
     hide_annotate_window(&app, &state);
-    Ok("标注副本已保存到历史记录".into())
+    Ok(ui_text(
+        "标注副本已保存到历史记录",
+        "Annotated copy saved to history",
+    )
+    .into())
 }
 
 #[tauri::command]
@@ -355,7 +405,9 @@ pub(crate) fn capture_fullscreen_image(
     include_cursor: bool,
 ) -> Result<(RgbaImage, String, Option<String>), String> {
     let monitor = primary_monitor()?;
-    let name = monitor.name().unwrap_or_else(|_| "全屏".into());
+    let name = monitor
+        .name()
+        .unwrap_or_else(|_| ui_text("全屏", "Full screen").into());
     let area = match (monitor.x(), monitor.y(), monitor.width(), monitor.height()) {
         (Ok(x), Ok(y), Ok(width), Ok(height)) => Some(Area {
             x,

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { thumbUrl } from "../lib/media";
+import { useI18n } from "../lib/i18n";
 
 /** 按截图原本的宽高比算缩略图宽度：长截图就是一条窄条，带鱼屏就是一块宽块 */
 function thumbWidth(width: number, height: number, thumbHeight: number, max = 200, min = 22) {
@@ -32,6 +33,7 @@ export function SnapshotThumb({
   selected?: boolean;
   onPress: (element: HTMLButtonElement, event: React.MouseEvent) => void;
 }) {
+  const { t } = useI18n();
   const [failed, setFailed] = useState(false);
   const w = thumbWidth(width, height, thumbHeight, maxWidth);
   return (
@@ -39,7 +41,7 @@ export function SnapshotThumb({
       type="button"
       className={`thumb ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${w < 36 ? "is-narrow" : ""}`}
       style={{ width: w, height: thumbHeight }}
-      aria-label={selecting ? `选择：${label}` : `放大：${label}`}
+      aria-label={selecting ? t("选择：{label}", { label }) : t("放大：{label}", { label })}
       aria-pressed={selecting ? selected : undefined}
       data-thumb-id={id}
       onClick={(event) => onPress(event.currentTarget, event)}

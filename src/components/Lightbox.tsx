@@ -4,6 +4,7 @@ import { snapshotUrl } from "../lib/media";
 import { annotateSnapshot } from "../lib/backend";
 import { formatBytes, formatClock, dayLabel } from "../lib/format";
 import { growFrom, shrinkTo } from "../lib/motion";
+import { useI18n } from "../lib/i18n";
 import type { SnapshotRecord } from "../types";
 
 /** 列表里这张缩略图此刻在哪（它可能已经滚出视野，找不到就淡出） */
@@ -35,6 +36,7 @@ export function Lightbox({
   const [editError, setEditError] = useState<string | null>(null);
   // 翻页方向：下一张从右边滑进来，上一张从左边
   const [direction, setDirection] = useState<1 | -1>(1);
+  const { t } = useI18n();
   const stageRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const opened = useRef(false);
@@ -116,21 +118,21 @@ export function Lightbox({
 
   // 挂到 body 上：页面切换的位移动画会让祖先变成定位容器，放在里面会被框住
   return createPortal(
-    <div className={`lightbox ${isClosing ? "is-closing" : ""}`} role="dialog" aria-modal="true" aria-label={`放大查看：${record.appName}`}>
+    <div className={`lightbox ${isClosing ? "is-closing" : ""}`} role="dialog" aria-modal="true" aria-label={t("放大查看：{appName}", { appName: record.appName })}>
       <div className="lightbox-head">
         <button type="button" className="lightbox-back" onClick={() => void close()}>
           <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
-          返回
+          {t("返回")}
         </button>
         <span className="lightbox-title" title={record.appName}>{record.appName}</span>
         <button type="button" className="lightbox-back" disabled={editing} onClick={() => void edit()}>
-          {editing ? "正在打开…" : "标注"}
+          {editing ? t("正在打开…") : t("标注")}
         </button>
         <span className="lightbox-count mono">{index + 1} / {records.length}</span>
       </div>
 
       <div className="lightbox-body">
-        <button type="button" className="lightbox-arrow" aria-label="上一张" disabled={editing || index === 0} onClick={() => step(-1)}>
+        <button type="button" className="lightbox-arrow" aria-label={t("上一张")} disabled={editing || index === 0} onClick={() => step(-1)}>
           <svg width="12" height="22" viewBox="0 0 12 22" aria-hidden="true"><path d="M11 1L1 11l10 10" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
         </button>
         <div className="lightbox-stage" ref={stageRef}>
@@ -146,7 +148,7 @@ export function Lightbox({
             />
           )}
         </div>
-        <button type="button" className="lightbox-arrow" aria-label="下一张" disabled={editing || index >= records.length - 1} onClick={() => step(1)}>
+        <button type="button" className="lightbox-arrow" aria-label={t("下一张")} disabled={editing || index >= records.length - 1} onClick={() => step(1)}>
           <svg width="12" height="22" viewBox="0 0 12 22" aria-hidden="true"><path d="M1 1l10 10L1 21" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
         </button>
       </div>

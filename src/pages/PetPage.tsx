@@ -8,6 +8,7 @@ import { fileNameOf, formatBytes } from "../lib/format";
 import { commonPrefix, entryLabel } from "../lib/petNames";
 import { flyImage, stagger, useFlip, useSlidingMark } from "../lib/motion";
 import { errorText, useApp } from "../app/context";
+import { useI18n } from "../lib/i18n";
 import type { PetAsset } from "../types";
 
 const ACCEPTED = /\.(zip|gif)$/i;
@@ -28,9 +29,10 @@ function ShelfItem({
   onRemove?: () => void;
   index: number;
 }) {
+  const { t } = useI18n();
   const [failed, setFailed] = useState(false);
   const broken = Boolean(asset?.missing);
-  const name = asset ? asset.name : "前台应用图标";
+  const name = asset ? asset.name : t("前台应用图标");
   return (
     <div
       className={`shelf-item ${selected ? "is-selected" : ""} ${broken ? "is-broken" : ""}`}
@@ -59,8 +61,8 @@ function ShelfItem({
       </button>
       {broken && (
         <span className="shelf-broken small">
-          原文件丢了{" "}
-          {onRemove && <button type="button" className="link" onClick={onRemove}>移除</button>}
+          {t("原文件丢了")}{" "}
+          {onRemove && <button type="button" className="link" onClick={onRemove}>{t("移除")}</button>}
         </span>
       )}
     </div>
@@ -69,6 +71,7 @@ function ShelfItem({
 
 export function PetPage() {
   const { settings, onSaved, notify } = useApp();
+  const { t } = useI18n();
   const [activeEntry, setActiveEntry] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [importing, setImporting] = useState(false);
@@ -129,15 +132,19 @@ export function PetPage() {
     const accepted = paths.filter((path) => ACCEPTED.test(path));
     const skipped = paths.filter((path) => !ACCEPTED.test(path));
     if (!accepted.length) {
-      if (skipped.length) notify("只认 ZIP 或 GIF", "error");
+      if (skipped.length) notify(t("只认 ZIP 或 GIF"), "error");
       return;
     }
     setImporting(true);
     try {
       const result = await addPetAssets(accepted);
       onSaved(result.settings);
-      setFailures([...result.failed, ...skipped.map((path) => ({ path, reason: "不是 ZIP 或 GIF" }))]);
-      if (result.imported > 0) notify(result.imported === 1 ? "导入了 1 只，已经换上" : `导入了 ${result.imported} 只`);
+      setFailures([...result.failed, ...skipped.map((path) => ({ path, reason: t("不是 ZIP 或 GIF") }))]);
+      if (result.imported > 0) {
+        notify(result.imported === 1
+          ? t("导入了 1 只，已经换上")
+          : t("导入了 {count} 只", { count: result.imported }));
+      }
     } catch (error) {
       notify(errorText(error), "error");
     } finally {
@@ -148,11 +155,11 @@ export function PetPage() {
 
   async function pickFiles() {
     try {
-      const picked = await open({ multiple: true, directory: false, filters: [{ name: "伴侣素材", extensions: ["zip", "gif"] }] });
+      const picked = await open({ multiple: true, directory: false, filters: [{ name: t("伴侣素材"), extensions: ["zip", "gif"] }] });
       const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
       if (paths.length) await importPaths(paths);
     } catch {
-      notify("当前环境不支持选择文件", "error");
+      notify(t("当前环境不支持选择文件"), "error");
     }
   }
 
@@ -195,7 +202,7 @@ export function PetPage() {
     const name = settings.petAssets.find((item) => item.id === id)?.name ?? "";
     try {
       onSaved(await deletePetAsset(id));
-      notify(`移除了「${name}」`);
+      notify(t("移除了「{name}」", { name }));
     } catch (error) {
       notify(errorText(error), "error");
     }
@@ -205,7 +212,7 @@ export function PetPage() {
 
   return (
     <div className={`pet-page ${dropping ? "is-dropping" : ""}`}>
-      <section className="pet-current" aria-label="当前伴侣">
+      <section className="pet-current" aria-label={t("当前伴侣")}>
         <div className="pet-stage" ref={stageRef}>
           {stageSrc ? (
             <img key={stageSrc} className={`pet-stage-image ${landing === "flying" ? "is-landing" : landing === "landed" ? "is-landed" : ""}`} src={stageSrc} alt={selected?.name ?? ""} draggable={false} />
@@ -225,7 +232,7 @@ export function PetPage() {
                   className="input pet-rename"
                   autoFocus
                   defaultValue={selected.name}
-                  aria-label="新名字"
+                  aria-label={t("新名字")}
                   maxLength={40}
                   onBlur={(event) => void commitRename(selected.id, event.target.value)}
                   onKeyDown={(event) => {
@@ -236,15 +243,18 @@ export function PetPage() {
               ) : (
                 <>
                   <h2 className="pet-name">{selected.name}</h2>
-                  <button type="button" className="link small quiet" onClick={() => setRenaming(selected.id)}>改名</button>
+                  <button type="button" className="link small quiet" onClick={() => setRenaming(selected.id)}>{t("改名")}</button>
                 </>
               )}
             </div>
             <span className="mono small quiet">
-              {selected.animations.length} 个动作{selected.sizeBytes ? ` · ${formatBytes(selected.sizeBytes)}` : ""}
+              {selected.animations.length === 1
+                ? t("1 个动作")
+                : t("{count} 个动作", { count: selected.animations.length })}
+              {selected.sizeBytes ? ` · ${formatBytes(selected.sizeBytes)}` : ""}
             </span>
             {selected.animations.length > 1 && (
-              <div className="choices choices-wrap pet-actions has-mark" role="radiogroup" aria-label="预览动作" ref={actionsRef}>
+              <div className="choices choices-wrap pet-actions has-mark" role="radiogroup" aria-label={t("预览动作")} ref={actionsRef}>
                 {selected.animations.map((entry) => (
                   <button
                     key={entry}
@@ -258,7 +268,7 @@ export function PetPage() {
                       setActiveEntry(entry);
                     }}
                   >
-                    {entryLabel(entry, prefix)}
+                    {entryLabel(entry, prefix, t)}
                   </button>
                 ))}
               </div>
@@ -275,35 +285,35 @@ export function PetPage() {
                 }
               }}
             >
-              {armedRemove ? "再点一次就移除" : "移除这只"}
+              {armedRemove ? t("再点一次就移除") : t("移除这只")}
             </button>
           </>
         ) : (
           <>
-            <h2 className="pet-name">前台应用图标</h2>
+            <h2 className="pet-name">{t("前台应用图标")}</h2>
           </>
         )}
       </section>
 
       <div className="pet-collection">
-        <section className="pet-shelf-area" aria-label="全部形象">
+        <section className="pet-shelf-area" aria-label={t("全部形象")}>
           <div className="panel-head">
             <span className="panel-head-left">
-              <h2 className="panel-title">全部形象</h2>
+              <h2 className="panel-title">{t("全部形象")}</h2>
               <span className="mono small quiet">{settings.petAssets.length}</span>
             </span>
             <span className="panel-head-right">
               {settings.petAssets.length > 5 && (
                 <label className="search search-small">
                   <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" strokeWidth="1.2" /><path d="M8 8l3.5 3.5" stroke="currentColor" strokeWidth="1.2" /></svg>
-                  <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="按名称筛选" aria-label="按名称筛选形象" />
+                  <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("按名称筛选")} aria-label={t("按名称筛选形象")} />
                 </label>
               )}
               <button type="button" className="btn btn-small" onClick={() => void pickFiles()} disabled={importing}>
-                {importing ? "导入中…" : "导入…"}
+                {importing ? t("导入中…") : t("导入…")}
               </button>
-              <button type="button" className="btn btn-small" title="在独立窗口中浏览" onClick={() => void showPetCatalog().catch((error) => notify(`打开素材库失败：${errorText(error)}`, "error"))}>
-                浏览素材库 ↗
+              <button type="button" className="btn btn-small" title={t("在独立窗口中浏览")} onClick={() => void showPetCatalog().catch((error) => notify(t("打开素材库失败：{detail}", { detail: errorText(error) }), "error"))}>
+                {t("浏览素材库 ↗")}
               </button>
             </span>
           </div>
@@ -311,14 +321,21 @@ export function PetPage() {
           {failures.length > 0 && (
             <div className="import-failures" role="alert">
               <span className="small">
-                <span className="signal">这 {failures.length} 个没导进来：</span>
-                {failures.map((item) => `${fileNameOf(item.path)}（${item.reason}）`).join("、")}
+                <span className="signal">
+                  {failures.length === 1
+                    ? t("这 1 个没导进来：")
+                    : t("这 {count} 个没导进来：", { count: failures.length })}
+                </span>
+                {failures.map((item) => t("{file}（{reason}）", {
+                  file: fileNameOf(item.path),
+                  reason: item.reason,
+                })).join(t("、"))}
               </span>
-              <button type="button" className="link small" onClick={() => setFailures([])}>知道了</button>
+              <button type="button" className="link small" onClick={() => setFailures([])}>{t("知道了")}</button>
             </div>
           )}
 
-          <div className="shelf" role="radiogroup" aria-label="选择伴侣" ref={shelfRef}>
+          <div className="shelf" role="radiogroup" aria-label={t("选择伴侣")} ref={shelfRef}>
             {!filter && <ShelfItem asset={null} index={0} selected={selectedId === "app-icon"} onChoose={() => void choose("app-icon")} />}
             {shelf.map((asset, index) => (
               <ShelfItem
@@ -330,12 +347,12 @@ export function PetPage() {
                 onRemove={() => void remove(asset.id)}
               />
             ))}
-            {dropping && <div className="shelf-drop small">松手导入</div>}
+            {dropping && <div className="shelf-drop small">{t("松手导入")}</div>}
           </div>
           {filter && shelf.length === 0 && (
             <p className="empty-line">
-              没有名字含「{filter.trim()}」的形象。
-              <button type="button" className="link" onClick={() => setFilter("")}>清除筛选</button>
+              {t("没有名字含「{filter}」的形象。", { filter: filter.trim() })}
+              <button type="button" className="link" onClick={() => setFilter("")}>{t("清除筛选")}</button>
             </p>
           )}
 

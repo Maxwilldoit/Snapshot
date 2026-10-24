@@ -2,9 +2,12 @@ import { useEffect, useState } from "react";
 import { errorText } from "../app/context";
 import { PetCatalog } from "../components/PetCatalog";
 import { loadSettings, onSettingsChanged } from "../lib/backend";
+import { useI18n, useWindowTitle } from "../lib/i18n";
 import type { Settings } from "../types";
 
 export function PetCatalogWindow() {
+  const { t } = useI18n();
+  useWindowTitle(t("桌宠素材库 · Snapshot"));
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -36,12 +39,12 @@ export function PetCatalogWindow() {
     <main className="pet-catalog-window">
       {error ? (
         <div className="pet-catalog-state" role="alert">
-          <p>读取素材库设置失败：{error}</p>
-          <button type="button" className="link" onClick={() => { setError(null); setAttempt((value) => value + 1); }}>重试</button>
+          <p>{t("读取素材库设置失败：{detail}", { detail: error })}</p>
+          <button type="button" className="link" onClick={() => { setError(null); setAttempt((value) => value + 1); }}>{t("重试")}</button>
         </div>
       ) : settings ? (
         <PetCatalog settings={settings} onSaved={setSettings} />
-      ) : <p className="quiet" role="status">正在读取设置…</p>}
+      ) : <p className="quiet" role="status">{t("正在读取设置…")}</p>}
     </main>
   );
 }

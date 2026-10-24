@@ -1,16 +1,25 @@
 import type { ActivityEntry } from "../types";
+import { getActiveLanguage, translate } from "./i18n";
 
 /** 猫播报用的一句完整的话 */
 export function narrate(entry: ActivityEntry): string {
+  const language = getActiveLanguage();
   switch (entry.kind) {
     case "capture":
-      return `${entry.title} 截好了。`;
+      return translate(language, "{title} 截好了。", { title: entry.title });
     case "record":
-      return `录好了：${entry.title}${entry.meta ? `，${entry.meta}` : ""}。`;
+      return entry.meta
+        ? translate(language, "录好了：{title}，{meta}。", { title: entry.title, meta: entry.meta })
+        : translate(language, "录好了：{title}。", { title: entry.title });
     case "polish":
-      return `润色好了，${entry.meta ?? "结果已生成"}。`;
+      return entry.meta
+        ? translate(language, "润色好了，{meta}。", { meta: entry.meta })
+        : translate(language, "润色好了，结果已生成。");
     case "error":
-      return `${entry.title}：${entry.detail ?? "原因未知"}`;
+      return translate(language, "{title}：{detail}", {
+        title: entry.title,
+        detail: entry.detail ?? translate(language, "原因未知"),
+      });
     default:
       return entry.title;
   }
@@ -18,13 +27,16 @@ export function narrate(entry: ActivityEntry): string {
 
 /** 流水、时间线里的一行短标签 */
 export function shortLabel(entry: ActivityEntry): string {
+  const language = getActiveLanguage();
   switch (entry.kind) {
     case "capture":
-      return `截图 ${entry.title}`;
+      return translate(language, "截图 {title}", { title: entry.title });
     case "record":
-      return `录制 ${entry.meta ?? ""} ${entry.title}`.replace(/\s+/g, " ").trim();
+      return entry.meta
+        ? translate(language, "录制 {meta} {title}", { meta: entry.meta, title: entry.title })
+        : translate(language, "录制 {title}", { title: entry.title });
     case "polish":
-      return `润色 ${entry.meta ?? ""}`.trim();
+      return entry.meta ? translate(language, "润色 {meta}", { meta: entry.meta }) : translate(language, "润色");
     case "error":
       return entry.title;
     default:

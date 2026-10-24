@@ -20,6 +20,7 @@ import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { placementForEntry, type PetPlacement } from "../lib/petFrame";
 import { PET_SCALE, petWindowSize } from "../lib/petSize";
 import { cycleEntries, nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
+import { useI18n, useWindowTitle } from "../lib/i18n";
 import type { PetAsset, PetEvent, PetLayout, PreviousApp, RecordingStatus, Settings } from "../types";
 
 /** 放大后超出了所在屏幕的可用区域，就挪回来 */
@@ -57,6 +58,7 @@ async function commitPetWindow(
   side: number,
   place: PetPlacement | null,
   shiftRef: { current: { x: number; y: number } },
+  translate: (source: string) => string,
 ) {
   const grows =
     place != null && !(place.shiftX === 0 && place.shiftY === 0 && place.width === side && place.height === side);
@@ -79,7 +81,7 @@ async function commitPetWindow(
   const factor = await petWindow.scaleFactor();
   const pos = await petWindow.outerPosition();
   if (!(factor > 0) || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
-    throw new Error("读不到桌宠窗口的位置");
+    throw new Error(translate("读不到桌宠窗口的位置"));
   }
   const shiftX = Math.round(place.shiftX * factor);
   const shiftY = Math.round(place.shiftY * factor);
@@ -112,6 +114,8 @@ function ordinaryAnimations(asset: Pick<PetAsset, "animations" | "eventActions" 
 }
 
 export function PetWindow() {
+  const { t } = useI18n();
+  useWindowTitle(t("桌宠"));
   const [app, setApp] = useState<PreviousApp>({ id: null, pid: null, name: "", title: "" });
   const [appearanceId, setAppearanceId] = useState("app-icon");
   const [animations, setAnimations] = useState<string[]>([]);
@@ -287,7 +291,7 @@ export function PetWindow() {
           const key = windowKey(side, place);
           if (key === appliedKey.current) continue;
           appliedKey.current = key;
-          await commitPetWindow(petWindow, side, place, frameShift);
+          await commitPetWindow(petWindow, side, place, frameShift, t);
         } while (again);
       } catch (error) {
         appliedKey.current = "";
@@ -309,7 +313,7 @@ export function PetWindow() {
       void movedListener.then((unlisten) => unlisten());
       void scaleListener.then((unlisten) => unlisten());
     };
-  }, [fittedSize, petScale, fittedKey]);
+  }, [fittedSize, petScale, fittedKey, t]);
 
   // 拖动时网页收不到指针事件（系统接管了窗口），只能看窗口往哪边移
   useEffect(() => {

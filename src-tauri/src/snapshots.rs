@@ -117,6 +117,14 @@ pub(crate) fn mime_for_snapshot_file(file_name: &str) -> &'static str {
 }
 
 pub(crate) fn format_clear_label(setting: &str) -> String {
+    if interface_is_english() {
+        return match setting {
+            "30s" => "The clipboard will clear in 30 seconds".into(),
+            "5m" => "The clipboard will clear in 5 minutes".into(),
+            "never" => "The clipboard will not be cleared automatically".into(),
+            _ => "The clipboard will clear in 60 seconds".into(),
+        };
+    }
     match setting {
         "30s" => "30 秒后自动清空剪贴板".into(),
         "5m" => "5 分钟后自动清空剪贴板".into(),
@@ -350,15 +358,18 @@ pub(crate) fn copy_snapshot(
     let image = image::open(history_dir(&state).join(&record.file_name))
         .map_err(|_| "快照文件已被移动或删除".to_string())?
         .to_rgba8();
-    clipboard::copy_image(
-        &app,
-        &state,
-        image,
-        &format!("{} 截图", record.app_name),
-        Some(record.id.clone()),
-    )?;
+    let title = if interface_is_english() {
+        format!("{} screenshot", record.app_name)
+    } else {
+        format!("{} 截图", record.app_name)
+    };
+    clipboard::copy_image(&app, &state, image, &title, Some(record.id.clone()))?;
     let clear_label = format_clear_label(&state.settings.lock().clipboard_auto_clear);
-    Ok(format!("已复制 {}，{clear_label}", record.app_name))
+    if interface_is_english() {
+        Ok(format!("Copied {} · {clear_label}", record.app_name))
+    } else {
+        Ok(format!("已复制 {}，{clear_label}", record.app_name))
+    }
 }
 
 #[cfg(test)]

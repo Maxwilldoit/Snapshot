@@ -7,6 +7,7 @@ import { narrate } from "../lib/activity";
 import { motionReduced, usePresence } from "../lib/motion";
 import { errorText, useApp } from "../app/context";
 import { useNow, usePetAnimation, useWindowVisible } from "../hooks/useLive";
+import { useI18n } from "../lib/i18n";
 
 /** 播报只说最近发生的事，太久以前的不提 */
 const FRESH_MS = 15 * 60_000;
@@ -19,6 +20,7 @@ const NOTICE_MS = 8_000;
  */
 export function Companion({ away = false, compact = false }: { away?: boolean; compact?: boolean }) {
   const { settings, notice, activity, clipboard, recording, conflicts, navigate, notify, dismissNotice } = useApp();
+  const { t } = useI18n();
   // 窗口在屏幕上就一直动（失焦也动），这样和桌面上的桌宠始终是同一个动作
   const windowVisible = useWindowVisible();
   const petAnimation = usePetAnimation();
@@ -51,7 +53,7 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
         tone: "rec" as const,
         body: (
           <>
-            正在录 {recording.target ?? "窗口"}
+            {t("正在录 {target}", { target: recording.target ?? t("窗口") })}
             <span className="mono"> {formatDuration(now - (recording.startedAt ?? now))}</span>
           </>
         ),
@@ -61,7 +63,7 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
             className="link"
             onClick={() => toggleRecording().catch((error) => notify(errorText(error), "error"))}
           >
-            停止录制
+            {t("停止录制")}
           </button>
         ),
       };
@@ -75,14 +77,14 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
         tone: "info" as const,
         body: (
           <>
-            {clipboard.label}在剪贴板里，<span className="mono">{left}</span> 秒后清空。
+            {t("{label}在剪贴板里，{seconds} 秒后清空。", { label: clipboard.label, seconds: left })}
             <span className="drain" aria-hidden="true"><span style={{ width: `${ratio * 100}%` }} /></span>
           </>
         ),
         action: (
           <span className="companion-actions">
-            <button type="button" className="link" onClick={() => void clearClipboardNow()}>现在清空</button>
-            <button type="button" className="link" onClick={() => void keepClipboard()}>这次别清</button>
+            <button type="button" className="link" onClick={() => void clearClipboardNow()}>{t("现在清空")}</button>
+            <button type="button" className="link" onClick={() => void keepClipboard()}>{t("这次别清")}</button>
           </span>
         ),
       };
@@ -100,9 +102,11 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
       return {
         key: "conflicts",
         tone: "error" as const,
-        body: <>有 {conflicts.length} 组快捷键没注册上，按了不会有反应。</>,
+        body: <>{t(conflicts.length === 1
+          ? "有 1 组快捷键没注册上，按了不会有反应。"
+          : "有 {count} 组快捷键没注册上，按了不会有反应。", { count: conflicts.length })}</>,
         action: (
-          <button type="button" className="link" onClick={() => navigate("shortcuts")}>去看看</button>
+          <button type="button" className="link" onClick={() => navigate("shortcuts")}>{t("去看看")}</button>
         ),
       };
     }
@@ -124,7 +128,7 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
           <span>{shown.body}</span>
           {shown.action}
           {notice && shown.key === `n${notice.id}` && notice.kind === "error" && (
-            <button type="button" className="companion-dismiss" aria-label="知道了" onClick={dismissNotice}>
+            <button type="button" className="companion-dismiss" aria-label={t("知道了")} onClick={dismissNotice}>
               <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M.5.5l7 7M7.5.5l-7 7" stroke="currentColor" strokeWidth="1.2" /></svg>
             </button>
           )}
@@ -133,7 +137,7 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
       <button
         type="button"
         className={`companion-cat ${hop ? "is-hop" : ""}`}
-        aria-label={asset ? `${asset.name}，去桌面伴侣页` : "还没有伴侣，去导入一只"}
+        aria-label={asset ? t("{name}，去桌面伴侣页", { name: asset.name }) : t("还没有伴侣，去导入一只")}
         onClick={() => navigate("pet")}
       >
         {catSrc ? (
@@ -141,7 +145,7 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
         ) : (
           <span className="companion-empty">
             <CatShape height={64} outline />
-            <span>还没有伴侣</span>
+            <span>{t("还没有伴侣")}</span>
           </span>
         )}
       </button>

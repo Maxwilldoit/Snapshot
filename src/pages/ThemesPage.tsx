@@ -2,6 +2,7 @@ import { CatShape } from "../components/ui/CatShape";
 import { Choices } from "../components/ui/Choices";
 import { useApp } from "../app/context";
 import type { LayoutTheme } from "../lib/prefs";
+import { useI18n } from "../lib/i18n";
 
 const LAYOUT_INFO: Record<LayoutTheme, { name: string }> = {
   companion: { name: "伴侣侧栏" },
@@ -97,10 +98,11 @@ function LayoutSketch({ layout }: { layout: LayoutTheme }) {
 
 export function ThemesPanel() {
   const { layout, setLayout, themePreference, setThemePreference, motionPreference, setMotionPreference } = useApp();
+  const { t } = useI18n();
   return (
     <section className="panel panel-themes">
-      <h2 className="panel-title">布局</h2>
-      <div className="layouts" role="radiogroup" aria-label="布局主题">
+      <h2 className="panel-title">{t("布局")}</h2>
+      <div className="layouts" role="radiogroup" aria-label={t("布局主题")}>
         {(Object.keys(LAYOUT_INFO) as LayoutTheme[]).map((key) => (
           <button
             key={key}
@@ -112,9 +114,9 @@ export function ThemesPanel() {
           >
             <LayoutSketch layout={key} />
             <span className="layout-name">
-              <span className="strong">{LAYOUT_INFO[key].name}</span>
-              {layout === key && <span className="small quiet">使用中{key === "companion" ? " · 默认" : ""}</span>}
-              {layout !== key && key === "companion" && <span className="small quiet">默认</span>}
+              <span className="strong">{t(LAYOUT_INFO[key].name)}</span>
+              {layout === key && <span className="small quiet">{t("使用中")}{key === "companion" ? ` · ${t("默认")}` : ""}</span>}
+              {layout !== key && key === "companion" && <span className="small quiet">{t("默认")}</span>}
             </span>
           </button>
         ))}
@@ -122,28 +124,28 @@ export function ThemesPanel() {
 
       <div className="rows rows-gap">
         <div className="row">
-          <span className="row-label">颜色</span>
+          <span className="row-label">{t("颜色")}</span>
           <Choices
-            ariaLabel="颜色"
+            ariaLabel={t("颜色")}
             value={themePreference}
             onChange={setThemePreference}
             options={[
-              { value: "system", label: "跟随系统" },
-              { value: "light", label: "浅色" },
-              { value: "dark", label: "深色" },
+              { value: "system", label: t("跟随系统") },
+              { value: "light", label: t("浅色") },
+              { value: "dark", label: t("深色") },
             ]}
           />
         </div>
         <div className="row">
-          <span className="row-label">动效</span>
+          <span className="row-label">{t("动效")}</span>
           <Choices
-            ariaLabel="动效"
+            ariaLabel={t("动效")}
             value={motionPreference}
             onChange={setMotionPreference}
             options={[
-              { value: "system", label: "跟随系统" },
-              { value: "full", label: "完整" },
-              { value: "reduced", label: "减弱" },
+              { value: "system", label: t("跟随系统") },
+              { value: "full", label: t("完整") },
+              { value: "reduced", label: t("减弱") },
             ]}
           />
         </div>

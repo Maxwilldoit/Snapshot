@@ -5,17 +5,20 @@ import { shortLabel } from "../lib/activity";
 import { usePresence } from "../lib/motion";
 import { errorText, useApp } from "./context";
 import type { NavPage } from "../types";
+import { useI18n } from "../lib/i18n";
 
 /** 窗口操作要 capability 里显式放行，缺权限时 promise 会被拒——必须让它说出来，不能「点了没反应」 */
 function useWindowAction() {
   const { notify } = useApp();
+  const { t } = useI18n();
   return (action: () => Promise<unknown>, label: string) => {
-    void action().catch((error) => notify(`${label}失败：${errorText(error)}`, "error"));
+    void action().catch((error) => notify(t("{action}失败：{detail}", { action: label, detail: errorText(error) }), "error"));
   };
 }
 
 export function TitleBar({ children, right, tall = false }: { children?: ReactNode; right?: ReactNode; tall?: boolean }) {
   const run = useWindowAction();
+  const { t } = useI18n();
   const appWindow = getCurrentWindow();
   return (
     <header
@@ -23,20 +26,20 @@ export function TitleBar({ children, right, tall = false }: { children?: ReactNo
       data-tauri-drag-region
       onDoubleClick={(event) => {
         if ((event.target as HTMLElement).closest("button, a, input")) return;
-        run(() => appWindow.toggleMaximize(), "最大化");
+        run(() => appWindow.toggleMaximize(), t("最大化"));
       }}
     >
-      {children ?? <span className="titlebar-name" data-tauri-drag-region>应用快照</span>}
+      {children ?? <span className="titlebar-name" data-tauri-drag-region>{t("应用快照")}</span>}
       <span className="titlebar-fill" data-tauri-drag-region />
       {right}
       <span className="window-controls">
-        <button type="button" aria-label="最小化" onClick={() => run(() => appWindow.minimize(), "最小化")}>
+        <button type="button" aria-label={t("最小化")} onClick={() => run(() => appWindow.minimize(), t("最小化"))}>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" stroke="currentColor" /></svg>
         </button>
-        <button type="button" aria-label="最大化或还原" onClick={() => run(() => appWindow.toggleMaximize(), "最大化")}>
+        <button type="button" aria-label={t("最大化或还原")} onClick={() => run(() => appWindow.toggleMaximize(), t("最大化"))}>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor" /></svg>
         </button>
-        <button type="button" className="is-close" aria-label="关闭" onClick={() => run(() => appWindow.close(), "关闭")}>
+        <button type="button" className="is-close" aria-label={t("关闭")} onClick={() => run(() => appWindow.close(), t("关闭"))}>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" /></svg>
         </button>
       </span>
@@ -48,19 +51,20 @@ type NavItem = { page: NavPage; label: string; trailing?: ReactNode };
 
 function useNavItems(): { work: NavItem[]; settings: NavItem[] } {
   const { conflicts } = useApp();
+  const { t } = useI18n();
   return {
     work: [
       {
         page: "shortcuts",
-        label: "快捷操作",
-        trailing: conflicts.length ? <span className="signal small" aria-label={`${conflicts.length} 个冲突`}>{conflicts.length}</span> : null,
+        label: t("快捷操作"),
+        trailing: conflicts.length ? <span className="signal small" aria-label={t("{count} 个冲突", { count: conflicts.length })}>{conflicts.length}</span> : null,
       },
-      { page: "history", label: "历史记录" },
-      { page: "pet", label: "桌面伴侣" },
+      { page: "history", label: t("历史记录") },
+      { page: "pet", label: t("桌面伴侣") },
     ],
     settings: [
-      { page: "prefs", label: "偏好设置" },
-      { page: "themes", label: "主题库" },
+      { page: "prefs", label: t("偏好设置") },
+      { page: "themes", label: t("主题库") },
     ],
   };
 }
@@ -71,6 +75,7 @@ export const NavMark = () => <span className="nav-mark" aria-hidden="true" />;
 /** 侧栏导航：只有字。当前页墨色加粗、字下一道线，其余灰字——不加底色 */
 export function SideNav() {
   const { page, navigate } = useApp();
+  const { t } = useI18n();
   const { work, settings } = useNavItems();
   const item = (entry: NavItem) => (
     <button
@@ -88,7 +93,7 @@ export function SideNav() {
     </button>
   );
   return (
-    <nav className="side-nav" aria-label="主导航">
+    <nav className="side-nav" aria-label={t("主导航")}>
       <div className="nav-group">{work.map(item)}</div>
       <div className="nav-group">{settings.map(item)}</div>
     </nav>
@@ -98,11 +103,12 @@ export function SideNav() {
 /** 「不要侧栏」：入口放进标题栏 */
 export function TopNav() {
   const { page, navigate } = useApp();
+  const { t } = useI18n();
   const { work, settings } = useNavItems();
   return (
     <>
-      <span className="titlebar-name strong" data-tauri-drag-region>应用快照</span>
-      <nav className="top-nav" aria-label="主导航">
+      <span className="titlebar-name strong" data-tauri-drag-region>{t("应用快照")}</span>
+      <nav className="top-nav" aria-label={t("主导航")}>
         {work.map((entry) => (
           <button
             key={entry.page}
@@ -118,7 +124,7 @@ export function TopNav() {
         ))}
       </nav>
       <span className="titlebar-fill" data-tauri-drag-region />
-      <nav className="top-nav top-nav-right" aria-label="设置">
+      <nav className="top-nav top-nav-right" aria-label={t("设置导航")}>
         {settings.map((entry) => (
           <button
             key={entry.page}
@@ -139,14 +145,15 @@ export function TopNav() {
 /** 「今日流水」：侧栏下半截列出今天的每一步，点截图直接放大 */
 export function LedgerList() {
   const { activity, navigate } = useApp();
+  const { t } = useI18n();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const entries = activity.filter((entry) => entry.at >= today.getTime());
   return (
-    <section className="ledger" aria-label="今天做过的事">
-      <h2 className="ledger-title">今天</h2>
+    <section className="ledger" aria-label={t("今天做过的事")}>
+      <h2 className="ledger-title">{t("今天")}</h2>
       {entries.length === 0 ? (
-        <p className="small quiet ledger-empty">今天还没截过、录过、润色过。</p>
+        <p className="small quiet ledger-empty">{t("今天还没截过、录过、润色过。")}</p>
       ) : (
         <ol className="ledger-list">
           {entries.map((entry) => (
@@ -157,7 +164,7 @@ export function LedgerList() {
                 onClick={() => {
                   if (entry.kind === "capture" && entry.snapshotId) navigate("history", { previewId: entry.snapshotId });
                   else if (entry.kind === "polish") navigate("history");
-                  else if (entry.kind === "error" && entry.title.includes("快捷键")) navigate("shortcuts");
+                else if (entry.kind === "error" && (entry.title.includes("快捷键") || entry.title.includes("Shortcut"))) navigate("shortcuts");
                 }}
                 title={entry.detail ?? entry.title}
               >
@@ -175,6 +182,7 @@ export function LedgerList() {
 /** 没有猫的地方，一句话提示浮在左下角：普通的自己消失，出错的留着等你关 */
 export function NoticeLine() {
   const { notice: live, dismissNotice } = useApp();
+  const { t } = useI18n();
   // 到时间或点了关闭：往下沉一点淡出，而不是啪一下没了
   const { item: notice, leaving } = usePresence(live);
   if (!notice) return null;
@@ -186,7 +194,7 @@ export function NoticeLine() {
     >
       <span>{notice.text}</span>
       {notice.kind === "error" && (
-        <button type="button" aria-label="关闭提示" onClick={dismissNotice}>
+        <button type="button" aria-label={t("关闭提示")} onClick={dismissNotice}>
           <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M.5.5l7 7M7.5.5l-7 7" stroke="currentColor" strokeWidth="1.2" /></svg>
         </button>
       )}

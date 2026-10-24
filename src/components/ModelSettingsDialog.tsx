@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { fetchModels, savePromptSettings } from "../lib/backend";
+import { useI18n } from "../lib/i18n";
 import type { Settings } from "../types";
 
 /** 润色用的 OpenAI 兼容接口。API Key 存进系统钥匙串，不写进配置文件 */
@@ -18,6 +19,7 @@ export function ModelSettingsDialog({
   /** 正在退场（淡出、缩一点），这时不再接收点击 */
   leaving?: boolean;
 }) {
+  const { t } = useI18n();
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
   const [model, setModel] = useState(settings.model);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -36,7 +38,7 @@ export function ModelSettingsDialog({
 
   async function loadModels() {
     if (!baseUrl.trim()) {
-      setError("先填接口地址");
+      setError(t("先填接口地址"));
       return;
     }
     setFetchingModels(true);
@@ -45,7 +47,7 @@ export function ModelSettingsDialog({
       const models = await fetchModels(baseUrl.trim(), apiKey.trim() || null);
       setAvailableModels(models);
       if (!model.trim() && models[0]) setModel(models[0]);
-      notify(`拉到了 ${models.length} 个模型`);
+      notify(t("拉到了 {count} 个模型", { count: models.length }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -67,7 +69,7 @@ export function ModelSettingsDialog({
       });
       onSaved(next);
       setApiKey("");
-      notify("模型设置已保存");
+      notify(t("模型设置已保存"));
       onClose();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -85,11 +87,11 @@ export function ModelSettingsDialog({
         aria-labelledby="model-settings-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 className="dialog-title" id="model-settings-title">润色用的模型</h2>
+        <h2 className="dialog-title" id="model-settings-title">{t("润色用的模型")}</h2>
 
         <div className="form">
           <label className="form-field">
-            <span className="form-label">接口地址</span>
+            <span className="form-label">{t("接口地址")}</span>
             <input
               className="input"
               value={baseUrl}
@@ -105,11 +107,11 @@ export function ModelSettingsDialog({
               type="password"
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
-              placeholder={settings.hasApiKey ? "已保存；留空就不改" : "可选"}
+              placeholder={settings.hasApiKey ? t("已保存；留空就不改") : t("可选")}
             />
           </label>
           <label className="form-field">
-            <span className="form-label">模型</span>
+            <span className="form-label">{t("模型")}</span>
             <span className="form-inline">
               <input
                 className="input mono"
@@ -119,7 +121,7 @@ export function ModelSettingsDialog({
                 spellCheck={false}
               />
               <button type="button" className="btn" onClick={() => void loadModels()} disabled={fetchingModels}>
-                {fetchingModels ? "拉取中…" : "拉取"}
+                {fetchingModels ? t("拉取中…") : t("拉取")}
               </button>
             </span>
             <datalist id="available-models">
@@ -131,9 +133,9 @@ export function ModelSettingsDialog({
         {error && <p className="signal small" role="alert">{error}</p>}
 
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onClose}>取消</button>
+          <button type="button" className="btn" onClick={onClose}>{t("取消")}</button>
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>
-            {saving ? "保存中…" : "保存"}
+            {saving ? t("保存中…") : t("保存")}
           </button>
         </div>
       </div>

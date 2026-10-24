@@ -17,6 +17,9 @@ import type {
   SnapshotRecord,
 } from "../types";
 
+export const setInterfaceLanguage = (language: "zh" | "en") =>
+  invoke<void>("set_app_language", { language });
+
 // 前端调用后端的全部入口。浏览器预览时的假数据不在这里，见 preview.ts；
 // 图片与音频不走这里，而是由页面按地址直接取，见 media.ts。
 

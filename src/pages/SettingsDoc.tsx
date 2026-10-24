@@ -1,5 +1,5 @@
 import { ShortcutsPanel, StoragePanel } from "./ShortcutsPage";
-import { BehaviorPanel, MachinePanel, PetPanel } from "./PreferencesPage";
+import { BehaviorPanel, LanguagePanel, MachinePanel, PetPanel } from "./PreferencesPage";
 import { ThemesPanel } from "./ThemesPage";
 import { RulesPanel } from "./RulesPanel";
 
@@ -12,6 +12,7 @@ export function SettingsDoc() {
         <StoragePanel />
       </div>
       <div className="settings-col">
+        <LanguagePanel />
         <BehaviorPanel />
         <PetPanel />
         <MachinePanel />

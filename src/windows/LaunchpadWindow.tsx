@@ -10,6 +10,7 @@ import {
   reorderInFolder,
   serializeLayout,
   takeOut,
+  UNNAMED_FOLDER,
   type LaunchApp,
   type LaunchItem,
 } from "../lib/launchpad";
@@ -32,6 +33,7 @@ import {
 } from "../lib/launchpadPaging";
 import { launchIconUrl } from "../lib/media";
 import { DURATION, motionReduced } from "../lib/motion";
+import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 
 type Hit = {
   type: "icon" | "tile" | "out";
@@ -71,7 +73,7 @@ type Pan = {
 
 const PAN_SLOP = 8;
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const errorText = (error: unknown) => localizeMessage(error instanceof Error ? error.message : String(error));
 
 function readWidth(viewport: HTMLElement | null, pan: Pan) {
   const measured = viewport?.clientWidth ?? 0;
@@ -82,6 +84,8 @@ function readWidth(viewport: HTMLElement | null, pan: Pan) {
 }
 
 export function LaunchpadWindow() {
+  const { t } = useI18n();
+  useWindowTitle(t("启动台"));
   const [apps, setApps] = useState<LaunchApp[]>([]);
   const [items, setItems] = useState<LaunchItem[]>([]);
   const [query, setQuery] = useState("");
@@ -339,7 +343,7 @@ export function LaunchpadWindow() {
           setItems(state.items);
         })
         .catch((reason) => {
-          if (alive) setError(errorText(reason));
+          if (alive) setError(t(errorText(reason)));
         })
         .finally(() => {
           if (alive) setLoading(false);
@@ -463,6 +467,7 @@ export function LaunchpadWindow() {
   const needle = query.trim().toLowerCase();
   const results = needle ? apps.filter((app) => app.name.toLowerCase().includes(needle)) : null;
   const folder = items.find((item) => item.kind === "folder" && item.id === openFolder);
+  const folderDisplayName = folder?.name === UNNAMED_FOLDER ? t("未命名") : folder?.name ?? "";
   pageGate.current = {
     pages,
     hold: Boolean(needle) || openFolder !== null || drag !== null,
@@ -473,7 +478,7 @@ export function LaunchpadWindow() {
     if (openFolderRef.current && !next.some((item) => item.kind === "folder" && item.id === openFolderRef.current)) {
       setOpenFolder(null);
     }
-    void saveLaunchpad(serializeLayout(next)).catch((reason) => setError(errorText(reason)));
+    void saveLaunchpad(serializeLayout(next)).catch((reason) => setError(t(errorText(reason))));
   }
 
   function hitAt(x: number, y: number): Hit | null {
@@ -654,7 +659,7 @@ export function LaunchpadWindow() {
       await launchApp(id);
       playFade(1, 0, motionReduced() ? DURATION.fade : DURATION.exit, "cubic-bezier(0.3, 0, 0.8, 0.15)");
     } catch (reason) {
-      setError(errorText(reason));
+      setError(t(errorText(reason)));
     }
   }
 
@@ -685,7 +690,7 @@ export function LaunchpadWindow() {
             key={item.id}
             kind="folder"
             id={item.id}
-            name={item.name}
+            name={item.name === UNNAMED_FOLDER ? t("未命名") : item.name}
             index={absolute}
             marked={drag?.overId === item.id}
             onPointerDown={(event) =>
@@ -711,18 +716,18 @@ export function LaunchpadWindow() {
       <input
         ref={searchRef}
         className="launchpad-search"
-        placeholder="搜索应用"
+        placeholder={t("搜索应用")}
         value={query}
-        aria-label="搜索应用"
+        aria-label={t("搜索应用")}
         onChange={(event) => {
           setQuery(event.target.value);
           setOpenFolder(null);
         }}
         onMouseDown={(event) => event.stopPropagation()}
       />
-      {loading && items.length === 0 ? <p className="launchpad-status">正在读取本机应用…</p> : null}
+      {loading && items.length === 0 ? <p className="launchpad-status">{t("正在读取本机应用…")}</p> : null}
       {!loading && shownCount === 0 ? (
-        <p className="launchpad-status">{needle ? "没有匹配的应用" : "没有找到可启动的应用"}</p>
+        <p className="launchpad-status">{t(needle ? "没有匹配的应用" : "没有找到可启动的应用")}</p>
       ) : results ? (
         <div className="launchpad-grid is-search">{results.map((app, index) => appTile(app, index))}</div>
       ) : (
@@ -739,13 +744,13 @@ export function LaunchpadWindow() {
         </div>
       )}
       {!results && pages > 1 ? (
-        <div className="launchpad-dots" role="tablist" aria-label="启动台分页">
+        <div className="launchpad-dots" role="tablist" aria-label={t("启动台分页")}>
           {Array.from({ length: pages }, (_, index) => (
             <button
               key={index}
               type="button"
               className={index === safePage ? "is-current" : ""}
-              aria-label={`第 ${index + 1} 页`}
+              aria-label={t("第 {page} 页", { page: index + 1 })}
               onMouseDown={(event) => event.stopPropagation()}
               onClick={() => motion.current.goTo(index)}
             />
@@ -759,9 +764,9 @@ export function LaunchpadWindow() {
             {editingName ? (
               <input
                 className="launchpad-folder-name"
-                aria-label="文件夹名称"
+                aria-label={t("文件夹名称")}
                 autoFocus
-                defaultValue={folder.name}
+                defaultValue={folderDisplayName}
                 onBlur={(event) => {
                   commit(renameFolder(itemsRef.current, folder.id, event.target.value));
                   setEditingName(false);
@@ -772,7 +777,7 @@ export function LaunchpadWindow() {
               />
             ) : (
               <button type="button" className="launchpad-folder-name" onClick={() => setEditingName(true)}>
-                {folder.name}
+                {folderDisplayName}
               </button>
             )}
             <div className="launchpad-folder-apps">

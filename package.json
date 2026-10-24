@@ -8,7 +8,7 @@
     "dev": "vite",
     "prepare:sidecars": "node scripts/prepare-sidecar.mjs",
     "build": "tsc && vite build",
-    "test": "vitest run",
+    "test": "node scripts/check-i18n.mjs && vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
     "tauri": "tauri"

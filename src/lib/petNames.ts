@@ -65,6 +65,10 @@ const ACTION_NAMES: Record<string, string> = {
   stand: "站立",
 };
 
+type EntryLabelTranslator = (source: string) => string;
+
+const keepSource: EntryLabelTranslator = (source) => source;
+
 function stemOf(entry: string) {
   return (entry.split("/").pop() ?? entry).replace(/\.[^.]+$/, "");
 }
@@ -84,20 +88,27 @@ export function commonPrefix(entries: string[]): string {
 }
 
 /** cat/clawd-type-keyboard.gif → 敲键盘 */
-export function entryLabel(entry: string, prefix = ""): string {
+export function entryLabel(entry: string, prefix = "", translate: EntryLabelTranslator = keepSource): string {
   const stem = stemOf(entry);
   const key = (prefix && stem.startsWith(prefix) ? stem.slice(prefix.length) : stem).toLowerCase();
-  if (ACTION_NAMES[key]) return ACTION_NAMES[key];
+  if (ACTION_NAMES[key]) return translate(ACTION_NAMES[key]);
   const parts = key.split(/[-_]/).filter(Boolean);
   // 素材常带角色名前缀，如 makima_walk_left；优先匹配最后几段组成的完整动作名。
   for (let start = 0; start < parts.length; start += 1) {
     const suffix = parts.slice(start).join("_");
-    const translated = ACTION_NAMES[suffix] ?? ACTION_NAMES[suffix.replaceAll("_", "-")];
-    if (translated) return translated;
+    const label = ACTION_NAMES[suffix] ?? ACTION_NAMES[suffix.replaceAll("_", "-")];
+    if (label) return translate(label);
   }
   // 单个词也能逐段翻译，但只译一半会得到「敲键盘laptop」，不如保留原名。
   if (parts.length > 1 && parts.every((part) => ACTION_NAMES[part])) {
-    return parts.map((part) => ACTION_NAMES[part]).join("");
+    const labels = parts.map((part) => ACTION_NAMES[part]);
+    const combined = labels.join("");
+    const translated = translate(combined);
+    if (translated !== combined) return translated;
+    const translatedParts = labels.map(translate);
+    return translatedParts.every((label, index) => label !== labels[index])
+      ? translatedParts.join(" ")
+      : combined;
   }
   return key || stem;
 }
