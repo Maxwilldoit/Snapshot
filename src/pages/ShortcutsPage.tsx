@@ -211,7 +211,7 @@ export function ShortcutsPanel() {
       <div className="rows">
         <div className="row">
           <span className="pause-setting">
-            <label htmlFor="switch-shortcuts-paused" className="row-label">暂停全局快捷键</label>
+            <label htmlFor="switch-shortcuts-paused" className="row-label pause-label">暂停全局快捷键</label>
             <span className="pause-state small" role="status">
               {shortcutsPaused ? "未启用" : "启用中"}
             </span>

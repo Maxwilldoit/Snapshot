@@ -223,6 +223,7 @@
 .sound-label { display: flex; align-items: center; gap: 10px; }
 .sound-preview { flex: 0 0 auto; font-size: var(--text-small); }
 .pause-setting { display: flex; align-items: center; gap: 10px; }
+.pause-label { color: var(--ink); }
 .pause-state { color: var(--ink-3); }
 .storage-path-row { gap: 4px; }
 .storage-path {

@@ -13,8 +13,9 @@ import {
   showLaunchpad,
   showQuickMenu,
 } from "../lib/backend";
-import { iconUrl, petUrl, petWalkUrl } from "../lib/media";
+import { iconUrl } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
+import { petImageFrame, usePetImages } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { placementForEntry, type PetPlacement } from "../lib/petFrame";
 import { PET_SCALE, petWindowSize } from "../lib/petSize";
@@ -123,7 +124,7 @@ export function PetWindow() {
   const [eventPulse, setEventPulse] = useState(0);
   const [recording, setRecording] = useState(false);
   const [shortcutsPaused, setShortcutsPaused] = useState(false);
-  const [petSize, setPetSize] = useState(60);
+  const [petSize, setPetSize] = useState(80);
   // 读到设置前不定大小，免得先按默认缩放一次再跳到用户设的大小
   const [petScale, setPetScale] = useState<number | null>(null);
   const [walking, setWalking] = useState<WalkDirection | null>(null);
@@ -243,19 +244,23 @@ export function PetWindow() {
     (recording ? stateActions?.recording : null);
   const shownWalk = stateEntry || eventEntry ? null : walks.find((walk) => walk.direction === walking && walk.choice)?.direction ?? null;
   const shownChoice = walks.find((walk) => walk.direction === shownWalk)?.choice ?? null;
-  const visibleEntry = stateEntry ?? eventEntry ?? (shownWalk && shownChoice ? shownChoice.entry : currentEntry);
-  const visiblePulse = eventEntry && !stateEntry ? eventPulse : 0;
-  const visibleFlip = Boolean(shownWalk && shownChoice?.flip);
+  const normalEntry = stateEntry ?? eventEntry ?? currentEntry;
+  const normalFrame = custom ? petImageFrame(appearanceId, normalEntry, false, false, eventEntry && !stateEntry ? eventPulse : 0) : null;
+  const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
+  const targetFrame = shownWalk && shownChoice ? petImageFrame(appearanceId, shownChoice.entry, true, shownChoice.flip) : normalFrame;
+  const { frames, displayed, onLoad: onPetImageLoad } = usePetImages(targetFrame, [...(normalFrame ? [normalFrame] : []), ...walkFrames]);
+  const visibleEntry = displayed?.entry ?? null;
+  const visibleFlip = displayed?.flip ?? false;
   const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
-  const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale);
+  const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale, custom ? "pet" : "app-icon");
   const visiblePlacement = fittedSize === null ? null : placementForEntry(fittedSize, layout, visibleEntry, visibleFlip);
   const fittedKey = fittedSize === null ? "pending" : windowKey(fittedSize, visiblePlacement);
 
   // 物理像素。放大时窗口左上角相对方窗的偏移，存位置要减掉
   const frameShift = useRef({ x: 0, y: 0 });
   const appliedKey = useRef("");
-  const frameModel = useRef({ petScale, layout, visibleEntry, visibleFlip });
-  frameModel.current = { petScale, layout, visibleEntry, visibleFlip };
+  const frameModel = useRef({ petScale, custom, layout, visibleEntry, visibleFlip });
+  frameModel.current = { petScale, custom, layout, visibleEntry, visibleFlip };
 
   useLayoutEffect(() => {
     if (fittedSize === null || petScale === null) return;
@@ -276,7 +281,7 @@ export function PetWindow() {
           const model = frameModel.current;
           if (model.petScale === null) return;
           const shortEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
-          const side = petWindowSize(shortEdge, model.petScale);
+          const side = petWindowSize(shortEdge, model.petScale, model.custom ? "pet" : "app-icon");
           if (active) setPetSize(side);
           const place = placementForEntry(side, model.layout, model.visibleEntry, model.visibleFlip);
           const key = windowKey(side, place);
@@ -397,7 +402,6 @@ export function PetWindow() {
     [],
   );
 
-  const petSrc = custom ? petUrl(appearanceId, visibleEntry) : null;
   // 有锚点的图按基准比例摆；窗口长出去的那截已经算进 shift，这里减掉才是相对当前窗口的位置
   const framedStyle = (entry: string, flip: boolean) => {
     if (fittedSize === null || !visiblePlacement) return undefined;
@@ -425,62 +429,35 @@ export function PetWindow() {
       title={!custom && app.name ? app.name : undefined}
       style={{ "--pet-icon-size": `${petSize - 4}px` } as React.CSSProperties}
     >
-      {custom && framed ? (
-        <>
+      <div className={custom && framed ? "pet-frames" : "pet-orb"}>
+        {custom ? (
+          <>
+            {frames.map((frame) => {
+              const style = framedStyle(frame.entry ?? "", frame.flip);
+              return (
+                <img
+                  key={frame.key}
+                  className={[frame.walk ? "pet-walk" : "pet-action", frame.flip ? "pet-flip" : "", style ? "pet-framed" : ""].filter(Boolean).join(" ")}
+                  style={style}
+                  src={frame.src}
+                  alt=""
+                  draggable={false}
+                  hidden={displayed?.key !== frame.key}
+                  onLoad={(event) => void onPetImageLoad(frame, event.currentTarget)}
+                />
+              );
+            })}
+            {!displayed && <PawPrint size={petSize - 10} style={{ gridArea: "1 / 1" }} />}
+          </>
+        ) : (
           <MediaImage
-            key={`${petSrc ?? "none"}:${visiblePulse}`}
-            className="pet-fade pet-framed"
-            style={framedStyle(visibleEntry ?? "", visibleFlip)}
-            src={petSrc}
-            hidden={shownWalk !== null}
-            fallback={<PawPrint size={petSize - 10} />}
+            key={app.pid ?? "none"}
+            src={app.pid === null ? null : iconUrl(app.pid, petSize)}
+            alt={app.name}
+            fallback={<AppWindow size={petSize - 12} />}
           />
-          {walks.map(({ direction, choice }) =>
-            choice ? (
-              <MediaImage
-                key={`${direction}:${choice.entry}`}
-                className={choice.flip ? "pet-walk pet-flip pet-framed" : "pet-walk pet-framed"}
-                style={framedStyle(choice.entry, choice.flip)}
-                src={petWalkUrl(appearanceId, choice.entry)}
-                hidden={shownWalk !== direction}
-                fallback={null}
-              />
-            ) : null,
-          )}
-        </>
-      ) : (
-        <div className="pet-orb">
-          {custom ? (
-            <>
-              <MediaImage
-                key={`${petSrc ?? "none"}:${visiblePulse}`}
-                className="pet-fade"
-                src={petSrc}
-                hidden={shownWalk !== null}
-                fallback={<PawPrint size={petSize - 10} />}
-              />
-              {walks.map(({ direction, choice }) =>
-                choice ? (
-                  <MediaImage
-                    key={`${direction}:${choice.entry}`}
-                    className={choice.flip ? "pet-walk pet-flip" : "pet-walk"}
-                    src={petWalkUrl(appearanceId, choice.entry)}
-                    hidden={shownWalk !== direction}
-                    fallback={null}
-                  />
-                ) : null,
-              )}
-            </>
-          ) : (
-            <MediaImage
-              key={app.pid ?? "none"}
-              src={app.pid === null ? null : iconUrl(app.pid, petSize)}
-              alt={app.name}
-              fallback={<AppWindow size={petSize - 12} />}
-            />
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -12,6 +12,48 @@ const PREVIEW_PREFIX: &str =
 const MAX_CATALOG_BYTES: u64 = 1024 * 1024;
 const MAX_ASSET_BYTES: u64 = 100 * 1024 * 1024;
 
+#[derive(Default)]
+struct CatalogSnapshot {
+    assets: Option<Vec<PetCatalogAsset>>,
+}
+
+/// 素材目录很小，但 GitHub 请求有网络延迟。启动时先读磁盘，再后台刷新。
+pub(crate) struct PetCatalogCache {
+    path: PathBuf,
+    snapshot: Mutex<CatalogSnapshot>,
+}
+
+impl PetCatalogCache {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        let assets = fs::read(&path)
+            .ok()
+            .and_then(|bytes| parse_catalog(&bytes).ok())
+            .map(|catalog| catalog.assets);
+        Self {
+            path,
+            snapshot: Mutex::new(CatalogSnapshot { assets }),
+        }
+    }
+
+    fn get(&self) -> Option<Vec<PetCatalogAsset>> {
+        self.snapshot.lock().assets.clone()
+    }
+
+    fn store(&self, assets: &[PetCatalogAsset]) {
+        self.snapshot.lock().assets = Some(assets.to_vec());
+        let payload = serde_json::to_vec(&PetCatalog {
+            version: 1,
+            assets: assets.to_vec(),
+        });
+        if let Ok(payload) = payload {
+            if let Some(parent) = self.path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::write(&self.path, payload);
+        }
+    }
+}
+
 /// 延迟创建独立窗口；重复打开复用它，关闭隐藏以保留下载和筛选状态。
 #[tauri::command]
 pub(crate) async fn show_pet_catalog(app: AppHandle) -> Result<(), String> {
@@ -180,6 +222,32 @@ async fn read_catalog() -> Result<PetCatalog, String> {
     parse_catalog(&download(CATALOG_URL, MAX_CATALOG_BYTES).await?)
 }
 
+async fn load_catalog(state: &AppState, refresh: bool) -> Result<Vec<PetCatalogAsset>, String> {
+    if !refresh {
+        if let Some(assets) = state.pet_catalog_cache.get() {
+            return Ok(assets);
+        }
+    }
+    let catalog = read_catalog().await?;
+    state.pet_catalog_cache.store(&catalog.assets);
+    Ok(catalog.assets)
+}
+
+/// 启动后在后台更新目录；失败时仍保留磁盘缓存。
+pub(crate) fn preload(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        match read_catalog().await {
+            Ok(catalog) => {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.pet_catalog_cache.store(&catalog.assets);
+                }
+                let _ = app.emit("pet-catalog-changed", &catalog.assets);
+            }
+            Err(error) => eprintln!("snapshot: could not refresh pet catalog: {error}"),
+        }
+    });
+}
+
 fn verify_archive(asset: &PetCatalogAsset, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() as u64 != asset.size_bytes {
         return Err("素材大小与目录不一致，请刷新素材库后重试".into());
@@ -199,8 +267,11 @@ impl Drop for DownloadFile {
 }
 
 #[tauri::command]
-pub(crate) async fn fetch_pet_catalog() -> Result<Vec<PetCatalogAsset>, String> {
-    Ok(read_catalog().await?.assets)
+pub(crate) async fn fetch_pet_catalog(
+    state: State<'_, AppState>,
+    refresh: Option<bool>,
+) -> Result<Vec<PetCatalogAsset>, String> {
+    load_catalog(&state, refresh.unwrap_or(false)).await
 }
 
 #[tauri::command]
@@ -209,9 +280,9 @@ pub(crate) async fn install_catalog_pet(
     id: String,
 ) -> Result<settings::Settings, String> {
     // 只接受 id；URL、文件名和哈希都重新从固定目录读取，调用者无法替换下载源。
-    let asset = read_catalog()
+    let state = app.state::<AppState>();
+    let asset = load_catalog(&state, false)
         .await?
-        .assets
         .into_iter()
         .find(|asset| asset.id == id)
         .ok_or_else(|| "素材库中找不到这只伴侣，请刷新后重试".to_string())?;
@@ -325,6 +396,27 @@ mod tests {
         ] {
             assert!(!github_url(&url.parse().unwrap()));
         }
+    }
+
+    #[test]
+    fn catalog_cache_round_trips_and_ignores_corrupt_disk_data() {
+        let path = std::env::temp_dir().join(format!(
+            "snapshot-pet-catalog-cache-{}-{}.json",
+            std::process::id(),
+            now_millis()
+        ));
+        fs::remove_file(&path).ok();
+        let cache = PetCatalogCache::new(path.clone());
+        assert!(cache.get().is_none());
+        cache.store(&parse(&sample()).unwrap().assets);
+        assert_eq!(
+            PetCatalogCache::new(path.clone()).get().unwrap()[0].id,
+            "test-pet"
+        );
+
+        fs::write(&path, b"not json").unwrap();
+        assert!(PetCatalogCache::new(path.clone()).get().is_none());
+        fs::remove_file(path).ok();
     }
 
     #[test]

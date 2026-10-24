@@ -267,20 +267,18 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 /* 格子固定为外框大小：不固定时，竖长的 GIF 会按自身宽高比把格子撑高，下半身被 overflow 裁掉 */
 .pet-orb { display: grid; grid-template: 100% / 100%; width: var(--pet-icon-size, 56px); height: var(--pet-icon-size, 56px); place-items: center; overflow: hidden; color: var(--ink-2); background: transparent; }
 .pet-orb img { display: block; grid-area: 1 / 1; width: 100%; height: 100%; object-fit: contain; }
-/* 走路图和常规动作叠在同一格：藏起来的只是看不见，照样解码播放，拖动时切过去不闪 */
+/* 旧画面和待切换动作叠在同一格：隐藏图继续加载解码，准备好再显示，不重复淡入缩放 */
 .pet-orb img[hidden] { visibility: hidden; }
-.pet-orb img.pet-fade { animation: pet-pop var(--t-open) var(--ease-cat) both; }
 .pet-orb img.pet-flip { transform: scaleX(-1); }
 /* 有 pet.json 时图按锚点摆，不跟方窗一起被 contain 缩小。藏着的走路图照样解码 */
-.pet-window > img.pet-framed {
+.pet-frames { position: absolute; inset: 0; }
+.pet-frames > img.pet-framed {
   position: absolute;
   object-fit: fill;
   max-width: none;
 }
-.pet-window > img.pet-framed[hidden] { display: block; visibility: hidden; }
-.pet-window > img.pet-framed.pet-fade { animation: pet-pop var(--t-open) var(--ease-cat) both; }
-.pet-window > img.pet-framed.pet-flip { transform: scaleX(-1); }
-@keyframes pet-pop { from { transform: scale(0.86); opacity: 0; } }
+.pet-frames > img[hidden] { display: block; visibility: hidden; }
+.pet-frames > img.pet-flip { transform: scaleX(-1); }
 
 /* ---------- 截后标注窗口 ---------- */
 

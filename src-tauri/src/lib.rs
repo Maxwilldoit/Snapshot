@@ -71,6 +71,7 @@ struct AppState {
     pets_dir: PathBuf,
     activity: Mutex<activity::ActivityLog>,
     prompt_history: Mutex<prompt_history::PromptHistory>,
+    pet_catalog_cache: pet_catalog::PetCatalogCache,
     /// 剪贴板里是不是我们放的图、多久后清
     clipboard: Mutex<Option<clipboard::ClipboardState>>,
     /// 每放一次图、每次手动清空/取消都加一，让过期的清空线程自己作废
@@ -161,6 +162,7 @@ pub fn run() {
             pets_dir,
             activity: Mutex::new(activity::ActivityLog::load(activity_path)),
             prompt_history: Mutex::new(prompt_history::PromptHistory::load(prompt_history_path)),
+            pet_catalog_cache: pet_catalog::PetCatalogCache::new(data_dir.join("pet-catalog.json")),
             clipboard: Mutex::new(None),
             clipboard_generation: AtomicU64::new(0),
             settings: Mutex::new(settings),
@@ -224,6 +226,7 @@ pub fn run() {
             }
             tracker::start_tracker(app.handle().clone(), tracker);
             launchpad::preload(app.handle().clone());
+            pet_catalog::preload(app.handle().clone());
             #[cfg(target_os = "windows")]
             os::start_pet_visibility(app.handle().clone());
 

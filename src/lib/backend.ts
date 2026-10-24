@@ -42,7 +42,11 @@ export const selectPetAppearance = (id: string) => invoke<Settings>("select_pet_
 export const addPetAssets = (paths: string[]) => invoke<PetImportResult>("add_pet_assets", { paths });
 
 /** 只在用户打开素材库时请求；下载、校验与导入都交给后端 */
-export const fetchPetCatalog = () => invoke<PetCatalogAsset[]>("fetch_pet_catalog");
+export const fetchPetCatalog = (refresh = false) =>
+  invoke<PetCatalogAsset[]>("fetch_pet_catalog", { refresh });
+
+export const onPetCatalogChanged = (callback: (assets: PetCatalogAsset[]) => void) =>
+  listen<PetCatalogAsset[]>("pet-catalog-changed", ({ payload }) => callback(payload));
 
 export const showPetCatalog = () => invoke<void>("show_pet_catalog");
 

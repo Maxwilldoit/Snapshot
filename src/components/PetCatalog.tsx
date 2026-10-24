@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { errorText } from "../app/context";
-import { fetchPetCatalog, installCatalogPet } from "../lib/backend";
+import { fetchPetCatalog, installCatalogPet, onPetCatalogChanged } from "../lib/backend";
 import { formatBytes } from "../lib/format";
 import type { PetAsset, PetCatalogAsset, Settings } from "../types";
 import { CatShape } from "./ui/CatShape";
@@ -101,16 +101,22 @@ export function PetCatalog({ settings, onSaved }: { settings: Settings; onSaved:
   useEffect(() => {
     mounted.current = true;
     void loadCatalog();
-    return () => { mounted.current = false; };
+    const pending = onPetCatalogChanged((assets) => {
+      if (mounted.current && Array.isArray(assets)) setCatalog({ status: "ready", assets });
+    });
+    return () => {
+      mounted.current = false;
+      void pending.then((unlisten) => unlisten()).catch(() => {});
+    };
   }, []);
 
   // 仅独立窗口挂载时加载；StrictMode 重挂载与重复打开都复用请求。
-  async function loadCatalog() {
+  async function loadCatalog(refresh = false) {
     if (loading.current || installing.current) return;
     loading.current = true;
     setCatalog({ status: "loading" });
     try {
-      const assets = await fetchPetCatalog();
+      const assets = await fetchPetCatalog(refresh);
       if (mounted.current) setCatalog({ status: "ready", assets });
     } catch (error) {
       if (mounted.current) setCatalog({ status: "error", message: errorText(error) });
@@ -153,7 +159,7 @@ export function PetCatalog({ settings, onSaved }: { settings: Settings; onSaved:
         </span>
         <span className="panel-head-right">
           {catalog.status === "ready" && (
-            <button type="button" className="text-btn small quiet" aria-label="刷新素材库" disabled={installingId !== null} onClick={() => void loadCatalog()}>刷新</button>
+            <button type="button" className="text-btn small quiet" aria-label="刷新素材库" disabled={installingId !== null} onClick={() => void loadCatalog(true)}>刷新</button>
           )}
         </span>
       </div>
@@ -171,7 +177,7 @@ export function PetCatalog({ settings, onSaved }: { settings: Settings; onSaved:
       {catalog.status === "ready" && (catalog.assets.length === 0 ? (
         <div className="pet-catalog-state">
           <p className="quiet" role="status">素材库里暂时没有素材。</p>
-          <button type="button" className="link small" onClick={() => void loadCatalog()}>重新加载</button>
+          <button type="button" className="link small" onClick={() => void loadCatalog(true)}>重新加载</button>
         </div>
       ) : (
         <>

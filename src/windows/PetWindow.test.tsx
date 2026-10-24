@@ -67,7 +67,20 @@ async function renderPet(asset: PetAsset = grok) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(0);
   });
+  await loadPetImages();
   return { ...view, calls, delay: CLICK_DELAY_MS };
+}
+
+// JSDOM 不加载图片；显式模拟 WebView 已加载的图片，慢加载用例则自行控制 load/decode。
+const loadedImages = new WeakSet<HTMLImageElement>();
+async function loadPetImages() {
+  await act(async () => {
+    for (const image of document.querySelectorAll<HTMLImageElement>(".pet-window img")) {
+      if (loadedImages.has(image)) continue;
+      loadedImages.add(image);
+      fireEvent.load(image);
+    }
+  });
 }
 
 /** 桌宠上看得见的那张图：文件名（解码后）和是否镜像 */
@@ -84,6 +97,7 @@ async function moveTo(...points: Array<[number, number]>) {
     await act(async () => {
       await emit("tauri://move", { x, y });
     });
+    await loadPetImages();
   }
 }
 
@@ -91,6 +105,7 @@ async function elapse(ms: number) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
+  await loadPetImages();
 }
 
 function click(container: HTMLElement) {
@@ -180,6 +195,7 @@ describe("桌宠：点击切换，平时停在待机", () => {
     await act(async () => {
       await emit("pet-event", "capture.success");
     });
+    await loadPetImages();
     expect(shown(container).file).toBe("grok_jump.gif");
     await elapse(2600);
     expect(shown(container).file).toBe("grok_idle.gif");
@@ -206,6 +222,7 @@ describe("桌宠：点击切换，平时停在待机", () => {
       await emit("settings-changed", { ...settingsWith(asset), shortcutsPaused: true });
       await emit("pet-event", "capture.success");
     });
+    await loadPetImages();
     expect(shown(container).file).toBe("grok_jump.gif");
     await elapse(2600);
     expect(shown(container).file).toBe("grok_jump.gif");
@@ -214,10 +231,12 @@ describe("桌宠：点击切换，平时停在待机", () => {
       await emit("recording-changed", { active: true, target: "Test", startedAt: 1 });
       await emit("settings-changed", { ...settingsWith(asset), shortcutsPaused: false });
     });
+    await loadPetImages();
     expect(shown(container).file).toBe("grok_wave.gif");
     await act(async () => {
       await emit("recording-changed", { active: false, target: null, startedAt: null });
     });
+    await loadPetImages();
     expect(shown(container).file).toBe("grok_idle.gif");
   });
 });
@@ -284,10 +303,142 @@ describe("桌宠：拖动时走路", () => {
   });
 });
 
+describe("桌宠：动作画面交接", () => {
+  it("新动作解码前保留旧节点，准备好后直接显示已加载的节点，返回待机时也不留空白", async () => {
+    const { container, delay } = await renderPet();
+    const idle = shown(container).img;
+    await act(async () => click(container));
+    await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+
+    const next = container.querySelector<HTMLImageElement>("img.pet-action[hidden]")!;
+    expect(decodeURIComponent(next.src)).toContain("grok_jump.gif");
+    let finishDecode!: () => void;
+    next.decode = vi.fn(() => new Promise<void>((resolve) => { finishDecode = resolve; }));
+    await act(async () => { fireEvent.load(next); });
+    expect(shown(container).img).toBe(idle);
+    expect(next.hidden).toBe(true);
+
+    await act(async () => { finishDecode(); });
+    expect(shown(container).img).toBe(next);
+    expect(idle.isConnected).toBe(false);
+    expect(next.classList.contains("pet-fade")).toBe(false);
+    expect(container.querySelectorAll("img").length).toBeLessThanOrEqual(3);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(shown(container).img).toBe(next);
+    await loadPetImages();
+    expect(shown(container).file).toBe("grok_idle.gif");
+  });
+
+  it("新动作读取失败时保留当前画面，后续动作仍可正常切换", async () => {
+    const { container, delay } = await renderPet();
+    const idle = shown(container).img;
+    await act(async () => click(container));
+    await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+    const failed = container.querySelector<HTMLImageElement>("img.pet-action[hidden]")!;
+    fireEvent.error(failed);
+    expect(shown(container).img).toBe(idle);
+    expect(failed.hidden).toBe(true);
+
+    await act(async () => click(container));
+    await elapse(delay);
+    expect(shown(container).file).toBe("grok_wave.gif");
+    expect(failed.isConnected).toBe(false);
+  });
+
+  it("重复事件重新准备画面，过期解码不能覆盖后来动作，也不会累积隐藏图片", async () => {
+    const asset = { ...grok, eventActions: { "capture.success": "gifs/grok_jump.gif" } } satisfies PetAsset;
+    const { container } = await renderPet(asset);
+    const idle = shown(container).img;
+    await act(async () => { await emit("pet-event", "capture.success"); });
+    const stale = container.querySelector<HTMLImageElement>("img.pet-action[hidden]")!;
+    let finishStale!: () => void;
+    stale.decode = vi.fn(() => new Promise<void>((resolve) => { finishStale = resolve; }));
+    await act(async () => { fireEvent.load(stale); });
+
+    await act(async () => { await emit("pet-event", "capture.success"); });
+    expect(stale.isConnected).toBe(false);
+    await act(async () => { finishStale(); });
+    expect(shown(container).img).toBe(idle);
+    await loadPetImages();
+    expect(shown(container).file).toBe("grok_jump.gif");
+
+    for (let count = 0; count < 5; count += 1) {
+      const previous = shown(container).img;
+      await act(async () => { await emit("pet-event", "capture.success"); });
+      expect(shown(container).img).toBe(previous);
+      expect(container.querySelectorAll("img").length).toBeLessThanOrEqual(4);
+      await loadPetImages();
+      expect(shown(container).img).not.toBe(previous);
+      expect(previous.isConnected).toBe(false);
+    }
+  });
+});
+
+describe("桌宠：应用图标和自定义宠物的大小", () => {
+  it("同一缩放下切换宠物会放大，移动和换屏缩放保留当前外观，切回图标恢复原大小", async () => {
+    const screenWidth = vi.spyOn(window.screen, "availWidth", "get").mockReturnValue(1000);
+    vi.spyOn(window.screen, "availHeight", "get").mockReturnValue(1200);
+    const iconSettings = { ...settingsWith(grok), selectedAppearanceId: "app-icon", petScale: 150 };
+    const sizes: Array<{ width: number; height: number }> = [];
+
+    vi.useFakeTimers();
+    setupTauriMock(
+      (command, payload) => {
+        if (command === "load_settings") return iconSettings;
+        if (command === "get_previous_app") return { id: null, pid: null, name: "", title: "" };
+        if (command === "plugin:window|current_monitor") return null;
+        if (command === "plugin:window|set_size") {
+          const args = payload as { value: { size: { width: number; height: number } } };
+          sizes.push({ width: args.value.size.width, height: args.value.size.height });
+        }
+        return undefined;
+      },
+      { currentWindow: "pet", shouldMockEvents: true },
+    );
+    vi.resetModules();
+    const { PetWindow } = await import("./PetWindow");
+    const { container } = render(<PetWindow />);
+    await elapse(0);
+
+    const expectSize = (side: number) => {
+      expect(sizes.at(-1)).toEqual({ width: side, height: side });
+      const petWindow = container.querySelector<HTMLElement>(".pet-window")!;
+      expect(petWindow.style.getPropertyValue("--pet-icon-size")).toBe(`${side - 4}px`);
+    };
+
+    expect(container.querySelector(".pet-window.app-icon")).not.toBeNull();
+    expectSize(120);
+
+    await act(async () => {
+      await emit("settings-changed", { ...iconSettings, selectedAppearanceId: grok.id });
+    });
+    await loadPetImages();
+    expect(shown(container).file).toBe("grok_idle.gif");
+    expectSize(240);
+
+    screenWidth.mockReturnValue(800);
+    await moveTo([100, 100]);
+    expectSize(192);
+
+    screenWidth.mockReturnValue(1000);
+    await act(async () => {
+      await emit("tauri://scale-change", { scaleFactor: 2, size: { width: 480, height: 480 } });
+    });
+    expectSize(240);
+
+    await act(async () => {
+      await emit("settings-changed", iconSettings);
+    });
+    expect(container.querySelector(".pet-window.app-icon")).not.toBeNull();
+    expectSize(120);
+  });
+});
+
 describe("桌宠：超出基准画布时把窗口撑大", () => {
   it("平时仍是方窗，扣篮时窗口变大且脚留在原地，结束后缩回去", async () => {
     const shortEdge = 340;
-    const side = petWindowSize(shortEdge, 100);
+    const side = petWindowSize(shortEdge, 100, "pet");
     const idle = { entry: "gifs/idle.gif", width: 100, height: 100, anchorX: 50, anchorY: 90 };
     const dunk = { entry: "gifs/dunk.gif", width: 200, height: 180, anchorX: 60, anchorY: 170 };
     const layout: PetLayout = { baseWidth: 100, baseHeight: 100, anchorX: 50, anchorY: 90, frames: [idle, dunk] };
@@ -298,8 +449,8 @@ describe("桌宠：超出基准画布时把窗口撑大", () => {
     const sizes: Array<{ width: number; height: number }> = [];
     const shifts: Array<{ x: number; y: number }> = [];
 
-    Object.defineProperty(window.screen, "availWidth", { configurable: true, value: shortEdge });
-    Object.defineProperty(window.screen, "availHeight", { configurable: true, value: 800 });
+    vi.spyOn(window.screen, "availWidth", "get").mockReturnValue(shortEdge);
+    vi.spyOn(window.screen, "availHeight", "get").mockReturnValue(800);
 
     vi.useFakeTimers();
     setupTauriMock(
@@ -342,6 +493,7 @@ describe("桌宠：超出基准画布时把窗口撑大", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
+    await loadPetImages();
 
     const visible = () => [...container.querySelectorAll<HTMLImageElement>("img.pet-framed")].filter((img) => !img.hidden);
     const idleImage = visible()[0];
@@ -357,6 +509,12 @@ describe("桌宠：超出基准画布时把窗口撑大", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(CLICK_DELAY_MS);
     });
+
+    // 新动作还未准备好时，旧图、窗口大小和脚底位置都保留。
+    expect(visible()[0]).toBe(idleImage);
+    expect(sizes.at(-1)).toEqual({ width: side, height: side });
+    expect(position).toEqual(origin);
+    await loadPetImages();
 
     const dunkImage = visible()[0];
     expect(decodeURIComponent(dunkImage.src)).toContain("dunk.gif");
@@ -375,6 +533,7 @@ describe("桌宠：超出基准画布时把窗口撑大", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
+    await loadPetImages();
     expect(decodeURIComponent(visible()[0].src)).toContain("idle.gif");
     expect(sizes.at(-1)).toEqual({ width: side, height: side });
     expect(position).toEqual(origin);

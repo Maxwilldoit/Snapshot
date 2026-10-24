@@ -50,7 +50,13 @@ const ACTION_NAMES: Record<string, string> = {
   waiting: "等待",
   alert: "警告",
   warning: "警告",
+  failure: "失败",
+  paused: "已暂停",
+  recording: "录制中",
   success: "成功",
+  peek: "探头",
+  "walk-left": "向左走",
+  "walk-right": "向右走",
   done: "完成",
   loading: "加载中",
   drag: "拖拽",
@@ -82,8 +88,14 @@ export function entryLabel(entry: string, prefix = ""): string {
   const stem = stemOf(entry);
   const key = (prefix && stem.startsWith(prefix) ? stem.slice(prefix.length) : stem).toLowerCase();
   if (ACTION_NAMES[key]) return ACTION_NAMES[key];
-  // 整体没命中就按分隔符逐段翻，但要求每段都能译——只译出一半会得到「敲键盘laptop」，不如保留原名
   const parts = key.split(/[-_]/).filter(Boolean);
+  // 素材常带角色名前缀，如 makima_walk_left；优先匹配最后几段组成的完整动作名。
+  for (let start = 0; start < parts.length; start += 1) {
+    const suffix = parts.slice(start).join("_");
+    const translated = ACTION_NAMES[suffix] ?? ACTION_NAMES[suffix.replaceAll("_", "-")];
+    if (translated) return translated;
+  }
+  // 单个词也能逐段翻译，但只译一半会得到「敲键盘laptop」，不如保留原名。
   if (parts.length > 1 && parts.every((part) => ACTION_NAMES[part])) {
     return parts.map((part) => ACTION_NAMES[part]).join("");
   }

@@ -29,8 +29,8 @@
         "label": "pet",
         "title": "桌宠",
         "focus": false,
-        "width": 60,
-        "height": 60,
+        "width": 80,
+        "height": 80,
         "x": 24,
         "y": 24,
         "resizable": false,
@@ -79,6 +79,17 @@
         "decorations": true,
         "alwaysOnTop": true,
         "skipTaskbar": false,
+        "visible": false,
+        "center": true
+      },
+      {
+        "label": "pet-catalog",
+        "title": "桌宠素材库 · Snapshot",
+        "width": 920,
+        "height": 720,
+        "minWidth": 560,
+        "minHeight": 440,
+        "resizable": true,
         "visible": false,
         "center": true
       }

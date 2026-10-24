@@ -98,6 +98,7 @@ describe("桌面伴侣素材库", () => {
     const { calls } = await renderCatalogWindow((command) => command === "fetch_pet_catalog" ? pending.promise : undefined);
     expect(library().getByRole("status").textContent).toBe("正在加载素材库…");
     expect(calls("fetch_pet_catalog")).toHaveLength(1);
+    expect(invokeArgs(calls("fetch_pet_catalog")[0][1])).toEqual({ refresh: false });
     await act(async () => pending.resolve([first, second]));
     const card = item();
     expect(card.getByRole("img").getAttribute("src")).toBe(first.previewUrl);
@@ -106,6 +107,21 @@ describe("桌面伴侣素材库", () => {
     expect(card.getByText(first.version)).toBeTruthy();
     expect(card.getByText(first.licenseStatus)).toBeTruthy();
     expect(calls("install_catalog_pet")).toHaveLength(0);
+  });
+
+  it("刷新会显式请求网络，后台刷新事件会更新已缓存的列表", async () => {
+    const { user, calls } = await renderCatalogWindow((command) =>
+      command === "fetch_pet_catalog" ? [first] : undefined,
+    );
+    await library().findByRole("article", { name: first.name });
+    await user.click(library().getByRole("button", { name: "刷新素材库" }));
+    await waitFor(() => expect(calls("fetch_pet_catalog")).toHaveLength(2));
+    expect(invokeArgs(calls("fetch_pet_catalog")[1][1])).toEqual({ refresh: true });
+
+    const { emit } = await import("@tauri-apps/api/event");
+    await act(async () => emit("pet-catalog-changed", [second]));
+    expect(library().getByRole("article", { name: second.name })).toBeTruthy();
+    expect(library().queryByRole("article", { name: first.name })).toBeNull();
   });
 
   it("目录失败可重试；空目录有独立提示并可重新加载", async () => {
