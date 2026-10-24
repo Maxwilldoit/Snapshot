@@ -112,6 +112,11 @@ pub(crate) fn ui_text(zh: &'static str, en: &'static str) -> &'static str {
     }
 }
 
+/// 桌宠窗口左上角的 y 上限：窗口底边最多贴到工作区底边，也就是任务栏上沿。
+fn pet_top_limit(work_area_bottom: i32, window_height: i32) -> i32 {
+    work_area_bottom - window_height.max(0)
+}
+
 pub(crate) fn truncate(value: &str, max: usize) -> String {
     if value.chars().count() <= max {
         return value.into();
@@ -222,8 +227,8 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("pet") {
                 let window_size = window.outer_size().ok();
                 let monitors = window.available_monitors().unwrap_or_default();
-                let saved = settings.pet_position.clone().filter(|saved| {
-                    monitors.iter().any(|monitor| {
+                let saved = settings.pet_position.clone().and_then(|saved| {
+                    monitors.iter().find_map(|monitor| {
                         let origin = monitor.position();
                         let size = monitor.size();
                         let width = window_size
@@ -234,10 +239,20 @@ pub fn run() {
                             .as_ref()
                             .map(|value| value.height as i32)
                             .unwrap_or(60);
-                        saved.x >= origin.x
+                        let inside = saved.x >= origin.x
                             && saved.y >= origin.y
                             && saved.x + width <= origin.x + size.width as i32
-                            && saved.y + height <= origin.y + size.height as i32
+                            && saved.y + height <= origin.y + size.height as i32;
+                        if !inside {
+                            return None;
+                        }
+                        // 旧配置允许存到任务栏下面；启动时先把底边收回到工作区内。
+                        let area = monitor.work_area();
+                        let bottom = area.position.y + area.size.height as i32;
+                        Some(PhysicalPosition::new(
+                            saved.x,
+                            saved.y.min(pet_top_limit(bottom, height)),
+                        ))
                     })
                 });
                 if let Some(position) = saved {
@@ -359,6 +374,22 @@ pub fn run() {
                 }
             } else if window.label() == "pet" {
                 if let WindowEvent::Moved(position) = event {
+                    let mut position = PhysicalPosition::new(position.x, position.y);
+                    // 拖动由系统接管，窗口会先跟着指针走；在这里把底边压回任务栏上方。
+                    // set_position 会再发一次 Moved，届时位置已在界内，不会循环。
+                    if let (Ok(Some(monitor)), Ok(size)) =
+                        (window.current_monitor(), window.outer_size())
+                    {
+                        let area = monitor.work_area();
+                        let limit = pet_top_limit(
+                            area.position.y + area.size.height as i32,
+                            size.height as i32,
+                        );
+                        if position.y > limit {
+                            position.y = limit;
+                            let _ = window.set_position(position);
+                        }
+                    }
                     let app = window.app_handle().clone();
                     let revision = {
                         let Some(state) = app.try_state::<AppState>() else {
@@ -513,5 +544,15 @@ mod pet_asset_tests {
         assert_eq!(settings.recording_dir, "~/LegacyCaptures");
 
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn pet_bottom_stops_at_work_area_edge() {
+        // 底部任务栏：工作区底边 1040，136px 高的桌宠最多把左上角放到 904。
+        assert_eq!(pet_top_limit(1040, 136), 904);
+        // 副屏在负坐标时同样按所在屏幕的工作区算。
+        assert_eq!(pet_top_limit(-80, 200), -280);
+        // 桌宠本身比工作区还高时，也优先守住底边，不让脚落到任务栏下面。
+        assert_eq!(pet_top_limit(600, 900), -300);
     }
 }
