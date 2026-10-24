@@ -14,6 +14,25 @@ Built with Tauri 2, React, and native platform APIs for Windows, macOS, and Linu
 |---|---|
 | <img src="docs/screenshots/en/companion.png" alt="Makima desktop companion in the English interface"> | <img src="docs/screenshots/en/shortcuts.png" alt="Shortcuts and clipboard settings in the English interface"> |
 
+### Makima's actions
+
+The Makima companion comes from the [Pets library](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md). Click the companion to play the next action; drag it sideways to walk.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/makima/idle.gif" width="108" alt="Idle"><br>Idle</td>
+    <td align="center"><img src="docs/screenshots/makima/wave.gif" width="108" alt="Wave"><br>Wave</td>
+    <td align="center"><img src="docs/screenshots/makima/think.gif" width="108" alt="Thinking"><br>Thinking</td>
+    <td align="center"><img src="docs/screenshots/makima/peek.gif" width="108" alt="Peeking"><br>Peeking</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/makima/jump.gif" width="108" alt="Jump"><br>Jump</td>
+    <td align="center"><img src="docs/screenshots/makima/walk-left.gif" width="108" alt="Walk left"><br>Walk left</td>
+    <td align="center"><img src="docs/screenshots/makima/walk-right.gif" width="108" alt="Walk right"><br>Walk right</td>
+    <td align="left" valign="middle">Success reuses <strong>Wave</strong>; failure and recording reuse <strong>Thinking</strong>; paused reuses <strong>Peeking</strong>.</td>
+  </tr>
+</table>
+
 ## Features
 
 - **Window capture**: capture a selected window or the full screen. Send it to the clipboard, open it for annotation, or save it directly to History. Linux X11 also supports scrolling capture.

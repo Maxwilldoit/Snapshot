@@ -14,6 +14,25 @@
 |---|---|
 | <img src="docs/screenshots/zh-CN/companion.png" alt="中文界面中的 Makima 桌面伴侣"> | <img src="docs/screenshots/zh-CN/shortcuts.png" alt="中文界面中的快捷操作与剪贴板设置"> |
 
+### Makima 的动作
+
+来自 [Pets 素材库](https://github.com/Maxworkinghard/Pets/blob/main/catalog/README.md)的「玛奇玛 · 像素」。单击桌宠依次播放下一个动作，向左右拖动时行走。
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/makima/idle.gif" width="108" alt="待机"><br>待机</td>
+    <td align="center"><img src="docs/screenshots/makima/wave.gif" width="108" alt="招手"><br>招手</td>
+    <td align="center"><img src="docs/screenshots/makima/think.gif" width="108" alt="思考"><br>思考</td>
+    <td align="center"><img src="docs/screenshots/makima/peek.gif" width="108" alt="探头"><br>探头</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/makima/jump.gif" width="108" alt="跳跃"><br>跳跃</td>
+    <td align="center"><img src="docs/screenshots/makima/walk-left.gif" width="108" alt="向左走"><br>向左走</td>
+    <td align="center"><img src="docs/screenshots/makima/walk-right.gif" width="108" alt="向右走"><br>向右走</td>
+    <td align="left" valign="middle">成功复用<strong>招手</strong>；失败和录制中复用<strong>思考</strong>；暂停复用<strong>探头</strong>。</td>
+  </tr>
+</table>
+
 ## 功能
 
 - **窗口截图**：截取指定窗口或全屏。结果可放进剪贴板、打开标注，或直接保存到历史记录。Linux X11 另支持滚动长截图。
