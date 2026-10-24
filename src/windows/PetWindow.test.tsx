@@ -415,17 +415,17 @@ describe("桌宠：应用图标和自定义宠物的大小", () => {
     });
     await loadPetImages();
     expect(shown(container).file).toBe("grok_idle.gif");
-    expectSize(240);
+    expectSize(285);
 
     screenWidth.mockReturnValue(800);
     await moveTo([100, 100]);
-    expectSize(192);
+    expectSize(228);
 
     screenWidth.mockReturnValue(1000);
     await act(async () => {
       await emit("tauri://scale-change", { scaleFactor: 2, size: { width: 480, height: 480 } });
     });
-    expectSize(240);
+    expectSize(285);
 
     await act(async () => {
       await emit("settings-changed", iconSettings);
