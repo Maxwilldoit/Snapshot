@@ -1,4 +1,4 @@
-# 应用快照 {{VERSION}}
+# snapshot {{VERSION}}
 
 ## 本次更新
 

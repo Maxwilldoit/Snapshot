@@ -1,4 +1,4 @@
-# 应用快照 {{VERSION}}
+# snapshot {{VERSION}}
 
 这一版先发 Windows，macOS 和 Linux 版稍后发布。
 

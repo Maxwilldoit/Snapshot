@@ -233,5 +233,5 @@ jobs:
             --draft \
             --prerelease \
             --target "$GITHUB_SHA" \
-            --title "应用快照 ${VERSION}" \
+            --title "snapshot ${VERSION}" \
             --notes-file /tmp/release-notes.md
