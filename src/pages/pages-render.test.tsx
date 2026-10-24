@@ -179,7 +179,11 @@ describe("B2 拆页后逐页渲染", () => {
     await waitFor(() =>
       expect(calls.find((call) => call.command === "save_preferences")?.payload).toEqual({ prefs: { petScale: 150 } }),
     );
-    expect(screen.getByRole("button", { name: "恢复默认" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "恢复默认" }));
+    expect(await screen.findByText("120%")).toBeTruthy();
+    await waitFor(() =>
+      expect(calls.filter((call) => call.command === "save_preferences").at(-1)?.payload).toEqual({ prefs: { petScale: 120 } }),
+    );
   });
 
   it("偏好设置只在快门声右侧保留一个试听按钮", async () => {

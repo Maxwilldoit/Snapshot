@@ -1,5 +1,5 @@
 /** 偏好里「桌宠大小」能调的范围（百分比），和 Rust settings.rs 的 PET_SCALE_RANGE 一致 */
-export const PET_SCALE = { min: 30, max: 200, step: 10, default: 100 } as const;
+export const PET_SCALE = { min: 30, max: 200, step: 10, default: 120 } as const;
 
 /**
  * 悬浮窗口的边长（逻辑像素）。100% 时应用图标为屏幕短边的 8%，宠物为 16%；

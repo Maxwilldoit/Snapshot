@@ -171,7 +171,7 @@ fn default_after_capture() -> String {
 const PET_SCALE_RANGE: (u32, u32) = (30, 200);
 
 fn default_pet_scale() -> u32 {
-    100
+    120
 }
 
 fn clamp_pet_scale(value: u32) -> u32 {
@@ -659,7 +659,7 @@ mod tests {
     fn old_settings_without_pet_scale_use_the_default_size() {
         let json = r#"{"baseUrl":"","model":"","templates":[],"activeTemplateId":"builtin-default","shortcuts":[]}"#;
         let settings: Settings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.pet_scale, 100);
+        assert_eq!(settings.pet_scale, 120);
         assert!(!settings.shortcuts_paused);
     }
 
