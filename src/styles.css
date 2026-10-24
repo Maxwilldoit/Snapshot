@@ -71,9 +71,9 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .btn:active:not(:disabled) { background: var(--paper-sunk); transform: scale(0.97); }
 .btn:disabled { opacity: 0.45; }
 .btn-small { height: 28px; padding: 0 12px; font-size: var(--text-small); }
-.btn-primary { border-color: var(--ink); background: var(--ink); color: var(--on-ink); font-weight: 600; padding: 0 18px; }
-.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 86%, var(--paper)); }
-.btn-primary:active:not(:disabled) { background: color-mix(in srgb, var(--ink) 76%, var(--paper)); }
+.btn-primary { border-color: var(--ink-fill); background: var(--ink-fill); color: var(--on-ink); font-weight: 600; padding: 0 18px; }
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ink-fill) 86%, var(--paper)); }
+.btn-primary:active:not(:disabled) { background: color-mix(in srgb, var(--ink-fill) 76%, var(--paper)); }
 .btn-primary:disabled { opacity: 1; border-color: var(--rule); background: none; color: var(--ink-4); }
 .btn-primary .mono { font-weight: 400; opacity: 0.7; }
 .btn-danger { border-color: var(--signal); background: var(--signal); color: #fff; font-weight: 600; }
@@ -136,7 +136,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   background: var(--rule-strong);
   transition: transform var(--t-open) var(--ease-enter), background-color var(--t-fade) var(--ease-out);
 }
-.switch.is-on { border-color: var(--ink); background: var(--ink); }
+.switch.is-on { border-color: var(--ink-fill); background: var(--ink-fill); }
 .switch.is-on .switch-knob { transform: translateX(12px); background: var(--paper); }
 .switch:disabled { opacity: 0.4; }
 
@@ -148,14 +148,14 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   transition: color var(--t-fade) var(--ease-out), border-color var(--t-fade) var(--ease-out);
 }
 .choice:hover { color: var(--ink); }
-.choice.is-on { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+.choice.is-on { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink-fill); }
 
 /* 选中线会滑：容器画一道线，量出选中项的位置，线从旧位置滑过去（useSlidingMark） */
 .has-mark { position: relative; }
 .has-mark > .is-on { border-bottom-color: transparent; }
 .has-mark::after {
   content: ""; position: absolute; left: 0; top: 0; height: 1.5px; width: var(--mark-w, 0px);
-  background: var(--ink); pointer-events: none;
+  background: var(--ink-fill); pointer-events: none;
   transform: translate(var(--mark-x, 0px), calc(var(--mark-y, 0px) - 1.5px));
 }
 .has-mark.mark-ready::after { transition: transform var(--t-open) var(--ease-out), width var(--t-open) var(--ease-out); }
@@ -174,7 +174,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 /* 等待中的细线：往一个方向走，不来回弹 */
 .busy-line { position: relative; display: block; width: 100%; height: 1px; overflow: hidden; background: var(--rule); }
 .busy-line::after {
-  content: ""; position: absolute; inset: 0 auto 0 0; width: 30%; background: var(--ink);
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 30%; background: var(--ink-fill);
   animation: busy 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 @keyframes busy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
@@ -182,7 +182,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 
 /* 倒计时：全应用唯一匀速的东西 */
 .drain { display: block; width: 100%; height: 2px; margin-top: 6px; background: var(--rule); }
-.drain > span { display: block; height: 100%; background: var(--ink); transition: width 1s linear; }
+.drain > span { display: block; height: 100%; background: var(--ink-fill); transition: width 1s linear; }
 
 .cat-shape { display: block; flex: 0 0 auto; fill: var(--ink-2); }
 .cat-shape.is-outline { fill: none; stroke: var(--ink-4); stroke-width: 1; stroke-dasharray: 2 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
@@ -245,18 +245,18 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 }
 .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
 .thumb:hover:not(.is-selecting) { outline-color: color-mix(in srgb, var(--ink) 30%, transparent); }
-.thumb.is-selected { outline-color: var(--ink); }
+.thumb.is-selected { outline-color: var(--ink-fill); }
 .thumb-placeholder { border-style: dashed; background: none; }
 .thumb-check {
   position: absolute; top: 4px; left: 4px; display: grid; place-items: center;
-  width: 16px; height: 16px; border: 1.5px solid var(--ink); border-radius: 2px;
+  width: 16px; height: 16px; border: 1.5px solid var(--ink-fill); border-radius: 2px;
   background: var(--paper-raised); color: var(--paper);
   transition: background-color var(--t-press) var(--ease-out);
   animation: check-in var(--t-open) var(--ease-enter) both;
 }
 @keyframes check-in { from { opacity: 0; transform: scale(0.6); } }
 .thumb.is-narrow .thumb-check { animation-name: fade-in; }
-.thumb.is-selected .thumb-check { background: var(--ink); }
+.thumb.is-selected .thumb-check { background: var(--ink-fill); }
 /* 长截图缩出来很窄，勾选框居中别顶出去 */
 .thumb.is-narrow .thumb-check { left: 50%; width: 14px; height: 14px; transform: translateX(-50%); }
 

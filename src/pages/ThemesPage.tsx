@@ -17,7 +17,7 @@ function LayoutSketch({ layout }: { layout: LayoutTheme }) {
   const cat = <CatShape height={16} className="mini-cat" />;
   const side = (extra?: React.ReactNode) => (
     <span className="mini-side">
-      {bar("70%", "var(--ink)")}
+      {bar("70%", "var(--ink-fill)")}
       {bar("70%", "var(--rule-strong)")}
       {bar("70%", "var(--rule-strong)")}
       {bar("70%", "var(--rule-strong)")}
@@ -60,7 +60,7 @@ function LayoutSketch({ layout }: { layout: LayoutTheme }) {
     return (
       <span className="mini mini-col">
         <span className="mini-top">
-          {bar("14px", "var(--ink)")}
+          {bar("14px", "var(--ink-fill)")}
           {bar("14px", "var(--rule-strong)")}
           {bar("14px", "var(--rule-strong)")}
           {bar("14px", "var(--rule-strong)")}
@@ -85,7 +85,7 @@ function LayoutSketch({ layout }: { layout: LayoutTheme }) {
         ))}
       </span>
       <span className="mini-side mini-side-right">
-        {bar("100%", "var(--ink)")}
+        {bar("100%", "var(--ink-fill)")}
         {bar("100%", "var(--rule-strong)")}
         <span className="mini-grow" />
         {cat}

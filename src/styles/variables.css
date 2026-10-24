@@ -12,6 +12,7 @@
   --paper-raised: #fffefb; /* 输入框、键帽 */
   --paper-sunk: #ebe8e0; /* 键盘选中行 */
   --ink: #1b1a17;
+  --ink-fill: #6b6459; /* 实心控件与记号：温和的石墨色，避免大块纯黑压住纸面 */
   --ink-2: #55514a;
   --ink-3: #6f6a61;
   --ink-4: #8c877d; /* 占位、禁用 */
@@ -54,6 +55,7 @@
   --paper-raised: #252422;
   --paper-sunk: #2d2b28;
   --ink: #ece8e0;
+  --ink-fill: #c4bdb1;
   --ink-2: #bdb7ac;
   --ink-3: #a39d92;
   --ink-4: #7e786e;

@@ -121,7 +121,7 @@
 .nav-item.is-on { color: var(--ink); font-weight: 600; }
 .nav-item .small { font-weight: 400; }
 .nav-label { position: relative; }
-.nav-mark { position: absolute; left: 0; right: 0; bottom: -4px; height: 1.5px; background: var(--ink); pointer-events: none; }
+.nav-mark { position: absolute; left: 0; right: 0; bottom: -4px; height: 1.5px; background: var(--ink-fill); pointer-events: none; }
 /* 侧栏是竖排：标记是字左边的一道竖线，换页时在空白里上下滑，不会从字上划过去 */
 .nav-item .nav-mark { left: -12px; right: auto; top: 2px; bottom: 2px; width: 2px; height: auto; }
 
@@ -159,7 +159,7 @@
 .companion-cat.is-hop img { animation: hop 420ms var(--ease-cat); }
 @keyframes hop { 0% { transform: translateY(0); } 40% { transform: translateY(-8px); } 100% { transform: translateY(0); } }
 .companion-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-bottom: 8px; font-size: var(--text-small); color: var(--ink-3); }
-.companion-floor { flex: 0 0 auto; height: 2px; background: var(--ink); }
+.companion-floor { flex: 0 0 auto; height: 2px; background: var(--ink-fill); }
 .companion.is-compact .companion-cat { height: 136px; }
 
 /* ---------- 今日流水 ---------- */
@@ -182,7 +182,7 @@
 .notice-line {
   position: fixed; left: 16px; bottom: 16px; z-index: 40; max-width: min(520px, calc(100vw - 32px));
   display: flex; align-items: center; gap: 12px; min-height: 34px; padding: 6px 14px;
-  border-radius: 3px; background: var(--ink); color: var(--on-ink); font-size: var(--text-small); line-height: 18px;
+  border-radius: 3px; background: var(--ink-fill); color: var(--on-ink); font-size: var(--text-small); line-height: 18px;
   animation: rise-in var(--t-open) var(--ease-enter);
 }
 .notice-line.is-leaving { animation: notice-out var(--t-exit) var(--ease-exit) both; pointer-events: none; }
@@ -231,8 +231,8 @@
   background: none; color: var(--ink-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left;
 }
 .storage-path:hover { color: var(--ink); border-bottom-color: var(--ink-3); }
-/* 滑块（如桌宠大小）：细轨道，颜色跟正文走 */
-.range { width: 160px; margin: 0; accent-color: var(--ink); cursor: pointer; align-self: center; }
+/* 滑块（如桌宠大小）：细轨道，用比正文浅一档的石墨色 */
+.range { width: 160px; margin: 0; accent-color: var(--ink-fill); cursor: pointer; align-self: center; }
 .range-value { min-width: 3.2em; text-align: right; }
 
 /* 两栏页面里一栏放多块时，块和块之间的距离 */
@@ -243,7 +243,7 @@
 .panel-rules .panel-head { min-height: 20px; }
 .rules { position: relative; border-top: 1px solid var(--rule); }
 /* 当前规则左边那道竖线：和侧栏导航同一种记号，换规则时滑过去 */
-.rules-bar { position: absolute; left: -12px; top: 0; width: 2px; height: 0; background: var(--ink); opacity: 0; pointer-events: none; }
+.rules-bar { position: absolute; left: -12px; top: 0; width: 2px; height: 0; background: var(--ink-fill); opacity: 0; pointer-events: none; }
 .rules-bar[data-animate="1"] { transition: transform var(--t-open) var(--ease-out), height var(--t-open) var(--ease-out); }
 .rule { position: relative; display: flex; align-items: center; gap: 12px; min-height: 46px; border-bottom: 1px solid var(--rule); }
 .rule.is-fresh { animation: rise-in var(--t-open) var(--ease-enter) both; }
@@ -421,7 +421,7 @@
 /* 从架子上飞过来的替身还在路上时，真图先藏着，落地那一刻再露出来 */
 .pet-stage-image.is-landing { opacity: 0; animation: none; }
 .pet-stage-image.is-landed { animation: none; }
-.pet-floor { height: 2px; background: var(--ink); flex: 0 0 auto; }
+.pet-floor { height: 2px; background: var(--ink-fill); flex: 0 0 auto; }
 .pet-name-line { display: flex; align-items: baseline; gap: 10px; margin-top: 14px; min-height: 26px; }
 .pet-name { margin: 0; font-size: var(--text-lead); line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
 .pet-rename { font-size: var(--text-lead); font-weight: 600; padding: 2px 6px; }
@@ -491,7 +491,7 @@
 .layout-option { display: flex; flex-direction: column; gap: 10px; padding: 0; border: 0; background: none; text-align: left; min-width: 0; }
 .layout-option .mini { outline: 2px solid transparent; outline-offset: 3px; transition: outline-color var(--t-fade) var(--ease-out); }
 .layout-option:hover .mini { outline-color: var(--rule-strong); }
-.layout-option.is-on .mini { outline-color: var(--ink); }
+.layout-option.is-on .mini { outline-color: var(--ink-fill); }
 .layout-name { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .mini {
   display: flex; height: 96px; overflow: hidden;
@@ -507,7 +507,7 @@
 .mini-bar { display: block; height: 3px; background: var(--rule); }
 .mini-cat { align-self: center; }
 .mini-grow { flex: 1 1 auto; }
-.mini-floor { height: 1.5px; margin: 0 -6px 8px; background: var(--ink); flex: 0 0 auto; }
+.mini-floor { height: 1.5px; margin: 0 -6px 8px; background: var(--ink-fill); flex: 0 0 auto; }
 .mini-side-right .mini-floor { margin-left: -2px; }
 .mini-rule { height: 1px; margin: 4px 0 2px; background: var(--rule); }
 .mini-top { display: flex; align-items: flex-end; gap: 6px; height: 14px; padding: 0 8px 3px; border-bottom: 1px solid var(--rule); flex: 0 0 auto; }
