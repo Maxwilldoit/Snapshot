@@ -92,16 +92,19 @@ async fn run_polish(
 /// 成功与失败都记一条活动，时间线和猫的播报靠它
 fn log_polish(app: &AppHandle, original: &str, result: &Result<(String, String), String>) {
     match result {
-        Ok((polished, rule)) => activity::record(
-            app,
-            activity::Activity::new("polish", rule.clone())
-                .meta(format!(
-                    "{} → {} 字",
-                    original.chars().count(),
-                    polished.chars().count()
-                ))
-                .detail(truncate(polished, 4000)),
-        ),
+        Ok((polished, rule)) => {
+            prompt_history::record(app, original, polished, rule);
+            activity::record(
+                app,
+                activity::Activity::new("polish", rule.clone())
+                    .meta(format!(
+                        "{} → {} 字",
+                        original.chars().count(),
+                        polished.chars().count()
+                    ))
+                    .detail(truncate(polished, 4000)),
+            );
+        }
         Err(error) => {
             activity::record_error(app, "润色失败", error);
             let _ = app.emit("pet-event", "polish.failure");

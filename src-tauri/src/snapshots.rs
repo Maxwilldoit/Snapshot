@@ -20,7 +20,60 @@ pub(crate) struct SnapshotRecord {
     pub(crate) created_at: u64,
 }
 
-/// 历史落盘目录：优先用户配置的 save_dir，否则用应用数据目录。
+/// 默认把快照放到用户能在资源管理器里直接看到的「图片/Snapshot」。
+/// 系统没有图片目录时退回应用数据目录。
+pub(crate) fn default_history_dir(app_data_snapshots: &Path) -> PathBuf {
+    dirs::picture_dir()
+        .map(|pictures| pictures.join("Snapshot"))
+        .unwrap_or_else(|| app_data_snapshots.to_path_buf())
+}
+
+/// 早期版本把快照放在 AppData。复制到新目录，重复运行不会生成重复记录。
+pub(crate) fn migrate_legacy_history(
+    legacy: &Path,
+    destination: &Path,
+    marker: &Path,
+) -> Result<(), String> {
+    if marker.exists() || legacy == destination {
+        return Ok(());
+    }
+    if !legacy.is_dir() {
+        if let Some(parent) = marker.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(marker, b"1");
+        return Ok(());
+    }
+    fs::create_dir_all(destination).map_err(|error| error.to_string())?;
+    for entry in fs::read_dir(legacy)
+        .map_err(|error| error.to_string())?
+        .flatten()
+    {
+        let source = entry.path();
+        let target = destination.join(entry.file_name());
+        if source.is_file() && !target.exists() {
+            fs::copy(source, target).map_err(|error| error.to_string())?;
+        }
+    }
+
+    let legacy_index = legacy.join("index.json");
+    let target_index = destination.join("index.json");
+    let mut records = read_snapshot_index(&target_index);
+    for record in read_snapshot_index(&legacy_index) {
+        if !records.iter().any(|existing| existing.id == record.id) {
+            records.push(record);
+        }
+    }
+    records.sort_by_key(|record| std::cmp::Reverse(record.created_at));
+    records.truncate(SNAPSHOT_LIMIT);
+    write_snapshot_index(&target_index, &records)?;
+    if let Some(parent) = marker.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(marker, b"1").map_err(|error| error.to_string())
+}
+
+/// 历史落盘目录：优先用户配置的 save_dir，否则用默认的用户图片目录。
 pub(crate) fn history_dir(state: &AppState) -> PathBuf {
     let configured = state.settings.lock().save_dir.trim().to_string();
     if !configured.is_empty() {
@@ -203,6 +256,11 @@ pub(crate) fn open_snapshots_dir(state: State<'_, AppState>) -> Result<String, S
 }
 
 #[tauri::command]
+pub(crate) fn get_snapshot_dir(state: State<'_, AppState>) -> String {
+    history_dir(&state).to_string_lossy().to_string()
+}
+
+#[tauri::command]
 pub(crate) fn list_snapshots(state: State<'_, AppState>) -> Vec<SnapshotRecord> {
     let index_path = snapshot_index_path(&state);
     let records = read_snapshot_index(&index_path);
@@ -263,6 +321,22 @@ pub(crate) fn delete_snapshots(
     write_snapshot_index(&index_path, &kept)?;
     let _ = app.emit("snapshots-changed", ());
     Ok(kept)
+}
+
+/// 从历史原图打开现有标注窗口，不修改原始快照。
+#[tauri::command]
+pub(crate) async fn annotate_snapshot(app: AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let record = find_record(&state, &id)?;
+        let (_, bytes) = read_snapshot(&state, &id)?;
+        let image = image::load_from_memory(&bytes)
+            .map_err(|error| format!("无法读取快照图片：{error}"))?
+            .to_rgba8();
+        capture::open_annotate_window(&app, &state, &image, &record.app_name)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// 把历史里的一张重新放回剪贴板（同样按偏好自动清空）
@@ -347,6 +421,51 @@ mod tests {
             let decoded = image::open(&path).expect("写出的文件应能读回");
             assert_eq!((decoded.width(), decoded.height()), (3, 2), "{ext}");
             let _ = fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn legacy_history_copies_to_the_visible_default_only_once() {
+        let root = std::env::temp_dir().join(format!(
+            "snapshot-history-migration-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        let legacy = root.join("legacy");
+        let destination = root.join("pictures/Snapshot");
+        let marker = root.join("app-data/migration-complete");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("snap-1.png"), b"image").unwrap();
+        let record = SnapshotRecord {
+            id: "snap-1".into(),
+            file_name: "snap-1.png".into(),
+            app_name: "Codex".into(),
+            width: 10,
+            height: 10,
+            size_bytes: 5,
+            created_at: 1,
+        };
+        write_snapshot_index(&legacy.join("index.json"), &[record]).unwrap();
+
+        migrate_legacy_history(&legacy, &destination, &marker).unwrap();
+        fs::remove_file(destination.join("snap-1.png")).unwrap();
+        migrate_legacy_history(&legacy, &destination, &marker).unwrap();
+
+        assert!(!destination.join("snap-1.png").exists());
+        let restored = read_snapshot_index(&destination.join("index.json"));
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].app_name, "Codex");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn default_history_uses_pictures_when_available() {
+        let fallback = std::env::temp_dir().join("snapshot-app-data");
+        let resolved = default_history_dir(&fallback);
+        if let Some(pictures) = dirs::picture_dir() {
+            assert_eq!(resolved, pictures.join("Snapshot"));
+        } else {
+            assert_eq!(resolved, fallback);
         }
     }
 }

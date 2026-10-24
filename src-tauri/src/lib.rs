@@ -4,6 +4,7 @@ mod capabilities;
 mod capture;
 mod clipboard;
 mod launchpad;
+mod launchpad_cache;
 mod media;
 mod pet;
 mod pet_catalog;
@@ -11,6 +12,7 @@ mod pet_key;
 mod pet_layout;
 mod pet_walk;
 mod polish;
+mod prompt_history;
 mod recording;
 mod settings;
 mod shortcuts;
@@ -68,6 +70,7 @@ struct AppState {
     /// 导入时复制进来的伴侣素材与它们的缩略图
     pets_dir: PathBuf,
     activity: Mutex<activity::ActivityLog>,
+    prompt_history: Mutex<prompt_history::PromptHistory>,
     /// 剪贴板里是不是我们放的图、多久后清
     clipboard: Mutex<Option<clipboard::ClipboardState>>,
     /// 每放一次图、每次手动清空/取消都加一，让过期的清空线程自己作废
@@ -88,7 +91,7 @@ struct AppState {
     /// 系统里实际注册成功的键；释放失败时保留，供下次操作重试。
     shortcut_registrations: Mutex<Vec<String>>,
     shortcut_pause_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
-    launch_catalog: Mutex<Vec<launchpad::InstalledApp>>,
+    launch_catalog: launchpad_cache::CatalogCache,
     launch_icons: Mutex<HashMap<String, Vec<u8>>>,
 }
 
@@ -123,11 +126,23 @@ pub fn run() {
     let data_dir = dirs::data_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join(&identifier);
-    let snapshots_dir = data_dir.join("snapshots");
+    let legacy_snapshots_dir = data_dir.join("snapshots");
+    let snapshots_dir = snapshots::default_history_dir(&legacy_snapshots_dir);
     let thumbs_dir = data_dir.join("thumbs");
     let pets_dir = data_dir.join("pets");
     let activity_path = settings_path.with_file_name("activity.json");
+    let prompt_history_path = data_dir.join("prompt-history.json");
     let settings = settings::read_settings(&settings_path);
+    if settings.save_dir.trim().is_empty() {
+        let migration_marker = data_dir.join("snapshot-history-migrated");
+        if let Err(error) = snapshots::migrate_legacy_history(
+            &legacy_snapshots_dir,
+            &snapshots_dir,
+            &migration_marker,
+        ) {
+            eprintln!("snapshot: could not migrate snapshot history: {error}");
+        }
+    }
 
     tauri::Builder::default()
         // 必须第一个注册：WebView2 的用户数据目录是独占锁，
@@ -145,6 +160,7 @@ pub fn run() {
             thumbs_dir,
             pets_dir,
             activity: Mutex::new(activity::ActivityLog::load(activity_path)),
+            prompt_history: Mutex::new(prompt_history::PromptHistory::load(prompt_history_path)),
             clipboard: Mutex::new(None),
             clipboard_generation: AtomicU64::new(0),
             settings: Mutex::new(settings),
@@ -158,7 +174,9 @@ pub fn run() {
             shortcut_conflicts: Mutex::new(Vec::new()),
             shortcut_registrations: Mutex::new(Vec::new()),
             shortcut_pause_item: Mutex::new(None),
-            launch_catalog: Mutex::new(Vec::new()),
+            launch_catalog: launchpad_cache::CatalogCache::new(
+                data_dir.join("launchpad-catalog.json"),
+            ),
             launch_icons: Mutex::new(HashMap::new()),
         })
         .setup(|app| {
@@ -205,6 +223,7 @@ pub fn run() {
                 }
             }
             tracker::start_tracker(app.handle().clone(), tracker);
+            launchpad::preload(app.handle().clone());
             #[cfg(target_os = "windows")]
             os::start_pet_visibility(app.handle().clone());
 
@@ -290,6 +309,11 @@ pub fn run() {
                     api.prevent_close();
                     launchpad::conceal(window.app_handle());
                 }
+            } else if window.label() == "annotate" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    capture::conceal_annotate_window(window.app_handle());
+                }
             } else if window.label() == "pet" {
                 if let WindowEvent::Moved(position) = event {
                     let app = window.app_handle().clone();
@@ -340,10 +364,13 @@ pub fn run() {
             polish::polish_text,
             snapshots::list_snapshots,
             snapshots::open_snapshots_dir,
+            snapshots::get_snapshot_dir,
             recording::open_recordings_dir,
+            recording::get_recording_dir,
             snapshots::delete_snapshots,
             snapshots::copy_snapshot,
             activity::list_activity,
+            prompt_history::list_prompt_history,
             clipboard::get_clipboard_state,
             clipboard::clear_clipboard_now,
             clipboard::keep_clipboard,
@@ -364,6 +391,8 @@ pub fn run() {
             capture::annotate_get_title,
             capture::annotate_copy,
             capture::annotate_save,
+            capture::annotate_save_copy,
+            snapshots::annotate_snapshot,
             capture::annotate_close,
         ])
         .run(context)

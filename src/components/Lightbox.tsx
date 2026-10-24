@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { snapshotUrl } from "../lib/media";
+import { annotateSnapshot } from "../lib/backend";
 import { formatBytes, formatClock, dayLabel } from "../lib/format";
 import { growFrom, shrinkTo } from "../lib/motion";
 import type { SnapshotRecord } from "../types";
@@ -30,6 +31,8 @@ export function Lightbox({
   const [currentId, setCurrentId] = useState(startId);
   const [box, setBox] = useState<{ width: number; height: number } | null>(null);
   const [isClosing, setIsClosing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   // 翻页方向：下一张从右边滑进来，上一张从左边
   const [direction, setDirection] = useState<1 | -1>(1);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -73,13 +76,15 @@ export function Lightbox({
 
   const step = useCallback(
     (delta: number) => {
+      if (editing) return;
       const next = records[index + delta];
       if (next) {
         setDirection(delta > 0 ? 1 : -1);
         setCurrentId(next.id);
+        setEditError(null);
       }
     },
-    [index, records],
+    [index, records, editing],
   );
 
   useEffect(() => {
@@ -96,6 +101,19 @@ export function Lightbox({
 
   if (!record) return null;
 
+  async function edit() {
+    if (editing) return;
+    setEditing(true);
+    setEditError(null);
+    try {
+      await annotateSnapshot(record.id);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setEditing(false);
+    }
+  }
+
   // 挂到 body 上：页面切换的位移动画会让祖先变成定位容器，放在里面会被框住
   return createPortal(
     <div className={`lightbox ${isClosing ? "is-closing" : ""}`} role="dialog" aria-modal="true" aria-label={`放大查看：${record.appName}`}>
@@ -105,11 +123,14 @@ export function Lightbox({
           返回
         </button>
         <span className="lightbox-title" title={record.appName}>{record.appName}</span>
+        <button type="button" className="lightbox-back" disabled={editing} onClick={() => void edit()}>
+          {editing ? "正在打开…" : "标注"}
+        </button>
         <span className="lightbox-count mono">{index + 1} / {records.length}</span>
       </div>
 
       <div className="lightbox-body">
-        <button type="button" className="lightbox-arrow" aria-label="上一张" disabled={index === 0} onClick={() => step(-1)}>
+        <button type="button" className="lightbox-arrow" aria-label="上一张" disabled={editing || index === 0} onClick={() => step(-1)}>
           <svg width="12" height="22" viewBox="0 0 12 22" aria-hidden="true"><path d="M11 1L1 11l10 10" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
         </button>
         <div className="lightbox-stage" ref={stageRef}>
@@ -125,12 +146,13 @@ export function Lightbox({
             />
           )}
         </div>
-        <button type="button" className="lightbox-arrow" aria-label="下一张" disabled={index >= records.length - 1} onClick={() => step(1)}>
+        <button type="button" className="lightbox-arrow" aria-label="下一张" disabled={editing || index >= records.length - 1} onClick={() => step(1)}>
           <svg width="12" height="22" viewBox="0 0 12 22" aria-hidden="true"><path d="M1 1l10 10L1 21" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
         </button>
       </div>
 
       <div className="lightbox-foot">
+        {editError && <span role="alert">{editError}</span>}
         <span className="mono lightbox-meta">
           {record.width} × {record.height} · {formatBytes(record.sizeBytes)} · {record.fileName.split(".").pop()?.toUpperCase()} · {dayLabel(record.createdAt)} {formatClock(record.createdAt)}
         </span>

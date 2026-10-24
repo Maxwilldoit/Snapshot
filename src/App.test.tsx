@@ -52,7 +52,7 @@ async function renderApp(handle: (command: string, payload?: InvokeArgs) => unkn
 }
 
 describe("global shortcuts", () => {
-  it("hands the edited bindings to the backend and shows its verdict", async () => {
+  it("hands an edited binding to the backend immediately and shows its verdict", async () => {
     const calls: Array<{ command: string; payload?: InvokeArgs }> = [];
     await renderApp((command, payload) => {
       calls.push({ command, payload });
@@ -68,15 +68,14 @@ describe("global shortcuts", () => {
     const recordRow = await screen.findByRole("button", { name: "快捷键：窗口录制，当前按键：未设置" });
     await user.click(recordRow);
     recordRow.focus();
-    await user.keyboard("{Alt>}{Shift>}2{/Shift}{/Alt}");
-    expect(await screen.findByRole("button", { name: "快捷键：窗口录制，当前按键：Alt+Shift+2" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /保存快捷键/ }));
+    await user.keyboard("{Alt>}{Shift>}3{/Shift}{/Alt}");
 
     expect(await screen.findByText("快捷键不能重复")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "快捷键：窗口录制，当前按键：未设置" })).toBeTruthy();
     const saved = calls.find((call) => call.command === "save_shortcuts");
     expect(invokeArgs(saved?.payload).shortcuts).toEqual([
       { action: "snapshot", accelerator: "Alt+Shift+2" },
-      { action: "record", accelerator: "Alt+Shift+2" },
+      { action: "record", accelerator: "Alt+Shift+3" },
     ]);
     // 网页不再自己注册快捷键
     expect(calls.some((call) => call.command.startsWith("plugin:global-shortcut"))).toBe(false);

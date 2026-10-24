@@ -119,7 +119,7 @@ export function ModelSettingsDialog({
                 spellCheck={false}
               />
               <button type="button" className="btn" onClick={() => void loadModels()} disabled={fetchingModels}>
-                {fetchingModels ? "拉取中…" : "从接口拉取"}
+                {fetchingModels ? "拉取中…" : "拉取"}
               </button>
             </span>
             <datalist id="available-models">

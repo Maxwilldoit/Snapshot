@@ -220,6 +220,16 @@
 .row-line { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .row-label { color: var(--ink-2); }
 .row-links { display: flex; align-items: baseline; gap: 12px; }
+.sound-label { display: flex; align-items: center; gap: 10px; }
+.sound-preview { flex: 0 0 auto; font-size: var(--text-small); }
+.pause-setting { display: flex; align-items: center; gap: 10px; }
+.pause-state { color: var(--ink-3); }
+.storage-path-row { gap: 4px; }
+.storage-path {
+  align-self: flex-start; max-width: 100%; padding: 0 0 3px; border: 0; border-bottom: 1px dashed var(--rule-strong);
+  background: none; color: var(--ink-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left;
+}
+.storage-path:hover { color: var(--ink); border-bottom-color: var(--ink-3); }
 /* 滑块（如桌宠大小）：细轨道，颜色跟正文走 */
 .range { width: 160px; margin: 0; accent-color: var(--ink); cursor: pointer; align-self: center; }
 .range-value { min-width: 3.2em; text-align: right; }
@@ -284,13 +294,8 @@
 .key-row:hover .key-row-clear, .key-row:focus-within .key-row-clear { opacity: 1; }
 .key-row-clear:hover { color: var(--signal); }
 
-.save-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: auto; padding-top: 18px; }
-.save-bar-actions { display: flex; align-items: center; gap: 14px; }
-
 /* ---------- Prompt ---------- */
 
-.prompt-page { display: flex; flex-direction: column; height: calc(100vh - var(--titlebar-h)); padding: 10px 32px 22px 20px; }
-.layout-topbar .prompt-page, .layout-timeline .prompt-page { padding-left: 32px; }
 .prompt-tabs { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; min-height: 32px; }
 .prompt-tabs .mono { padding-bottom: 6px; }
 .prompt-rules { display: flex; align-items: baseline; gap: 12px; min-width: 0; padding-bottom: 6px; }
@@ -319,7 +324,7 @@
 .dialog-result p { margin: 0; }
 .dialog-result .dialog-actions { margin-top: 4px; }
 
-/* ---------- 快照历史 ---------- */
+/* ---------- 历史记录 ---------- */
 
 .history-page { display: flex; flex-direction: column; height: calc(100vh - var(--titlebar-h)); padding: 10px 32px 0 20px; }
 .layout-topbar .history-page, .layout-timeline .history-page { padding-left: 32px; }
@@ -343,6 +348,36 @@
 .shot.is-fresh .thumb { animation: fresh-mark 1.2s var(--ease-out) both; }
 @keyframes shot-in { from { opacity: 0; transform: translateY(-10px) scale(0.96); } }
 @keyframes fresh-mark { from { outline-color: var(--ink); } to { outline-color: transparent; } }
+
+.prompt-entry {
+  border-bottom: 1px solid var(--rule-soft); border-radius: 2px;
+  animation: rise-in var(--t-open) var(--ease-enter) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger));
+}
+.history-prompt-item { flex: 1 0 100%; min-width: 0; }
+.prompt-entry:last-child { border-bottom-color: var(--rule); }
+.prompt-summary {
+  display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 14px;
+  align-items: start; padding: 10px 4px; cursor: pointer; list-style: none;
+}
+.prompt-summary::-webkit-details-marker { display: none; }
+.prompt-summary:hover .prompt-preview-text { color: var(--ink); }
+.prompt-preview { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.prompt-preview-line { display: flex; min-width: 0; gap: 8px; line-height: 19px; }
+.prompt-preview-label { flex: 0 0 auto; color: var(--ink-4); font-size: var(--text-small); }
+.prompt-preview-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-2); font-size: var(--text-small); }
+.prompt-rule { max-width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; }
+.prompt-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding: 4px 4px 16px 60px; }
+.prompt-text { min-width: 0; }
+.prompt-text h4 { margin: 0 0 6px; font-size: var(--text-small); font-weight: 600; }
+.prompt-text pre {
+  margin: 0; max-height: 280px; overflow: auto; padding: 10px 12px;
+  border: 1px solid var(--rule); border-radius: 3px; background: var(--paper-raised);
+  color: var(--ink-2); font: 12px/19px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .prompt-body { grid-template-columns: minmax(0, 1fr); padding-left: 60px; }
+}
 
 /* ---------- 放大查看 ---------- */
 
@@ -485,13 +520,6 @@
 
 .timeline { display: grid; grid-template-columns: minmax(0, 1fr) 212px; min-height: calc(100vh - var(--titlebar-h)); }
 .timeline-main { display: flex; flex-direction: column; min-width: 0; padding: 6px 36px 0 32px; }
-.composer {
-  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 8px 6px 14px;
-  border: 1px solid var(--rule); border-radius: 3px; background: var(--paper-raised);
-  transition: border-color var(--t-press) var(--ease-out);
-}
-.composer:focus-within { border-color: var(--ink-3); }
-.composer-input { flex: 1; min-width: 0; padding: 4px 0; border: 0; background: none; outline: none; resize: none; font-size: 14px; line-height: 22px; }
 .stream { padding-bottom: 24px; }
 .stream-day { margin-top: 20px; }
 .stream-day-title { display: flex; align-items: center; gap: 12px; margin: 0; font-size: var(--text-small); font-weight: 600; }
@@ -503,6 +531,7 @@
 .entry-text { display: flex; flex-direction: column; min-width: 0; }
 .entry-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .entry-snippet { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.entry-links { display: flex; gap: 14px; }
 .timeline-side { position: sticky; top: 0; display: flex; flex-direction: column; height: calc(100vh - var(--titlebar-h)); padding: 6px 32px 0 0; }
 .filter { display: flex; flex-direction: column; }
 .filter-label { height: 24px; }
@@ -529,7 +558,6 @@
 .settings-doc .panel-title { font-size: var(--text-lead); line-height: 22px; margin-bottom: 10px; }
 .settings-doc .panel-head .panel-title { margin-bottom: 0; }
 .settings-doc .panel-shortcuts { min-height: 0; }
-.settings-doc .save-bar { margin-top: 0; }
 .settings-doc .key-row-clear { transform: translate(calc(100% + 10px), -50%); }
 
 /* 窄窗口（最小 820）时，两栏页面的间距收一点 */

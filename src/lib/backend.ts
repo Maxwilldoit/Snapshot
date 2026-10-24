@@ -10,6 +10,7 @@ import type {
   PetEvent,
   PlatformCapabilities,
   PreviousApp,
+  PromptHistoryEntry,
   RecordingStatus,
   Settings,
   ShortcutBinding,
@@ -120,8 +121,6 @@ export const hideQuickMenu = () => invoke<void>("hide_quick_menu");
 export const resizeQuickMenu = (width: number, height: number) =>
   invoke<void>("resize_quick_menu", { width, height });
 
-export const showMainWindow = () => invoke<void>("show_main_window");
-
 export const onSettingsChanged = (callback: (settings: Settings) => void) =>
   listen<Settings>("settings-changed", ({ payload }) => callback(payload));
 
@@ -141,7 +140,11 @@ export const listSnapshots = () => invoke<SnapshotRecord[]>("list_snapshots");
 
 export const openSnapshotsDir = () => invoke<string>("open_snapshots_dir");
 
+export const getSnapshotDir = () => invoke<string>("get_snapshot_dir");
+
 export const openRecordingsDir = () => invoke<string>("open_recordings_dir");
+
+export const getRecordingDir = () => invoke<string>("get_recording_dir");
 
 /** 删掉选中的若干张；「全选再删」就是清空。返回删完后的列表 */
 export const deleteSnapshots = (ids: string[]) => invoke<SnapshotRecord[]>("delete_snapshots", { ids });
@@ -149,10 +152,17 @@ export const deleteSnapshots = (ids: string[]) => invoke<SnapshotRecord[]>("dele
 /** 把历史里的一张重新放回剪贴板 */
 export const copySnapshot = (id: string) => invoke<string>("copy_snapshot", { id });
 
+export const annotateSnapshot = (id: string) => invoke<void>("annotate_snapshot", { id });
+
 /** 截图入库或被删后，后端广播一次，列表据此刷新 */
 export const onSnapshotsChanged = (callback: () => void) => listen("snapshots-changed", () => callback());
 
 export const listActivity = () => invoke<ActivityEntry[]>("list_activity");
+
+export const listPromptHistory = () => invoke<PromptHistoryEntry[]>("list_prompt_history");
+
+export const onPromptHistoryChanged = (callback: () => void) =>
+  listen("prompt-history-changed", () => callback());
 
 export const onActivity = (callback: (entry: ActivityEntry) => void) =>
   listen<ActivityEntry>("activity-added", ({ payload }) => callback(payload));

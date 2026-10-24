@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { savePreferences } from "../lib/backend";
-import { fileNameOf } from "../lib/format";
 import { previewHintSound } from "../lib/sound";
 import { Switch } from "../components/ui/Switch";
 import { Choices } from "../components/ui/Choices";
@@ -61,39 +60,17 @@ export function BehaviorPanel() {
             options={[
               { value: "clipboard", label: "放进剪贴板" },
               { value: "annotate", label: "打开标注" },
-              { value: "saveas", label: "另存为…" },
+              { value: "saveas", label: "仅保存" },
             ]}
           />
         </div>
-        <div className="row row-stack">
-          <div className="row-line">
+        <div className="row">
+          <span className="sound-label">
             <span className="row-label">快门声</span>
-            <Choices
-              ariaLabel="快门声"
-              value={settings.shutterSound}
-              onChange={(value) => {
-                if (value === "custom" && !settings.customSoundPath) {
-                  void importShutterSound();
-                  return;
-                }
-                void update({ shutterSound: value });
-              }}
-              options={[
-                { value: "crisp", label: "清脆" },
-                { value: "soft", label: "轻柔" },
-                { value: "custom", label: "自定义" },
-                { value: "none", label: "不响" },
-              ]}
-            />
-          </div>
-          {settings.shutterSound !== "none" && (
-            <span className="row-links small">
-              <span className="quiet">
-                {settings.shutterSound === "custom" ? fileNameOf(settings.customSoundPath) || "还没选音效文件" : "内置提示音"}
-              </span>
+            {settings.shutterSound !== "none" && (
               <button
                 type="button"
-                className="link"
+                className="link sound-preview"
                 onClick={() =>
                   previewHintSound(
                     settings.shutterSound === "soft" ? "soft" : "crisp",
@@ -104,9 +81,25 @@ export function BehaviorPanel() {
               >
                 试听
               </button>
-              <button type="button" className="link" onClick={() => void importShutterSound()}>换一个文件</button>
-            </span>
-          )}
+            )}
+          </span>
+          <Choices
+            ariaLabel="快门声"
+            value={settings.shutterSound}
+            onChange={(value) => {
+              if (value === "custom" && !settings.customSoundPath) {
+                void importShutterSound();
+                return;
+              }
+              void update({ shutterSound: value });
+            }}
+            options={[
+              { value: "crisp", label: "清脆" },
+              { value: "soft", label: "轻柔" },
+              { value: "none", label: "静音" },
+              { value: "custom", label: "自定义" },
+            ]}
+          />
         </div>
         {toggles.map((toggle) => (
           <div className="row" key={toggle.key}>

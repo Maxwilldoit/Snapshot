@@ -35,12 +35,10 @@ export type AppContextValue = {
   motionPreference: MotionPreference;
   setMotionPreference: (preference: MotionPreference) => void;
   page: NavPage;
-  navigate: (page: NavPage, options?: { previewId?: string; draft?: string }) => void;
+  navigate: (page: NavPage, options?: { previewId?: string }) => void;
   /** navigate 顺带的参数：从时间线点一张截图，进历史页直接放大它 */
   pendingPreviewId: string | null;
   consumePreviewId: () => void;
-  pendingDraft: string | null;
-  consumeDraft: () => void;
 };
 
 export const AppContext = createContext<AppContextValue | null>(null);

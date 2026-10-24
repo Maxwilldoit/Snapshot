@@ -21,7 +21,7 @@ async function renderPalette(handle: (command: string, payload?: InvokeArgs) => 
   return { calls, user: userEvent.setup() };
 }
 
-describe("输入框：录制", () => {
+describe("快捷菜单：录制", () => {
   it("选「录制」先列窗口，点哪个就录哪个", async () => {
     const { calls, user } = await renderPalette((command) => {
       if (command === "get_recording_status") return { active: false, target: null, startedAt: null } satisfies RecordingStatus;
@@ -56,7 +56,26 @@ describe("输入框：录制", () => {
   });
 });
 
-describe("输入框：窗口大小", () => {
+describe("快捷菜单：精简菜单", () => {
+  it("不显示搜索框和打开主窗口入口，窗口选择也不带搜索框", async () => {
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "list_capturable_windows") return windowList;
+      return undefined;
+    });
+
+    expect(await screen.findByRole("option", { name: "润色 Prompt" })).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("option", { name: "打开主窗口" })).toBeNull();
+    expect(calls.some((call) => call.command === "show_main_window")).toBe(false);
+
+    await user.click(screen.getByRole("option", { name: "快照" }));
+    expect(await screen.findByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+});
+
+describe("快捷菜单：窗口大小", () => {
   /** 只记下在观察谁；什么时候回调由测试决定（jsdom 没有布局，也没有 ResizeObserver） */
   class FakeResizeObserver {
     static live = new Set<FakeResizeObserver>();
@@ -122,18 +141,18 @@ describe("输入框：窗口大小", () => {
     const widths = () =>
       calls.filter((call) => call.command === "resize_quick_menu").map((call) => (call.payload as { width: number }).width);
     // 面板宽 + 左右各 40
-    await waitFor(() => expect(widths().at(-1)).toBe(320 + 80));
+    await waitFor(() => expect(widths().at(-1)).toBe(260 + 80));
 
     await user.click(await screen.findByRole("option", { name: "快照" }));
     expect(await screen.findByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
-    await waitFor(() => expect(widths().at(-1)).toBe(400 + 80));
+    await waitFor(() => expect(widths().at(-1)).toBe(360 + 80));
 
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(widths().at(-1)).toBe(320 + 80));
+    await waitFor(() => expect(widths().at(-1)).toBe(260 + 80));
   });
 });
 
-describe("输入框：润色", () => {
+describe("快捷菜单：润色", () => {
   const settings = {
     baseUrl: "https://api.example.com",
     model: "demo-model",
@@ -148,10 +167,11 @@ describe("输入框：润色", () => {
     shortcuts: [],
   } as unknown as Settings;
 
-  it("打一句话回车就润色；Tab 换规则重来；回车复制并收起", async () => {
+  it("点润色读取剪贴板；Tab 换规则重来；回车复制并收起", async () => {
     const { calls, user } = await renderPalette((command, payload) => {
       if (command === "load_settings") return settings;
       if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "read_clipboard_text") return "帮我把历史页按日期分组";
       if (command === "polish_text") {
         const args = payload as { text: string; templateId: string };
         return `【${args.templateId}】${args.text}`;
@@ -159,10 +179,9 @@ describe("输入框：润色", () => {
       return undefined;
     });
 
-    const input = await screen.findByRole("textbox", { name: "命令，或要润色的文字" });
     // 等设置读到（润色要用到当前规则）
     await waitFor(() => expect(calls.some((call) => call.command === "load_settings")).toBe(true));
-    await user.type(input, "帮我把历史页按日期分组{Enter}");
+    await user.click(screen.getByRole("option", { name: "润色 Prompt" }));
 
     expect(await screen.findByText("【a】帮我把历史页按日期分组")).toBeTruthy();
     await user.keyboard("{Tab}");
@@ -178,12 +197,13 @@ describe("输入框：润色", () => {
   it("没配模型时不发请求，直接说去哪里填", async () => {
     const { calls, user } = await renderPalette((command) => {
       if (command === "load_settings") return { ...settings, baseUrl: "", model: "" };
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "read_clipboard_text") return "帮我把历史页按日期分组";
       return undefined;
     });
 
-    const input = await screen.findByRole("textbox", { name: "命令，或要润色的文字" });
     await waitFor(() => expect(calls.some((call) => call.command === "load_settings")).toBe(true));
-    await user.type(input, "帮我把历史页按日期分组{Enter}");
+    await user.click(screen.getByRole("option", { name: "润色 Prompt" }));
 
     expect(await screen.findByText(/还没填模型接口/)).toBeTruthy();
     expect(calls.some((call) => call.command === "polish_text")).toBe(false);

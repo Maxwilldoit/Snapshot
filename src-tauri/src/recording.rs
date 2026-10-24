@@ -141,6 +141,13 @@ pub(crate) fn open_recordings_dir(state: State<'_, AppState>) -> Result<String, 
 }
 
 #[tauri::command]
+pub(crate) fn get_recording_dir(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(resolve_recording_dir(&state.settings.lock())?
+        .to_string_lossy()
+        .to_string())
+}
+
+#[tauri::command]
 pub(crate) fn toggle_recording(
     app: AppHandle,
     state: State<'_, AppState>,

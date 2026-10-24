@@ -1,7 +1,6 @@
 /** 主窗口里的页面。home / settings 只在「时间线」布局里出现 */
 export type NavPage =
   | "shortcuts"
-  | "prompt"
   | "history"
   | "pet"
   | "prefs"
@@ -106,7 +105,7 @@ export interface Settings {
   activeTemplateId: string;
   selectedAppearanceId: string;
   petAssets: PetAsset[];
-  /** 桌宠大小：按屏幕算出的基准大小的百分比，100 就是原来的大小（见 lib/petSize.ts） */
+  /** 桌宠大小：按屏幕算出的基准大小的百分比，100 为屏幕短边的 6%（见 lib/petSize.ts） */
   petScale: number;
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
@@ -171,6 +170,15 @@ export interface ActivityEntry {
   /** 润色结果开头、错误原文、录像文件路径 */
   detail?: string;
   snapshotId?: string;
+}
+
+/** 一次成功润色保存下来的原文、结果、规则和时间 */
+export interface PromptHistoryEntry {
+  id: string;
+  createdAt: number;
+  template: string;
+  original: string;
+  polished: string;
 }
 
 /** 剪贴板里放着我们的图时的状态 */

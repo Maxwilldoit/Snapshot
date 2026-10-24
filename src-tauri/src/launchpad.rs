@@ -1,14 +1,14 @@
 //! 启动台：本机已安装的应用，外加用户收成的文件夹。
 //!
-//! 应用清单每次打开时向系统要，不写进配置。配置里只留用户排过的顺序和文件夹，
-//! 这样新装的应用会自己出现在末尾，卸掉的会从文件夹里消失。
+//! 启动时后台预加载应用清单，打开时先用本地缓存，再后台检查变化。
+//! 配置只保存用户的顺序和文件夹；可重建的扫描结果单独缓存。
 
 use super::{actions, os, settings, AppState};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct InstalledApp {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -238,23 +238,39 @@ fn view_from(apps: &[InstalledApp], items: Vec<LaunchpadItem>) -> LaunchpadView 
     }
 }
 
-fn refresh_catalog(state: &AppState) -> Vec<InstalledApp> {
-    let apps = os::installed_apps();
-    *state.launch_catalog.lock() = apps.clone();
-    apps
+fn cached_catalog(state: &AppState) -> Vec<InstalledApp> {
+    state.launch_catalog.get_or_scan(os::installed_apps)
+}
+
+/// 安装后首次运行就扫描；以后启动先复用磁盘清单，同时更新并预热图标。
+pub(crate) fn preload(app: AppHandle) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let apps = state.launch_catalog.refresh(os::installed_apps);
+        let scale = app
+            .get_webview_window("launchpad")
+            .and_then(|window| window.scale_factor().ok())
+            .unwrap_or(1.0);
+        let size = (88.0 * scale).ceil().clamp(16.0, 256.0) as u32;
+        // 只预热首批图标，避免启动时为全部应用集中读取图标。
+        for entry in apps.iter().filter(|entry| entry.listed).take(40) {
+            let _ = icon_bytes(&state, &entry.id, size);
+        }
+    });
 }
 
 fn target_of(state: &AppState, id: &str) -> Option<String> {
     if let Some(target) = state
         .launch_catalog
-        .lock()
+        .cached()
+        .unwrap_or_default()
         .iter()
         .find(|app| app.id == id)
         .map(|app| app.target.clone())
     {
         return Some(target);
     }
-    let apps = refresh_catalog(state);
+    let apps = cached_catalog(state);
     apps.into_iter()
         .find(|app| app.id == id)
         .map(|app| app.target)
@@ -332,17 +348,24 @@ pub(crate) fn hide_launchpad(app: AppHandle) {
 }
 
 #[tauri::command]
-pub(crate) fn launchpad_state(state: State<'_, AppState>) -> LaunchpadView {
-    let apps = refresh_catalog(&state);
-    let (order, folders) = {
-        let settings = state.settings.lock();
-        (
-            settings.launchpad_order.clone(),
-            settings.launchpad_folders.clone(),
-        )
-    };
-    let (items, _, _) = arrange(&apps, &order, &folders);
-    view_from(&apps, items)
+pub(crate) async fn launchpad_state(app: AppHandle) -> Result<LaunchpadView, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let apps = cached_catalog(&state);
+        let (order, folders) = {
+            let settings = state.settings.lock();
+            (
+                settings.launchpad_order.clone(),
+                settings.launchpad_folders.clone(),
+            )
+        };
+        let (items, _, _) = arrange(&apps, &order, &folders);
+        let view = view_from(&apps, items);
+        preload(app.clone());
+        view
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -352,14 +375,7 @@ pub(crate) fn save_launchpad(
     order: Vec<String>,
     folders: Vec<LaunchpadFolder>,
 ) -> Result<(), String> {
-    let apps = {
-        let catalog = state.launch_catalog.lock().clone();
-        if catalog.is_empty() {
-            refresh_catalog(&state)
-        } else {
-            catalog
-        }
-    };
+    let apps = cached_catalog(&state);
     let (_, order, folders) = arrange(&apps, &order, &folders);
     let saved = {
         let mut settings = state.settings.lock();

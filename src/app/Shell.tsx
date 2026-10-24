@@ -55,8 +55,7 @@ function useNavItems(): { work: NavItem[]; settings: NavItem[] } {
         label: "快捷操作",
         trailing: conflicts.length ? <span className="signal small" aria-label={`${conflicts.length} 个冲突`}>{conflicts.length}</span> : null,
       },
-      { page: "prompt", label: "Prompt" },
-      { page: "history", label: "快照历史" },
+      { page: "history", label: "历史记录" },
       { page: "pet", label: "桌面伴侣" },
     ],
     settings: [
@@ -157,7 +156,7 @@ export function LedgerList() {
                 className={`ledger-item ${entry.kind === "error" ? "is-error" : ""}`}
                 onClick={() => {
                   if (entry.kind === "capture" && entry.snapshotId) navigate("history", { previewId: entry.snapshotId });
-                  else if (entry.kind === "polish") navigate("prompt");
+                  else if (entry.kind === "polish") navigate("history");
                   else if (entry.kind === "error" && entry.title.includes("快捷键")) navigate("shortcuts");
                 }}
                 title={entry.detail ?? entry.title}

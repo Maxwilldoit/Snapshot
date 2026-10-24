@@ -13,7 +13,6 @@ import {
   readClipboardText,
   resizeQuickMenu,
   runAction,
-  showMainWindow,
   toggleRecording,
 } from "../lib/backend";
 import { iconUrl, petThumbUrl, petUrl } from "../lib/media";
@@ -26,7 +25,7 @@ import type { CapturableWindow, RecordingStatus, Settings, ShortcutAction } from
 
 type View = "menu" | "windows" | "polish";
 type Status = { kind: "busy" | "ok" | "error"; text: string };
-type Item = { id: string; label: ReactNode; hint?: ReactNode; keywords: string; run: () => void; muted?: boolean };
+type Item = { id: string; label: ReactNode; hint?: ReactNode; run: () => void };
 
 /** 成功类提示停留多久后自动收起 */
 const OK_HIDE_DELAY_MS = 900;
@@ -35,13 +34,13 @@ const CAT_ROOM = 112;
 /** 面板左右和下方的透明边 */
 const EDGE = 40;
 /** 各视图的面板宽度：菜单装得下一行动作和快捷键就够；窗口列表多给点看标题；润色要放下底栏四个按钮 */
-const PANEL_WIDTH: Record<View, number> = { menu: 320, windows: 400, polish: 520 };
+const PANEL_WIDTH: Record<View, number> = { menu: 260, windows: 360, polish: 480 };
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * 输入框：右键桌宠或按「呼出输入框」快捷键出来。
- * 能做的事列成几行；打字就筛选，粘贴一段文字就直接进润色。
+ * 快捷菜单：右键桌宠或按「呼出快捷菜单」快捷键出来。
+ * 能做的事列成几行。
  * 键盘就能走完：↑ ↓ 选、↵ 执行、Esc 返回或关掉；润色时 Tab 换规则、Ctrl R 再来一次、Ctrl ← 看原文。
  */
 export function QuickMenuWindow() {
@@ -54,7 +53,6 @@ export function QuickMenuWindow() {
     enterClass.current = view === "menu" ? "enter-back" : "enter-forward";
     previousView.current = view;
   }
-  const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [pickerMode, setPickerMode] = useState<"capture" | "record">("capture");
   const [windows, setWindows] = useState<CapturableWindow[] | null>(null);
@@ -74,7 +72,7 @@ export function QuickMenuWindow() {
   const [startedAt, setStartedAt] = useState(0);
   const runToken = useRef(0);
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<number | null>(null);
@@ -93,7 +91,6 @@ export function QuickMenuWindow() {
     previousView.current = "menu";
     enterClass.current = "";
     setView("menu");
-    setQuery("");
     setCursor(0);
     setStatus(null);
     setWindows(null);
@@ -102,7 +99,7 @@ export function QuickMenuWindow() {
     setRunning(false);
     setPeek(false);
     setOpening((value) => value + 1);
-    window.setTimeout(() => inputRef.current?.focus(), 0);
+    window.setTimeout(() => rootRef.current?.focus(), 0);
   }, []);
 
   useEffect(() => {
@@ -173,7 +170,6 @@ export function QuickMenuWindow() {
   async function openPicker(mode: "capture" | "record") {
     setPickerMode(mode);
     setView("windows");
-    setQuery("");
     setCursor(0);
     setWindows(null);
     showStatus(null);
@@ -183,12 +179,12 @@ export function QuickMenuWindow() {
       setWindows([]);
       showStatus({ kind: "error", text: errorText(error) });
     }
-    inputRef.current?.focus();
+    rootRef.current?.focus();
   }
 
   async function pickWindow(item: CapturableWindow) {
     if (pickerMode === "capture") {
-      // 后端先把输入框藏起来再截，免得截进画面；失败会记进活动，主窗口的猫会说
+      // 后端先把快捷菜单藏起来再截，免得截进画面；失败会记进活动，主窗口的猫会说
       void runAction("capture", item.id).catch(() => {});
       return;
     }
@@ -245,7 +241,7 @@ export function QuickMenuWindow() {
     setView("polish");
     showStatus(null);
     if (!settings?.baseUrl || !settings?.model) {
-      setPolishError("还没填模型接口，润色用不了。打开主窗口，在「偏好设置」里填。");
+      setPolishError("还没填模型接口，润色用不了。请在主窗口的「偏好设置」里填写。");
       return;
     }
     void run(trimmed, template);
@@ -284,14 +280,12 @@ export function QuickMenuWindow() {
         id: "capture",
         label: "快照",
         hint: shortcutHint("snapshot"),
-        keywords: "截图 截屏 窗口 快照 capture snapshot",
         run: () => void openPicker("capture"),
       },
       {
         id: "fullscreen",
         label: "全屏截图",
         hint: shortcutHint("fullscreen"),
-        keywords: "全屏 截图 截屏 屏幕 fullscreen",
         run: () => void runAction("fullscreen").catch(() => {}),
       },
       recording.active
@@ -305,72 +299,35 @@ export function QuickMenuWindow() {
                 {shortcutHint("record")}
               </>
             ),
-            keywords: "停止 录制 录屏 record stop",
             run: () => void stopRecording(),
           }
         : {
             id: "record",
             label: "录制",
             hint: shortcutHint("record"),
-            keywords: "录制 录屏 视频 record",
             run: () => void openPicker("record"),
           },
       {
         id: "polish",
         label: "润色 Prompt",
         hint: shortcutHint("polish"),
-        keywords: "润色 改写 prompt 剪贴板 polish",
         run: () => void polishClipboardText(),
       },
     ];
-    list.push({
-      id: "main",
-      label: "打开主窗口",
-      keywords: "主窗口 设置 历史 形象 伴侣 settings",
-      muted: true,
-      run: () => {
-        void showMainWindow();
-        void hideQuickMenu();
-      },
-    });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, recording, conflicts, now]);
 
-  const visibleItems = useMemo<Item[]>(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return items;
-    const matches = items.filter((item) => item.keywords.toLowerCase().includes(needle));
-    const polishItem: Item = {
-      id: "polish-query",
-      label: (
-        <>
-          润色这段文字<span className="small quiet"> · {query.trim().length} 字</span>
-        </>
-      ),
-      hint: <span className="mono small quiet">↵</span>,
-      keywords: "",
-      run: () => enterPolish(query),
-    };
-    // 打的是一句话而不是命令：润色排第一
-    return needle.length >= 8 || matches.length === 0 ? [polishItem, ...matches] : [...matches, polishItem];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, query, settings]);
-
-  const visibleWindows = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return (windows ?? []).filter(
-      (item) => !needle || item.appName.toLowerCase().includes(needle) || item.title.toLowerCase().includes(needle),
-    );
-  }, [windows, query]);
+  const visibleWindows = windows ?? [];
 
   // 进润色后键盘焦点落在结果区，Tab / ↵ / Esc 才接得住
   useEffect(() => {
     if (view === "polish") resultRef.current?.focus();
-  }, [view]);
+    else rootRef.current?.focus();
+  }, [opening, view]);
 
-  const rowCount = view === "menu" ? visibleItems.length : view === "windows" ? visibleWindows.length : 0;
-  useEffect(() => setCursor(0), [query, view]);
+  const rowCount = view === "menu" ? items.length : view === "windows" ? visibleWindows.length : 0;
+  useEffect(() => setCursor(0), [view]);
 
   function onKeyDown(event: React.KeyboardEvent) {
     if (view === "polish") {
@@ -379,8 +336,7 @@ export function QuickMenuWindow() {
         runToken.current += 1;
         setRunning(false);
         setView("menu");
-        setQuery("");
-        window.setTimeout(() => inputRef.current?.focus(), 0);
+        window.setTimeout(() => rootRef.current?.focus(), 0);
       } else if (event.key === "Tab") {
         event.preventDefault();
         cycleRule(event.shiftKey ? -1 : 1);
@@ -404,15 +360,13 @@ export function QuickMenuWindow() {
       setCursor((value) => (rowCount ? (value - 1 + rowCount) % rowCount : 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (view === "menu") visibleItems[cursor]?.run();
+      if (view === "menu") items[cursor]?.run();
       else if (visibleWindows[cursor]) void pickWindow(visibleWindows[cursor]);
     } else if (event.key === "Escape") {
       event.preventDefault();
       if (view === "windows") {
         setView("menu");
-        setQuery("");
-      } else if (query) setQuery("");
-      else void hideQuickMenu();
+      } else void hideQuickMenu();
     }
   }
 
@@ -423,6 +377,8 @@ export function QuickMenuWindow() {
 
   return (
     <div
+      ref={rootRef}
+      tabIndex={-1}
       className="palette-root"
       style={{ paddingTop: headroom }}
       onMouseDown={(event) => {
@@ -433,7 +389,7 @@ export function QuickMenuWindow() {
     >
       <div className="palette-wrap" key={opening} style={{ width: PANEL_WIDTH[view] }}>
         {catSrc && <img className="palette-cat" key={catSrc} src={catSrc} alt="" draggable={false} />}
-        <div className="palette" ref={panelRef} role="dialog" aria-label="应用快照输入框">
+        <div className="palette" ref={panelRef} role="dialog" aria-label="应用快照快捷菜单">
           {view === "polish" ? (
             <div className={`palette-polish ${enterClass.current}`}>
               <div className="palette-source small">
@@ -445,7 +401,9 @@ export function QuickMenuWindow() {
                 {running ? (
                   <p className="palette-busy">
                     <span className="busy-line" aria-hidden="true" />
-                    正在按「{templateName}」润色 · <span className="mono">{Math.floor((now - startedAt) / 1000)}</span> 秒
+                    <span>
+                      正在按「{templateName}」润色 · <span className="mono">{Math.floor((now - startedAt) / 1000)}</span> 秒
+                    </span>
                   </p>
                 ) : polishError ? (
                   <p className="signal">
@@ -460,7 +418,6 @@ export function QuickMenuWindow() {
               <div className="palette-foot small">
                 <button type="button" className="text-btn palette-rule" onClick={() => cycleRule(1)} disabled={templates.length < 2}>
                   <span className="strong">{templateName}</span>
-                  {templates.length > 1 && <span className="mono quiet">Tab</span>}
                 </button>
                 <span className="spacer" />
                 <button type="button" className="text-btn ink-2" onClick={() => setPeek((value) => !value)} disabled={!result}>
@@ -476,45 +433,27 @@ export function QuickMenuWindow() {
             </div>
           ) : (
             <>
-              <div className="palette-input-row">
-                {view === "windows" && (
-                  <button type="button" className="palette-back" aria-label="返回" onClick={() => { setView("menu"); setQuery(""); }}>
+              {view === "windows" && (
+                <div className="palette-window-head">
+                  <button type="button" className="palette-back" aria-label="返回" onClick={() => setView("menu")}>
                     <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
                   </button>
-                )}
-                <input
-                  ref={inputRef}
-                  autoFocus
-                  className="palette-input"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onPaste={(event) => {
-                    if (view !== "menu") return;
-                    const text = event.clipboardData.getData("text");
-                    // 粘进来的是一段话：不用再按回车，直接去润色
-                    if (text.includes("\n") || text.trim().length > 40) {
-                      event.preventDefault();
-                      enterPolish(text);
-                    }
-                  }}
-                  placeholder={
-                    view === "windows" ? (pickerMode === "capture" ? "截哪个窗口" : "录哪个窗口") : "要做什么？"
-                  }
-                  aria-label={view === "windows" ? "筛选窗口" : "命令，或要润色的文字"}
-                  spellCheck={false}
-                />
-                <span className="mono small quiet">Esc</span>
-              </div>
+                  <span className="palette-window-heading">
+                    {pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口"}
+                  </span>
+                  <span className="mono small quiet">Esc</span>
+                </div>
+              )}
 
               {view === "menu" ? (
                 <div className={`palette-list ${enterClass.current}`} role="listbox" aria-label="动作">
-                  {visibleItems.map((item, index) => (
+                  {items.map((item, index) => (
                     <button
                       key={item.id}
                       type="button"
                       role="option"
                       aria-selected={index === cursor}
-                      className={`palette-item ${index === cursor ? "is-on" : ""} ${item.muted ? "is-muted" : ""} ${item.id === "main" && index > 0 ? "is-apart" : ""}`}
+                      className={`palette-item ${index === cursor ? "is-on" : ""}`}
                       onMouseMove={() => setCursor(index)}
                       onClick={item.run}
                     >
@@ -527,7 +466,7 @@ export function QuickMenuWindow() {
                 <div className={`palette-list palette-windows ${enterClass.current}`} role="listbox" aria-label={pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口"}>
                   {windows === null && <p className="palette-empty small quiet">正在读取窗口…</p>}
                   {windows !== null && visibleWindows.length === 0 && (
-                    <p className="palette-empty small quiet">{query ? "没有匹配的窗口" : "没有找到可用的窗口"}</p>
+                    <p className="palette-empty small quiet">没有找到可用的窗口</p>
                   )}
                   {visibleWindows.map((item, index) => (
                     <button

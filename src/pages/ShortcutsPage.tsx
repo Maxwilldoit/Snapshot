@@ -1,6 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openRecordingsDir, savePreferences, saveShortcuts, setShortcutsPaused } from "../lib/backend";
+import {
+  getRecordingDir,
+  getSnapshotDir,
+  openRecordingsDir,
+  openSnapshotsDir,
+  savePreferences,
+  saveShortcuts,
+  setShortcutsPaused,
+} from "../lib/backend";
 import { middleTruncatePath, normalizeKey } from "../lib/format";
 import { Keys } from "../components/ui/Keys";
 import { Choices } from "../components/ui/Choices";
@@ -14,7 +22,7 @@ const ACTION_LABELS: Record<ShortcutAction, { name: string }> = {
   scrolling: { name: "滚动长截图" },
   record: { name: "窗口录制" },
   polish: { name: "润色 Prompt" },
-  palette: { name: "呼出输入框" },
+  palette: { name: "呼出快捷菜单" },
 };
 
 const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
@@ -35,6 +43,7 @@ export function ShortcutsPanel() {
   const [held, setHeld] = useState<string[]>([]);
   const [rejected, setRejected] = useState<{ action: ShortcutAction; key: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const previousSavedShortcuts = useRef(settings.shortcuts);
   const shortcutsPaused = settings.shortcutsPaused ?? false;
@@ -50,15 +59,6 @@ export function ShortcutsPanel() {
       )
     ) setShortcuts(settings.shortcuts);
   }, [settings.shortcuts]);
-
-  const changed = useMemo(
-    () =>
-      shortcuts.filter((item) => {
-        const saved = settings.shortcuts.find((binding) => binding.action === item.action);
-        return (saved?.accelerator ?? null) !== item.accelerator;
-      }).length,
-    [shortcuts, settings.shortcuts],
-  );
 
   function stopRecording() {
     setRecording(null);
@@ -92,7 +92,7 @@ export function ShortcutsPanel() {
       return;
     }
     const accelerator = [...modifiers, key].join("+");
-    setShortcuts((items) => items.map((item) => (item.action === action ? { ...item, accelerator } : item)));
+    changeBinding(action, accelerator);
     setRejected(null);
     stopRecording();
   }
@@ -101,19 +101,30 @@ export function ShortcutsPanel() {
     if (recording === action) setHeld(pressedModifiers(event));
   }
 
-  async function save() {
+  async function persist(next: ShortcutBinding[]) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    const previous = shortcuts;
+    setShortcuts(next);
     setSaving(true);
     try {
-      // 校验、落盘由后端完成；暂停期间只保存绑定，恢复后再注册。
-      const next = await saveShortcuts(shortcuts);
-      onSaved(next);
+      const saved = await saveShortcuts(next);
+      onSaved(saved);
       setConflicts([]);
-      notify(next.shortcutsPaused ? "快捷键绑定已保存，全局快捷键仍保持暂停" : "快捷键已保存，立即生效");
+      notify(saved.shortcutsPaused ? "快捷键绑定已保存，全局快捷键仍保持暂停" : "快捷键已保存，立即生效");
     } catch (error) {
+      setShortcuts(previous);
       notify(errorText(error), "error");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
+  }
+
+  function changeBinding(action: ShortcutAction, accelerator: string | null) {
+    if (savingRef.current) return;
+    const next = shortcuts.map((item) => (item.action === action ? { ...item, accelerator } : item));
+    void persist(next);
   }
 
   async function togglePause(paused: boolean) {
@@ -143,6 +154,7 @@ export function ShortcutsPanel() {
           type="button"
           className="key-row-main"
           aria-label={`快捷键：${label.name}，当前按键：${binding.accelerator || "未设置"}`}
+          disabled={saving}
           onClick={() => {
             // 这一行是「录快捷键」的选中态，不是执行功能：点它开始录，再点一次取消
             setRejected(null);
@@ -168,7 +180,6 @@ export function ShortcutsPanel() {
               <span className="keys-pending">
                 {held.length > 0 && <Keys value={held.join("+")} />}
                 <span className="kbd-slot" aria-hidden="true" />
-                <span className="quiet small">Esc 取消</span>
               </span>
             ) : binding.accelerator ? (
               <Keys value={binding.accelerator} struck={conflicted} />
@@ -182,9 +193,8 @@ export function ShortcutsPanel() {
             type="button"
             className="key-row-clear"
             aria-label={`清除「${label.name}」的快捷键`}
-            onClick={() =>
-              setShortcuts((items) => items.map((item) => (item.action === binding.action ? { ...item, accelerator: null } : item)))
-            }
+            disabled={saving}
+            onClick={() => changeBinding(binding.action, null)}
           >
             清除
           </button>
@@ -197,49 +207,24 @@ export function ShortcutsPanel() {
     <section className="panel panel-shortcuts">
       <div className="panel-head">
         <h2 className="panel-title">全局快捷键</h2>
-        <button
-          type="button"
-          className="text-btn quiet small"
-          onClick={() => setShortcuts(shortcuts.map((item) => ({ ...item, accelerator: null })))}
-        >
-          全部清除
-        </button>
       </div>
       <div className="rows">
-        <div className="row row-stack">
-          <div className="row-line">
+        <div className="row">
+          <span className="pause-setting">
             <label htmlFor="switch-shortcuts-paused" className="row-label">暂停全局快捷键</label>
-            <Switch
-              id="switch-shortcuts-paused"
-              label="暂停全局快捷键"
-              value={shortcutsPaused}
-              disabled={togglingPause || saving}
-              onChange={(value) => void togglePause(value)}
-            />
-          </div>
-          <span className="small ink-2" role="status">
-            {shortcutsPaused ? "已暂停 · 全局快捷键不响应" : "已启用 · 全局快捷键正在响应"}
+            <span className="pause-state small" role="status">
+              {shortcutsPaused ? "未启用" : "启用中"}
+            </span>
           </span>
-          <span className="quiet small">暂停会释放按键，保留已保存的绑定；仍可录入、编辑和保存。</span>
+          <Switch
+            id="switch-shortcuts-paused"
+            label="暂停全局快捷键"
+            value={shortcutsPaused}
+            disabled={togglingPause || saving}
+            onChange={(value) => void togglePause(value)}
+          />
         </div>
         {shortcuts.map(renderRow)}
-      </div>
-      <div className="save-bar">
-        <span className="small ink-2">{changed > 0 ? `改了 ${changed} 处，还没保存` : ""}</span>
-        <span className="save-bar-actions">
-          {changed > 0 && (
-            <button type="button" className="text-btn ink-2" onClick={() => setShortcuts(settings.shortcuts)}>撤销</button>
-          )}
-          <button
-            type="button"
-            className="btn btn-primary"
-            aria-label="保存快捷键"
-            onClick={() => void save()}
-            disabled={saving || togglingPause || changed === 0}
-          >
-            {saving ? "保存中…" : "保存"}
-          </button>
-        </span>
       </div>
     </section>
   );
@@ -248,6 +233,20 @@ export function ShortcutsPanel() {
 /** 剪贴板、图片格式、保存位置、录制——这一组和快捷键页放在一起，都是截图的去向 */
 export function StoragePanel() {
   const { settings, onSaved, notify, caps } = useApp();
+  const [snapshotPath, setSnapshotPath] = useState("");
+  const [recordingPath, setRecordingPath] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    void Promise.allSettled([getSnapshotDir(), getRecordingDir()]).then(([snapshot, recording]) => {
+      if (!alive) return;
+      if (snapshot.status === "fulfilled" && typeof snapshot.value === "string") setSnapshotPath(snapshot.value);
+      if (recording.status === "fulfilled" && typeof recording.value === "string") setRecordingPath(recording.value);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [settings.saveDir, settings.recordingDir]);
 
   async function update(patch: Partial<Settings>, message?: string) {
     try {
@@ -267,11 +266,21 @@ export function StoragePanel() {
     }
   }
 
-  const recordingDirLabel = settings.recordingDir
-    ? middleTruncatePath(settings.recordingDir)
-    : settings.saveDir
-      ? "跟随快照目录"
-      : "系统「下载」目录";
+  async function openSnapshotFolder() {
+    try {
+      setSnapshotPath(await openSnapshotsDir());
+    } catch (error) {
+      notify(errorText(error), "error");
+    }
+  }
+
+  async function openRecordingFolder() {
+    try {
+      setRecordingPath(await openRecordingsDir());
+    } catch (error) {
+      notify(errorText(error), "error");
+    }
+  }
 
   return (
     <section className="panel panel-storage">
@@ -304,33 +313,44 @@ export function StoragePanel() {
             ]}
           />
         </div>
-        <div className="row row-stack">
+        <div className="row row-stack storage-path-row">
           <div className="row-line">
-            <span className="row-label">快照存到</span>
-            <button type="button" className="link small" onClick={() => void pickDir("saveDir")}>更改</button>
+            <span className="row-label">保存快照到</span>
+            <button type="button" className="link" onClick={() => void pickDir("saveDir")}>更改</button>
           </div>
-          <span className="mono small ink-2 nowrap" title={settings.saveDir || undefined}>
-            {settings.saveDir ? middleTruncatePath(settings.saveDir) : "应用数据目录（默认）"}
-          </span>
+          <button
+            type="button"
+            className="storage-path mono small"
+            title={snapshotPath || undefined}
+            aria-label={`打开快照文件夹：${snapshotPath || "正在读取路径"}`}
+            onClick={() => void openSnapshotFolder()}
+          >
+            {snapshotPath ? middleTruncatePath(snapshotPath) : "正在读取路径…"}
+          </button>
         </div>
       </div>
 
       <h2 className="panel-title panel-title-gap">录制</h2>
       <div className="rows">
-        <div className="row row-stack">
+        <div className="row row-stack storage-path-row">
           <div className="row-line">
-            <span className="row-label">录像存到</span>
+            <span className="row-label">保存录像到</span>
             <span className="row-links small">
-              <button type="button" className="link" onClick={() => openRecordingsDir().catch((error) => notify(errorText(error), "error"))}>打开</button>
               <button type="button" className="link" onClick={() => void pickDir("recordingDir")}>更改</button>
               {settings.recordingDir && (
                 <button type="button" className="link" onClick={() => void update({ recordingDir: "" }, "已恢复默认录像位置")}>恢复默认</button>
               )}
             </span>
           </div>
-          <span className={`small nowrap ${settings.recordingDir ? "mono ink-2" : "quiet"}`} title={settings.recordingDir || undefined}>
-            {recordingDirLabel}
-          </span>
+          <button
+            type="button"
+            className="storage-path mono small"
+            title={recordingPath || undefined}
+            aria-label={`打开录像文件夹：${recordingPath || "正在读取路径"}`}
+            onClick={() => void openRecordingFolder()}
+          >
+            {recordingPath ? middleTruncatePath(recordingPath) : "正在读取路径…"}
+          </button>
         </div>
         <div className="row">
           <label htmlFor="switch-system-audio" className="row-label">同时录系统声音</label>

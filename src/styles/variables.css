@@ -1,5 +1,5 @@
 /*
- * 纸与墨：暖白底、近黑字、一种信号红。层级靠字重、灰度和位置，不靠卡片、底色和阴影。
+ * 纸与墨：纯白底、近黑字、一种信号红。层级靠字重、灰度和位置，不靠卡片、底色和阴影。
  * 唯一「立起来」的东西是键帽——这是个快捷键工具，键帽是它自己的视觉语言。
  */
 :root {
@@ -8,7 +8,7 @@
     -apple-system, BlinkMacSystemFont, "Noto Sans SC", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
 
-  --paper: #f5f3ee;
+  --paper: #ffffff;
   --paper-raised: #fffefb; /* 输入框、键帽 */
   --paper-sunk: #ebe8e0; /* 键盘选中行 */
   --ink: #1b1a17;

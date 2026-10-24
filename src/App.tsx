@@ -36,7 +36,6 @@ import { Companion } from "./components/Companion";
 import { LoadingState } from "./components/LoadingState";
 import { useActivityLog, useClipboardState, useRecordingStatus } from "./hooks/useLive";
 import { ShortcutsPage } from "./pages/ShortcutsPage";
-import { PromptPage } from "./pages/PromptPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { PetPage } from "./pages/PetPage";
 import { PreferencesPage } from "./pages/PreferencesPage";
@@ -47,10 +46,10 @@ import type { NavPage, PlatformCapabilities, Settings } from "./types";
 
 /** 每种布局能到的页面，以及打开时落在哪一页 */
 const LAYOUT_PAGES: Record<LayoutTheme, { home: NavPage; pages: NavPage[] }> = {
-  companion: { home: "shortcuts", pages: ["shortcuts", "prompt", "history", "pet", "prefs", "themes"] },
-  ledger: { home: "shortcuts", pages: ["shortcuts", "prompt", "history", "pet", "prefs", "themes"] },
-  topbar: { home: "shortcuts", pages: ["shortcuts", "prompt", "history", "pet", "prefs", "themes"] },
-  timeline: { home: "home", pages: ["home", "prompt", "history", "pet", "settings"] },
+  companion: { home: "shortcuts", pages: ["shortcuts", "history", "pet", "prefs", "themes"] },
+  ledger: { home: "shortcuts", pages: ["shortcuts", "history", "pet", "prefs", "themes"] },
+  topbar: { home: "shortcuts", pages: ["shortcuts", "history", "pet", "prefs", "themes"] },
+  timeline: { home: "home", pages: ["home", "history", "pet", "settings"] },
 };
 
 /** 两种布局之间换页时，对应到最接近的那一页 */
@@ -64,10 +63,10 @@ function mapPage(page: NavPage, layout: LayoutTheme): NavPage {
 
 /** 导航里的先后顺序：往后走新页从下面（或右边）来，往回走从上面（或左边）来 */
 const NAV_ORDER: Record<LayoutTheme, NavPage[]> = {
-  companion: ["shortcuts", "prompt", "history", "pet", "prefs", "themes"],
-  ledger: ["shortcuts", "prompt", "history", "pet", "prefs", "themes"],
-  topbar: ["shortcuts", "prompt", "history", "pet", "prefs", "themes"],
-  timeline: ["home", "prompt", "history", "pet", "settings"],
+  companion: ["shortcuts", "history", "pet", "prefs", "themes"],
+  ledger: ["shortcuts", "history", "pet", "prefs", "themes"],
+  topbar: ["shortcuts", "history", "pet", "prefs", "themes"],
+  timeline: ["home", "history", "pet", "settings"],
 };
 
 function directionFor(layout: LayoutTheme, from: NavPage, to: NavPage): TransitionDirection {
@@ -85,8 +84,6 @@ function PageView({ page }: { page: NavPage }) {
   switch (page) {
     case "home":
       return <TimelineHome />;
-    case "prompt":
-      return <PromptPage />;
     case "history":
       return <HistoryPage />;
     case "pet":
@@ -114,7 +111,6 @@ export function App() {
   const [caps, setCaps] = useState<PlatformCapabilities | null>(null);
   const [flash, setFlash] = useState(false);
   const [pendingPreviewId, setPendingPreviewId] = useState<string | null>(null);
-  const [pendingDraft, setPendingDraft] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -234,7 +230,6 @@ export function App() {
   // 换页：旧页往反方向退半步淡掉，新页从导航的方向滑进来；导航下的墨线跟着滑过去
   const navigate = useCallback<AppContextValue["navigate"]>((next, options) => {
     if (options?.previewId) setPendingPreviewId(options.previewId);
-    if (options?.draft) setPendingDraft(options.draft);
     const from = pageRef.current;
     if (next === from) return;
     pageEnters.current = !canViewTransition();
@@ -272,13 +267,11 @@ export function App() {
         navigate,
         pendingPreviewId,
         consumePreviewId: () => setPendingPreviewId(null),
-        pendingDraft,
-        consumeDraft: () => setPendingDraft(null),
       },
     [
       settings, notify, notice, dismissNotice, conflicts, caps, activity, clipboard, recording,
       layout, setLayout, themePreference, setThemePreference, motionPreference, setMotionPreference,
-      page, navigate, pendingPreviewId, pendingDraft,
+      page, navigate, pendingPreviewId,
     ],
   );
 
@@ -349,7 +342,7 @@ function TimelineLinks() {
   const { page, navigate } = useApp();
   const links: Array<{ page: NavPage; label: string }> = [
     { page: "home", label: "今天" },
-    { page: "history", label: "全部历史" },
+    { page: "history", label: "历史记录" },
     { page: "pet", label: "形象" },
     { page: "settings", label: "设置" },
   ];

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   deleteSnapshots,
+  listPromptHistory,
   listSnapshots,
+  onPromptHistoryChanged,
   onSnapshotsChanged,
   openSnapshotsDir,
   savePreferences,
@@ -10,19 +12,22 @@ import { formatBytes, formatClock, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { SnapshotThumb } from "../components/SnapshotThumb";
 import { Lightbox } from "../components/Lightbox";
+import { PromptHistoryRow } from "../components/PromptHistoryRow";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
 import { Keys } from "../components/ui/Keys";
 import { acceleratorOf } from "./ShortcutsPage";
 import { errorText, useApp } from "../app/context";
-import type { SnapshotRecord } from "../types";
+import type { PromptHistoryEntry, SnapshotRecord } from "../types";
 
-const LIMIT = 200;
-const NEAR_LIMIT = 180;
+type HistoryItem =
+  | { kind: "snapshot"; at: number; snapshot: SnapshotRecord }
+  | { kind: "prompt"; at: number; prompt: PromptHistoryEntry };
 
 export function HistoryPage() {
   const { settings, onSaved, notify, pendingPreviewId, consumePreviewId } = useApp();
   const [records, setRecords] = useState<SnapshotRecord[] | null>(null);
+  const [promptRecords, setPromptRecords] = useState<PromptHistoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -55,13 +60,27 @@ export function HistoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const refreshPrompts = useCallback(async () => {
+    try {
+      const list = await listPromptHistory();
+      setPromptRecords(Array.isArray(list) ? list : []);
+    } catch (error) {
+      setPromptRecords([]);
+      notify(errorText(error), "error");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     void refresh();
+    void refreshPrompts();
     const pending = onSnapshotsChanged(() => void refresh());
+    const promptPending = onPromptHistoryChanged(() => void refreshPrompts());
     return () => {
       void pending.then((unlisten) => unlisten()).catch(() => {});
+      void promptPending.then((unlisten) => unlisten()).catch(() => {});
     };
-  }, [refresh]);
+  }, [refresh, refreshPrompts]);
 
   // 从时间线点进来的那张，直接放大
   useEffect(() => {
@@ -76,11 +95,32 @@ export function HistoryPage() {
     return () => window.clearTimeout(timer);
   }, [fresh]);
 
+  const historyItems = useMemo<HistoryItem[]>(() => {
+    const snapshots: HistoryItem[] = (records ?? []).map((snapshot) => ({
+      kind: "snapshot",
+      at: snapshot.createdAt,
+      snapshot,
+    }));
+    const prompts: HistoryItem[] = (promptRecords ?? []).map((prompt) => ({
+      kind: "prompt",
+      at: prompt.createdAt,
+      prompt,
+    }));
+    return [...snapshots, ...prompts].sort((left, right) => right.at - left.at);
+  }, [records, promptRecords]);
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return (records ?? []).filter((item) => !needle || item.appName.toLowerCase().includes(needle));
-  }, [records, query]);
-  const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
+    return historyItems.filter((item) => {
+      if (selecting && item.kind !== "snapshot") return false;
+      if (!needle) return true;
+      if (item.kind === "snapshot") return item.snapshot.appName.toLowerCase().includes(needle);
+      const prompt = item.prompt;
+      return [prompt.original, prompt.polished, prompt.template]
+        .some((text) => text.toLowerCase().includes(needle));
+    });
+  }, [historyItems, query, selecting]);
+  const groups = useMemo(() => groupByDay(filtered, (item) => item.at), [filtered]);
 
   const exitSelecting = useCallback(() => {
     setSelecting(false);
@@ -101,11 +141,13 @@ export function HistoryPage() {
     setSelected((current) => {
       const next = new Set(current);
       if (range && anchor) {
-        const from = filtered.findIndex((item) => item.id === anchor);
-        const to = filtered.findIndex((item) => item.id === id);
+        const from = filtered.findIndex((item) => item.kind === "snapshot" && item.snapshot.id === anchor);
+        const to = filtered.findIndex((item) => item.kind === "snapshot" && item.snapshot.id === id);
         if (from >= 0 && to >= 0) {
           const [start, end] = from < to ? [from, to] : [to, from];
-          filtered.slice(start, end + 1).forEach((item) => next.add(item.id));
+          filtered.slice(start, end + 1).forEach((item) => {
+            if (item.kind === "snapshot") next.add(item.snapshot.id);
+          });
           return next;
         }
       }
@@ -162,6 +204,12 @@ export function HistoryPage() {
   );
 
   const total = records?.length ?? 0;
+  const promptTotal = promptRecords?.length ?? 0;
+  const totalItems = total + promptTotal;
+  const previewRecords = useMemo(() => {
+    const visible = filtered.flatMap((item) => (item.kind === "snapshot" ? [item.snapshot] : []));
+    return visible.length ? visible : (records ?? []);
+  }, [filtered, records]);
   const allSelected = total > 0 && selected.size === total;
   // 退场时文案别跟着变成「删除 0 张」：打开那一刻的文案一直留到对话框淡出
   const confirmDialog = usePresence(
@@ -173,7 +221,9 @@ export function HistoryPage() {
       : null,
   );
 
-  if (records === null) return <LoadingState text="正在读取快照历史…" />;
+  if (records === null || promptRecords === null) {
+    return <LoadingState text="正在读取历史记录…" />;
+  }
 
   const header = selecting ? (
     <div className="history-bar">
@@ -182,7 +232,7 @@ export function HistoryPage() {
       <button
         type="button"
         className="link small"
-        onClick={() => setSelected(allSelected ? new Set() : new Set(filtered.map((item) => item.id)))}
+        onClick={() => setSelected(allSelected ? new Set() : new Set(filtered.flatMap((item) => (item.kind === "snapshot" ? [item.snapshot.id] : []))))}
       >
         {allSelected ? "全不选" : query ? `全选 ${filtered.length} 张` : `全选 ${total} 张`}
       </button>
@@ -201,41 +251,37 @@ export function HistoryPage() {
     <div className="history-bar">
       <label className="search">
         <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" strokeWidth="1.2" /><path d="M8 8l3.5 3.5" stroke="currentColor" strokeWidth="1.2" /></svg>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="按应用名筛选" aria-label="按应用名筛选" />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索历史记录" aria-label="搜索历史记录" />
         {query && (
           <button type="button" className="search-clear" aria-label="清除筛选" onClick={() => setQuery("")}>
             <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M.5.5l7 7M7.5.5l-7 7" stroke="currentColor" strokeWidth="1.2" /></svg>
           </button>
         )}
       </label>
-      {/* 快到上限时数字变红：再截就会挤掉最旧的，不用另写一句解释 */}
-      <span className={`mono small ${!query && total >= NEAR_LIMIT ? "signal" : "quiet"}`}>
-        {query ? `${filtered.length} / ${total}` : `${total} / ${LIMIT}`}
+      <span className="mono small quiet">
+        {query ? `${filtered.length} / ${totalItems}` : `${totalItems} 项`}
       </span>
       <span className="spacer" />
-      <button type="button" className="text-btn small ink-2" onClick={() => void revealFolder()}>打开文件夹</button>
-      <button type="button" className="btn btn-small" onClick={() => setSelecting(true)} disabled={total === 0}>选择</button>
+      <button type="button" className="text-btn small ink-2" onClick={() => void revealFolder()}>打开快照文件夹</button>
+      <button type="button" className="btn btn-small" onClick={() => setSelecting(true)} disabled={total === 0}>选择快照</button>
     </div>
   );
 
   let body;
-  if (total === 0) {
+  if (totalItems === 0) {
     const shortcut = acceleratorOf(settings, "snapshot");
     body = settings.autoSaveLocal ? (
       <div className="empty">
-        <h2 className="empty-title">还没有快照</h2>
+        <h2 className="empty-title">还没有历史记录</h2>
         <p className="empty-body">
-          {shortcut ? (
-            <>按 <Keys value={shortcut} /> 截取当前窗口，或右键桌宠从输入框里截。截到的都会留在这里，最多 200 张。</>
-          ) : (
-            <>右键桌宠，从输入框里截一个窗口；截到的都会留在这里，最多 200 张。也可以在「快捷操作」里绑一个截图快捷键。</>
-          )}
+          截取窗口或成功润色后，记录会按时间显示在这里。右键桌宠可打开快捷菜单
+          {shortcut && <>；按 <Keys value={shortcut} /> 也可以直接截取当前窗口</>}。
         </p>
       </div>
     ) : (
       <div className="empty">
-        <h2 className="empty-title">还没有快照</h2>
-        <p className="empty-body">「截图同时存进历史」现在是关的，截图只进剪贴板，不会记到这里。</p>
+        <h2 className="empty-title">还没有历史记录</h2>
+        <p className="empty-body">快照和 Prompt 历史会显示在这里；「截图同时存进历史」现在是关的，截图只进剪贴板。</p>
         <div className="empty-actions">
           <button
             type="button"
@@ -249,7 +295,7 @@ export function HistoryPage() {
                 .catch((error) => notify(errorText(error), "error"))
             }
           >
-            打开它
+            同时保存截图
           </button>
         </div>
       </div>
@@ -257,7 +303,7 @@ export function HistoryPage() {
   } else if (filtered.length === 0) {
     body = (
       <p className="empty-line">
-        没有应用名含「{query.trim()}」的快照。
+        没有含「{query.trim()}」的历史记录。
         <button type="button" className="link" onClick={() => setQuery("")}>清除筛选</button>
       </p>
     );
@@ -267,45 +313,49 @@ export function HistoryPage() {
     body = (
       <div className="history-groups" ref={listRef}>
         {groups.map((group) => {
-          const ids = group.items.map((item) => item.id);
+          const ids = group.items.flatMap((item) => (item.kind === "snapshot" ? [item.snapshot.id] : []));
           const picked = ids.filter((id) => selected.has(id)).length;
           return (
             <section className="day" key={group.key} aria-label={group.label}>
               <div className="day-label">
                 <h3 className="day-title">{group.label}</h3>
-                <span className="small quiet">{selecting && picked ? `选了 ${picked} / ${ids.length}` : `${ids.length} 张`}</span>
-                {selecting && (
+                <span className="small quiet">{selecting && picked ? `选了 ${picked} / ${ids.length}` : `${group.items.length} 项`}</span>
+                {selecting && ids.length > 0 && (
                   <button type="button" className="link small" onClick={() => toggleGroup(ids)}>
                     {picked === ids.length ? "取消整组" : "选整组"}
                   </button>
                 )}
               </div>
               <div className="day-items">
-                {group.items.map((item) => (
-                  <figure
-                    key={item.id}
-                    data-flip-key={item.id}
-                    style={stagger(order++)}
-                    className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
-                  >
-                    <SnapshotThumb
-                      id={item.id}
-                      width={item.width}
-                      height={item.height}
-                      label={item.appName}
-                      selecting={selecting}
-                      selected={selected.has(item.id)}
-                      onPress={(_element, event) => {
-                        if (selecting) toggle(item.id, event.shiftKey);
-                        else setPreviewId(item.id);
-                      }}
-                    />
-                    <figcaption className="shot-caption">
-                      <span className="shot-name" title={item.appName}>{item.appName}</span>
-                      <span className="mono small quiet">{formatClock(item.createdAt)} · {formatBytes(item.sizeBytes)}</span>
-                    </figcaption>
-                  </figure>
-                ))}
+                {group.items.map((item) =>
+                  item.kind === "snapshot" ? (
+                    <figure
+                      key={`snapshot-${item.snapshot.id}`}
+                      data-flip-key={item.snapshot.id}
+                      style={stagger(order++)}
+                      className={`shot ${leaving.has(item.snapshot.id) ? "is-leaving" : ""} ${fresh.has(item.snapshot.id) ? "is-fresh" : ""}`}
+                    >
+                      <SnapshotThumb
+                        id={item.snapshot.id}
+                        width={item.snapshot.width}
+                        height={item.snapshot.height}
+                        label={item.snapshot.appName}
+                        selecting={selecting}
+                        selected={selected.has(item.snapshot.id)}
+                        onPress={(_element, event) => {
+                          if (selecting) toggle(item.snapshot.id, event.shiftKey);
+                          else setPreviewId(item.snapshot.id);
+                        }}
+                      />
+                      <figcaption className="shot-caption">
+                        <span className="shot-name" title={item.snapshot.appName}>{item.snapshot.appName}</span>
+                        <span className="mono small quiet">{formatClock(item.snapshot.createdAt)} · {formatBytes(item.snapshot.sizeBytes)}</span>
+                      </figcaption>
+                    </figure>
+                  ) : (
+                    <PromptHistoryRow key={`prompt-${item.prompt.id}`} record={item.prompt} index={order++} />
+                  ),
+                )}
               </div>
             </section>
           );
@@ -321,7 +371,7 @@ export function HistoryPage() {
 
       {previewId && (
         <Lightbox
-          records={filtered.length ? filtered : records}
+          records={previewRecords}
           startId={previewId}
           onClose={() => setPreviewId(null)}
         />

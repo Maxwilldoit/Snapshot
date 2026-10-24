@@ -1,6 +1,6 @@
 import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, Settings, SnapshotRecord } from "../types";
+import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, Settings, SnapshotRecord } from "../types";
 
 /**
  * 浏览器预览（直接 `npm run dev` 打开页面）用的假后端。
@@ -146,6 +146,25 @@ const activity: ActivityEntry[] = demo
     ]
   : [];
 
+const promptHistory: PromptHistoryEntry[] = demo
+  ? [
+      {
+        id: "prompt-demo-1",
+        createdAt: minutesAgo(33),
+        template: "代码修改任务",
+        original: "把历史页按日期分组，空状态也写清楚。",
+        polished: "修改 src/pages/HistoryPage.tsx：将历史记录按日期分组展示；每组显示日期与记录数量；为空时说明如何生成第一条记录。保持现有数据结构与交互，不修改 Rust 命令。",
+      },
+      {
+        id: "prompt-demo-2",
+        createdAt: minutesAgo(180),
+        template: "清晰、可执行",
+        original: "检查右键菜单，去掉搜索框和打开主窗口。",
+        polished: "检查右键桌宠打开的快捷菜单，移除搜索框及其筛选、粘贴润色逻辑，同时移除“打开主窗口”入口；保留快照、全屏截图、录制和润色动作，并保持键盘上下选择、回车执行与 Esc 关闭可用。",
+      },
+    ]
+  : [];
+
 const demoClipboard = demo
   ? { label: "Visual Studio Code 截图", snapshotId: "snap-0", armedAt: Date.now() - 18_000, clearAt: Date.now() + 42_000 }
   : null;
@@ -279,13 +298,21 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     case "open_snapshots_dir":
     case "open_recordings_dir":
       return noFileManager;
+    case "get_snapshot_dir":
+      return demo ? "D:\\Dropbox\\工作\\2026\\截图归档\\应用快照\\原始文件" : "~/Pictures/Snapshot";
+    case "get_recording_dir":
+      return "~/Downloads";
     case "list_snapshots":
       return structuredClone(snapshots);
+    case "list_prompt_history":
+      return structuredClone(promptHistory);
     case "delete_snapshots":
       snapshots = snapshots.filter((item) => !(args.ids as string[]).includes(item.id));
       return structuredClone(snapshots);
     case "copy_snapshot":
       return "预览模式下不会写剪贴板";
+    case "annotate_snapshot":
+      throw new Error("请在桌面应用中打开标注窗口");
     case "list_activity":
       return structuredClone(activity);
     case "get_clipboard_state":

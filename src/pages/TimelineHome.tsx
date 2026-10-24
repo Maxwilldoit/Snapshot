@@ -18,11 +18,10 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: "polish", label: "润色" },
 ];
 
-/** 「时间线」布局的首页：今天做过的事排成一条，顶上一个输入框，粘贴进去就能润色 */
+/** 「时间线」布局的首页：今天做过的事排成一条。 */
 export function TimelineHome() {
   const { activity, clipboard, navigate, notify } = useApp();
   const [filter, setFilter] = useState<Filter>("all");
-  const [draft, setDraft] = useState("");
   const now = useNow(Boolean(clipboard?.clearAt));
 
   const counts = useMemo(() => {
@@ -40,12 +39,6 @@ export function TimelineHome() {
     [activity, filter],
   );
   const groups = useMemo(() => groupByDay(visible, (entry) => entry.at), [visible]);
-
-  function submit() {
-    if (!draft.trim()) return;
-    navigate("prompt", { draft });
-    setDraft("");
-  }
 
   let order = 0;
   const renderEntry = (entry: ActivityEntry) => {
@@ -95,13 +88,16 @@ export function TimelineHome() {
           <span className="small quiet">润色 · {entry.title} · <span className="mono">{entry.meta}</span></span>
           <span className="entry-snippet">{entry.detail}</span>
           {entry.detail && (
-            <span className="small">
+            <span className="small entry-links">
               <button
                 type="button"
                 className="link"
                 onClick={() => copyText(entry.detail!).then(() => notify("结果已复制")).catch((error) => notify(errorText(error), "error"))}
               >
                 复制结果
+              </button>
+              <button type="button" className="link" onClick={() => navigate("history")}>
+                查看历史
               </button>
             </span>
           )}
@@ -126,21 +122,6 @@ export function TimelineHome() {
   return (
     <div className="timeline">
       <div className="timeline-main">
-        <div className="composer">
-          <textarea
-            className="composer-input"
-            rows={draft.includes("\n") ? 4 : 1}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="粘贴或写下要润色的 Prompt"
-            aria-label="要润色的 Prompt"
-            spellCheck={false}
-          />
-          <button type="button" className="btn btn-small" onClick={submit} disabled={!draft.trim()}>
-            润色
-          </button>
-        </div>
-
         <div className="stream">
           {groups.length === 0 ? (
             <div className="empty">

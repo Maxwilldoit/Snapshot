@@ -16,7 +16,8 @@ use crate::capabilities::{CapabilityStatus, PlatformCapabilities};
 use crate::capture::Area;
 use crate::recording::RecordOptions;
 use image::RgbaImage;
-use std::{fs, path::Path, process::Command};
+use std::{fs, os::windows::ffi::OsStrExt, path::Path};
+use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
 
 pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
 pub(crate) use autostart::apply as apply_autostart;
@@ -87,12 +88,26 @@ pub(crate) fn capture_with_cursor(
 }
 
 pub(crate) fn open_folder(path: &Path) -> Result<(), String> {
-    // explorer.exe 即使成功也常返回非 0，所以只看能不能启动，不看退出码
-    Command::new("explorer")
-        .arg(path)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("无法打开文件管理器：{error}"))
+    let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+    let file: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let code = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if (code as isize) <= 32 {
+        return Err(format!("无法打开文件管理器（错误 {}）", code as isize));
+    }
+    Ok(())
 }
 
 pub(crate) fn capabilities() -> PlatformCapabilities {

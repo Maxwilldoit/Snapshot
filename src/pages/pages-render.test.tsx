@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { InvokeArgs } from "@tauri-apps/api/core";
@@ -57,6 +57,12 @@ function handler(command: string) {
       return capabilities;
     case "list_snapshots":
       return [];
+    case "list_prompt_history":
+      return [];
+    case "get_snapshot_dir":
+      return "D:\\Snapshots";
+    case "get_recording_dir":
+      return "D:\\Recordings";
     case "get_recording_status":
       return { active: false, target: null, startedAt: null };
     default:
@@ -79,11 +85,36 @@ describe("B2 拆页后逐页渲染", () => {
     expect(
       await screen.findByRole("button", { name: "快捷键：窗口快照，当前按键：Alt+Shift+2" }),
     ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Prompt$/ })).toBeNull();
+    expect(screen.queryByText("应用数据目录（默认）")).toBeNull();
+    expect(screen.queryByText("系统「下载」目录")).toBeNull();
+  });
+
+  it("保存路径显示为可点击的虚线按钮，不再提供单独的打开按钮", async () => {
+    const calls: string[] = [];
+    await renderApp((command) => {
+      if (command === "open_snapshots_dir" || command === "open_recordings_dir") {
+        calls.push(command);
+        return command === "open_snapshots_dir" ? "D:\\Snapshots" : "D:\\Recordings";
+      }
+      return handler(command);
+    });
+    const user = userEvent.setup();
+
+    expect(await screen.findByText("保存快照到")).toBeTruthy();
+    expect(screen.getByText("保存录像到")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+    const snapshot = await screen.findByRole("button", { name: /^打开快照文件夹：D:\\Snapshots$/ });
+    const recording = screen.getByRole("button", { name: /^打开录像文件夹：D:\\Recordings$/ });
+    expect(snapshot.classList.contains("storage-path")).toBe(true);
+    expect(recording.classList.contains("storage-path")).toBe(true);
+    await user.click(snapshot);
+    await user.click(recording);
+    await waitFor(() => expect(calls).toEqual(["open_snapshots_dir", "open_recordings_dir"]));
   });
 
   it.each([
-    [/^Prompt$/, "规则"],
-    [/^快照历史/, "还没有快照"],
+    [/^历史记录/, "还没有历史记录"],
     [/^桌面伴侣/, "全部形象"],
     [/^偏好设置/, "截屏与行为"],
     [/^主题库/, "布局"],
@@ -93,6 +124,44 @@ describe("B2 拆页后逐页渲染", () => {
     await user.click(screen.getByRole("button", { name: navLabel }));
     // 换页不等旧页淡出，新页内容应当马上出现
     expect(await screen.findAllByText(marker, { exact: false })).not.toHaveLength(0);
+  });
+
+  it("历史记录把快照和 Prompt 放在同一页，并可展开原文与润色文", async () => {
+    const createdAt = new Date(2026, 9, 24, 9, 5).getTime();
+    await renderApp((command) => {
+      if (command === "list_snapshots") {
+        return [{
+          id: "snap-1",
+          fileName: "snap-1.png",
+          appName: "Codex",
+          width: 800,
+          height: 600,
+          sizeBytes: 1200,
+          createdAt: createdAt + 60_000,
+        }];
+      }
+      if (command === "list_prompt_history") {
+        return [{
+          id: "prompt-1",
+          createdAt,
+          template: "清晰、可执行",
+          original: "帮我把按钮改得更容易找到",
+          polished: "请提高主操作按钮的视觉层级，并明确其交互状态。",
+        }];
+      }
+      return handler(command);
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^历史记录/ }));
+
+    expect(await screen.findByText("09:05")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "放大：Codex" })).toBeTruthy();
+    expect(screen.queryByRole("tablist", { name: "历史类型" })).toBeNull();
+    const summary = screen.getAllByText("帮我把按钮改得更容易找到")[0].closest("summary");
+    expect(summary).toBeTruthy();
+    await user.click(summary!);
+    expect(screen.getAllByText("帮我把按钮改得更容易找到")).toHaveLength(2);
+    expect(screen.getAllByText("请提高主操作按钮的视觉层级，并明确其交互状态。")).toHaveLength(2);
   });
 
   it("偏好设置里拖桌宠大小：存下百分比，旁边跟着显示", async () => {
@@ -111,6 +180,34 @@ describe("B2 拆页后逐页渲染", () => {
       expect(calls.find((call) => call.command === "save_preferences")?.payload).toEqual({ prefs: { petScale: 150 } }),
     );
     expect(screen.getByRole("button", { name: "恢复默认" })).toBeTruthy();
+  });
+
+  it("偏好设置只在快门声右侧保留一个试听按钮", async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^偏好设置/ }));
+
+    const shutter = await screen.findByRole("radiogroup", { name: "快门声" });
+    expect(within(shutter).getAllByRole("radio").map((button) => button.textContent)).toEqual([
+      "清脆",
+      "轻柔",
+      "静音",
+      "自定义",
+    ]);
+    expect(screen.queryByText("内置提示音")).toBeNull();
+    expect(screen.queryByRole("button", { name: "换一个文件" })).toBeNull();
+    const preview = screen.getAllByRole("button", { name: "试听" });
+    expect(preview).toHaveLength(1);
+    expect(preview[0].closest(".sound-label")).toBeTruthy();
+  });
+
+  it("截图后的第三个行为是仅保存，不再显示另存为", async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^偏好设置/ }));
+
+    expect(await screen.findByRole("radio", { name: "仅保存" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /另存为/ })).toBeNull();
   });
 
   it("主题库里换成「时间线」：侧栏消失，标题栏出现「今天」", async () => {

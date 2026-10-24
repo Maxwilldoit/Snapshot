@@ -102,12 +102,17 @@ pub(crate) fn finalize_capture(
 ) -> Result<String, String> {
     let settings = state.settings.lock().clone();
     let (width, height) = (image.width(), image.height());
-    let record = if settings.auto_save_local {
+    // 「仅保存」必须进历史，否则用户选完既没有文件也没有剪贴板内容。
+    let only_save = settings.after_capture == "saveas";
+    let record = if settings.auto_save_local || only_save {
         snapshots::store_snapshot(state, &image, app_name).ok()
     } else {
         None
     };
     let archived = record.is_some();
+    if only_save && !archived {
+        return Err(format!("未能把 {app_name} 保存到历史记录"));
+    }
     if archived {
         let _ = app.emit("snapshots-changed", ());
     }
@@ -120,15 +125,11 @@ pub(crate) fn finalize_capture(
     );
     let _ = app.emit("pet-event", "capture.success");
 
-    // after_capture：annotate 打开标注窗；saveas 走另存对话框；默认剪贴板。
+    // after_capture：annotate 打开标注窗；saveas 仅保存到历史；默认剪贴板。
     let annotate = settings.after_capture == "annotate";
-    if settings.after_capture == "saveas" {
-        save_image_as_dialog(app, &image, &settings.snapshot_format)?;
-    }
-
     if annotate {
         open_annotate_window(app, state, &image, app_name)?;
-    } else {
+    } else if !only_save {
         clipboard::copy_image(app, state, image, &format!("{app_name} 截图"), snapshot_id)?;
     }
 
@@ -140,7 +141,7 @@ pub(crate) fn finalize_capture(
             "customSoundPath": settings.custom_sound_path,
         }),
     );
-    if settings.hide_after_copy {
+    if settings.hide_after_copy && !annotate && !only_save {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.hide();
         }
@@ -155,6 +156,8 @@ pub(crate) fn finalize_capture(
         } else {
             Ok(format!("已打开标注：{app_name}{suffix}"))
         }
+    } else if only_save {
+        Ok(format!("已保存到历史记录：{app_name}{suffix}"))
     } else {
         let clear_label = snapshots::format_clear_label(&settings.clipboard_auto_clear);
         if archived {
@@ -175,7 +178,7 @@ fn save_image_as_dialog(
     app: &AppHandle,
     image: &RgbaImage,
     format_setting: &str,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     use tauri_plugin_dialog::DialogExt;
     let (format, ext) = snapshots::snapshot_format_parts(format_setting);
     let suggested = format!("snapshot-{}.{}", Local::now().format("%Y%m%d-%H%M%S"), ext);
@@ -186,7 +189,7 @@ fn save_image_as_dialog(
         .add_filter("Image", &[ext, "png", "jpg", "webp"])
         .blocking_save_file();
     let Some(file_path) = picked else {
-        return Ok(()); // 用户取消另存，不视为错误
+        return Ok(false); // 用户取消另存，保留标注画布。
     };
     let path = file_path.into_path().map_err(|error| error.to_string())?;
     // 用户在对话框里改了扩展名就按扩展名存；认不出或不支持的扩展名才回退偏好格式
@@ -199,10 +202,11 @@ fn save_image_as_dialog(
             )
         })
         .unwrap_or(format);
-    snapshots::write_image(image, &path, format).map_err(|error| format!("另存为失败：{error}"))
+    snapshots::write_image(image, &path, format).map_err(|error| format!("另存为失败：{error}"))?;
+    Ok(true)
 }
 
-fn open_annotate_window(
+pub(crate) fn open_annotate_window(
     app: &AppHandle,
     state: &AppState,
     image: &RgbaImage,
@@ -294,9 +298,25 @@ pub(crate) fn annotate_save(
 ) -> Result<String, String> {
     let image = decode_png_base64(&image_data)?;
     let format = state.settings.lock().snapshot_format.clone();
-    save_image_as_dialog(&app, &image, &format)?;
+    if !save_image_as_dialog(&app, &image, &format)? {
+        return Ok("已取消另存，标注仍保留".into());
+    }
     hide_annotate_window(&app, &state);
     Ok("已保存标注图".into())
+}
+
+#[tauri::command]
+pub(crate) fn annotate_save_copy(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    image_data: String,
+) -> Result<String, String> {
+    let image = decode_png_base64(&image_data)?;
+    let title = format!("{} · 标注", state.annotate_title.lock());
+    snapshots::store_snapshot(&state, &image, &title)?;
+    let _ = app.emit("snapshots-changed", ());
+    hide_annotate_window(&app, &state);
+    Ok("标注副本已保存到历史记录".into())
 }
 
 #[tauri::command]
@@ -308,6 +328,13 @@ fn hide_annotate_window(app: &AppHandle, state: &AppState) {
     *state.annotate_png.lock() = None;
     if let Some(window) = app.get_webview_window("annotate") {
         let _ = window.hide();
+    }
+}
+
+/// 标题栏的关闭键只隐藏标注窗；窗口本身留给下一次截图或历史预览复用。
+pub(crate) fn conceal_annotate_window(app: &AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        hide_annotate_window(app, &state);
     }
 }
 
