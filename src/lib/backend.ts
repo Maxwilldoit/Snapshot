@@ -66,6 +66,10 @@ export const deletePetAsset = (id: string) => invoke<Settings>("delete_pet_asset
  */
 export const setPetFrameShift = (x: number, y: number) => invoke<void>("set_pet_frame_shift", { x, y });
 
+/** 一轮 GIF 的时长（毫秒），用于在动作完整播放一次后回到待机 */
+export const petAnimationDuration = (id: string, entry: string) =>
+  invoke<number>("pet_animation_duration", { id, entry });
+
 /** 后端校验并落盘；未暂停时还会注册，有键注册不上时整组不生效、不保存 */
 export const saveShortcuts = (shortcuts: ShortcutBinding[]) =>
   invoke<Settings>("save_shortcuts", { shortcuts });

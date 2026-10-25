@@ -80,6 +80,9 @@ let settings: Settings = {
       ]
     : [],
   petScale: 100,
+  petWander: false,
+  petRandomActions: false,
+  petGravity: true,
   shortcutsPaused: false,
   shortcuts: [
     { action: "snapshot", accelerator: demo ? "CommandOrControl+Shift+A" : null },

@@ -114,6 +114,15 @@ pub(crate) struct Settings {
     /// 桌宠大小：按屏幕算出的基准大小的百分比，100 就是原来的大小
     #[serde(default = "default_pet_scale")]
     pub(crate) pet_scale: u32,
+    /// 空闲时在屏幕底部自由走动。
+    #[serde(default)]
+    pub(crate) pet_wander: bool,
+    /// 空闲时随机播放普通动作。
+    #[serde(default)]
+    pub(crate) pet_random_actions: bool,
+    /// 松开拖拽后落回当前屏幕工作区底部。
+    #[serde(default = "default_true")]
+    pub(crate) pet_gravity: bool,
     pub(crate) shortcuts: Vec<ShortcutBinding>,
     /// 只由用户手动切换；暂停时释放系统快捷键，但保留所有绑定。
     #[serde(default)]
@@ -206,6 +215,9 @@ impl Default for Settings {
             pet_assets: Vec::new(),
             pet_position: None,
             pet_scale: default_pet_scale(),
+            pet_wander: false,
+            pet_random_actions: false,
+            pet_gravity: true,
             shortcuts: default_shortcut_bindings(),
             shortcuts_paused: false,
             clipboard_auto_clear: default_clipboard_auto_clear(),
@@ -262,6 +274,9 @@ pub(crate) struct PreferencesPatch {
     record_microphone: Option<bool>,
     after_capture: Option<String>,
     pet_scale: Option<u32>,
+    pet_wander: Option<bool>,
+    pet_random_actions: Option<bool>,
+    pet_gravity: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -603,6 +618,15 @@ pub(crate) fn save_preferences(
     if let Some(value) = prefs.pet_scale {
         settings.pet_scale = clamp_pet_scale(value);
     }
+    if let Some(value) = prefs.pet_wander {
+        settings.pet_wander = value;
+    }
+    if let Some(value) = prefs.pet_random_actions {
+        settings.pet_random_actions = value;
+    }
+    if let Some(value) = prefs.pet_gravity {
+        settings.pet_gravity = value;
+    }
     persist_settings(&state.settings_path, &settings)?;
     let result = settings.clone();
     emit_settings(&app, &result);
@@ -672,6 +696,9 @@ mod tests {
         let json = r#"{"baseUrl":"","model":"","templates":[],"activeTemplateId":"builtin-default","shortcuts":[]}"#;
         let settings: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.pet_scale, 100);
+        assert!(!settings.pet_wander);
+        assert!(!settings.pet_random_actions);
+        assert!(settings.pet_gravity);
         assert!(!settings.shortcuts_paused);
     }
 

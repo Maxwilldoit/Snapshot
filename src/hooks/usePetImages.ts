@@ -1,5 +1,8 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { petUrl, petWalkUrl } from "../lib/media";
+
+/** 动作回到待机时让两帧短暂叠化，避免 GIF 从半途硬切回首帧。 */
+export const PET_IMAGE_FADE_MS = 180;
 
 export interface PetImageFrame {
   key: string;
@@ -24,23 +27,48 @@ export function petImageFrame(assetId: string, entry: string | null, walk = fals
 /** 保留正在显示的节点，下一张在同一容器中加载、解码完成后才交接。 */
 export function usePetImages(target: PetImageFrame | null, preload: PetImageFrame[]) {
   const [active, setActive] = useState<PetImageFrame | null>(null);
+  const [previous, setPrevious] = useState<PetImageFrame | null>(null);
   const latestTarget = useRef(target);
+  const activeRef = useRef<PetImageFrame | null>(null);
+  const fadeTimer = useRef<number | undefined>(undefined);
   latestTarget.current = target;
   const ready = useRef(new Map<string, HTMLImageElement>());
   const displayed = active?.assetId === target?.assetId ? active : null;
+  const leaving = previous && previous.assetId === target?.assetId && previous.key !== displayed?.key
+    ? previous
+    : null;
   // 只保留当前动作、左右走路和交接前的旧画面，不把整包 GIF 一直挂在内存里。
   const frames = [...new Map(
-    [...preload, ...(target ? [target] : []), ...(displayed ? [displayed] : [])]
+    [...(leaving ? [leaving] : []), ...preload, ...(target ? [target] : []), ...(displayed ? [displayed] : [])]
       .map((frame) => [frame.key, frame] as const),
   ).values()];
+
+  useEffect(() => () => window.clearTimeout(fadeTimer.current), []);
+
+  function show(frame: PetImageFrame) {
+    const current = activeRef.current;
+    if (current?.key === frame.key) return;
+    window.clearTimeout(fadeTimer.current);
+    if (current && current.assetId === frame.assetId) {
+      setPrevious(current);
+      fadeTimer.current = window.setTimeout(() => setPrevious(null), PET_IMAGE_FADE_MS);
+    } else {
+      setPrevious(null);
+    }
+    activeRef.current = frame;
+    setActive(frame);
+  }
 
   useLayoutEffect(() => {
     for (const [key, image] of ready.current) {
       if (!image.isConnected) ready.current.delete(key);
     }
     if (target && ready.current.get(target.key)?.isConnected) {
-      if (active?.key !== target.key) setActive(target);
+      show(target);
     } else if (active && active.assetId !== target?.assetId) {
+      window.clearTimeout(fadeTimer.current);
+      activeRef.current = null;
+      setPrevious(null);
       setActive(null);
     }
   });
@@ -55,8 +83,8 @@ export function usePetImages(target: PetImageFrame | null, preload: PetImageFram
     // 快速切换后，旧请求即使晚到也不能把新动作顶掉。
     if (!image.isConnected) return;
     ready.current.set(frame.key, image);
-    if (latestTarget.current?.key === frame.key) setActive(frame);
+    if (latestTarget.current?.key === frame.key) show(frame);
   }
 
-  return { frames, displayed, onLoad };
+  return { frames, displayed, leaving, onLoad };
 }

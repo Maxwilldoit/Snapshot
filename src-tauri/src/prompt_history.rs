@@ -1,12 +1,10 @@
 //! 润色历史：每次成功润色后保存原文、结果、规则和时间。
 //!
 //! 和截图历史一样只从本机界面读取；正文可能很长，所以单独放一个可丢弃的
-//! JSON 文件，不塞进设置里的活动列表。最多保留最近 200 条。
+//! JSON 文件，不塞进设置里的活动列表。记录会一直保留。
 
 use super::*;
 use serde::Deserialize;
-
-const PROMPT_HISTORY_LIMIT: usize = 200;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,7 +46,6 @@ impl PromptHistory {
             polished: polished.to_string(),
         };
         self.entries.insert(0, entry.clone());
-        self.entries.truncate(PROMPT_HISTORY_LIMIT);
         if let Some(parent) = self.path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -118,14 +115,17 @@ mod tests {
     }
 
     #[test]
-    fn history_keeps_the_latest_200_entries() {
+    fn history_keeps_every_entry_beyond_the_old_limit() {
         let dir = TestDir::new();
-        let mut history = PromptHistory::load(dir.0.join("prompt-history.json"));
-        for index in 0..PROMPT_HISTORY_LIMIT + 5 {
+        let path = dir.0.join("prompt-history.json");
+        let mut history = PromptHistory::load(path.clone());
+        for index in 0..250 {
             history.push(&format!("原文 {index}"), &format!("润色 {index}"), "规则");
         }
-        assert_eq!(history.entries.len(), PROMPT_HISTORY_LIMIT);
-        assert_eq!(history.entries[0].original, "原文 204");
-        assert_eq!(history.entries.last().unwrap().original, "原文 5");
+
+        let restored = PromptHistory::load(path);
+        assert_eq!(restored.entries.len(), 250);
+        assert_eq!(restored.entries[0].original, "原文 249");
+        assert_eq!(restored.entries.last().unwrap().original, "原文 0");
     }
 }

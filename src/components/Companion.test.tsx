@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { emit } from "@tauri-apps/api/event";
 import type { Settings } from "../types";
@@ -49,6 +50,28 @@ describe("侧栏的猫跟着桌宠", () => {
 
     await emit("pet-animation", { assetId: "pet-1", entry: "wave.gif" });
     await waitFor(() => expect(decodeURIComponent(cat()!.src)).toContain("pet/pet-1/wave.gif"));
+  });
+
+  it("点击只切换应用内的动作，不离开当前页面，也不改变桌宠广播", async () => {
+    setupTauriMock(
+      (command: string) => (command === "load_settings" ? settings : undefined),
+      { currentWindow: "main", shouldMockEvents: true },
+    );
+    vi.resetModules();
+    const { App } = await import("../App");
+    const { container } = render(<App />);
+    const button = await screen.findByRole("button", { name: "三花，切换动作" });
+    const cat = () => container.querySelector<HTMLImageElement>(".companion-cat img");
+    await waitFor(() => expect(decodeURIComponent(cat()!.src)).toContain("pet/pet-1/idle.gif"));
+
+    await userEvent.setup().click(button);
+    await waitFor(() => expect(decodeURIComponent(cat()!.src)).toContain("pet/pet-1/wave.gif"));
+    expect(screen.getByRole("heading", { name: "全局快捷键" })).toBeTruthy();
+
+    // A desktop broadcast still feeds the shared state, but this local click does not emit one back.
+    await emit("pet-animation", { assetId: "pet-1", entry: "wave.gif" });
+    expect(decodeURIComponent(cat()!.src)).toContain("pet/pet-1/wave.gif");
+    expect(screen.getByRole("heading", { name: "全局快捷键" })).toBeTruthy();
   });
 });
 

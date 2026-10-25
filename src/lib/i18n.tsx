@@ -32,6 +32,11 @@ export function getActiveLanguage(): Language {
   return activeLanguage;
 }
 
+export function applyDocumentLanguage(language: Language) {
+  document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+  document.documentElement.dataset.locale = language;
+}
+
 function interpolate(text: string, params?: TranslationParams) {
   if (!params) return text;
   return text.replace(/\{(\w+)\}/g, (match, key: string) =>
@@ -90,8 +95,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     activeLanguage = language;
-    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
-    document.documentElement.dataset.locale = language;
+    applyDocumentLanguage(language);
     if (inTauri) void setInterfaceLanguage(language).catch(() => {});
   }, [language]);
 

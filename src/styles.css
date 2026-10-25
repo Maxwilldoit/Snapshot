@@ -279,6 +279,16 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 }
 .pet-frames > img[hidden] { display: block; visibility: hidden; }
 .pet-frames > img.pet-flip { transform: scaleX(-1); }
+.pet-orb img.pet-crossfade-out, .pet-frames > img.pet-crossfade-out {
+  z-index: 1;
+  animation: pet-crossfade-out 180ms ease-in both;
+}
+.pet-orb img.pet-crossfade-in, .pet-frames > img.pet-crossfade-in {
+  z-index: 2;
+  animation: pet-crossfade-in 180ms ease-out both;
+}
+@keyframes pet-crossfade-out { to { opacity: 0; } }
+@keyframes pet-crossfade-in { from { opacity: 0; } }
 
 /* ---------- 截后标注窗口 ---------- */
 
@@ -311,15 +321,12 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   /* 不加投影：窗口是透明的，四周只留了 24–40px，大投影会在窗口边上被切出一圈硬边 */
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent);
   overflow: hidden;
-  animation: palette-in var(--t-open) var(--ease-enter) both;
 }
-@keyframes palette-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)) scale(0.97); } }
 /* 往里走（选窗口、润色）新内容从右边进来，退回菜单从左边回来 */
 .enter-forward { animation: view-forward var(--t-open) var(--ease-enter) both; }
 .enter-back { animation: view-back var(--t-open) var(--ease-enter) both; }
 @keyframes view-forward { from { opacity: 0; transform: translateX(calc(var(--shift) * 0.75)); } }
 @keyframes view-back { from { opacity: 0; transform: translateX(calc(var(--shift) * -0.75)); } }
-[data-motion="reduced"] .palette { animation-name: fade-in; }
 
 .palette-window-head { display: flex; align-items: center; gap: 12px; height: 50px; padding: 0 18px; border-bottom: 1px solid var(--rule); }
 .palette-window-heading { flex: 1; min-width: 0; font-size: 14px; }

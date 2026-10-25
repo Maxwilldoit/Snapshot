@@ -80,10 +80,13 @@ struct AppState {
     tracker: Arc<Mutex<tracker::TrackerState>>,
     recorder: Mutex<recording::Recorder>,
     pet_position_revision: AtomicU64,
+    /// 窗口移动很密集（自由走动时每帧一次），只留一个延迟落盘任务。
+    pet_position_persist_pending: AtomicBool,
     /// 放大去容纳超出基准画布的动作时，窗口左上角相对平时那个方窗的偏移（物理像素）。
     /// 存位置时减掉它，下次启动仍从方窗的位置摆。
     pet_frame_shift: Mutex<(i32, i32)>,
     quick_menu_anchor: Mutex<Option<(f64, f64)>>,
+    quick_menu_pending_show: AtomicBool,
     /// 标注窗口待编辑 PNG（RGBA 编码前的原始 PNG 字节）
     annotate_png: Mutex<Option<Vec<u8>>>,
     annotate_title: Mutex<String>,
@@ -206,8 +209,10 @@ pub fn run() {
             tracker: Arc::new(Mutex::new(tracker::TrackerState::default())),
             recorder: Mutex::new(recording::Recorder::default()),
             pet_position_revision: AtomicU64::new(0),
+            pet_position_persist_pending: AtomicBool::new(false),
             pet_frame_shift: Mutex::new((0, 0)),
             quick_menu_anchor: Mutex::new(None),
+            quick_menu_pending_show: AtomicBool::new(false),
             annotate_png: Mutex::new(None),
             annotate_title: Mutex::new(String::new()),
             shortcut_conflicts: Mutex::new(Vec::new()),
@@ -375,23 +380,30 @@ pub fn run() {
             } else if window.label() == "pet" {
                 if let WindowEvent::Moved(position) = event {
                     let mut position = PhysicalPosition::new(position.x, position.y);
-                    // 拖动由系统接管，窗口会先跟着指针走；在这里把底边压回任务栏上方。
+                    // 无论拖动还是自由走动，都先把窗口底边压回任务栏上方。
                     // set_position 会再发一次 Moved，届时位置已在界内，不会循环。
-                    if let (Ok(Some(monitor)), Ok(size)) =
-                        (window.current_monitor(), window.outer_size())
-                    {
-                        let area = monitor.work_area();
-                        let limit = pet_top_limit(
-                            area.position.y + area.size.height as i32,
-                            size.height as i32,
-                        );
-                        if position.y > limit {
-                            position.y = limit;
-                            let _ = window.set_position(position);
+                    let gravity = window
+                        .app_handle()
+                        .try_state::<AppState>()
+                        .map(|state| state.settings.lock().pet_gravity)
+                        .unwrap_or(true);
+                    if gravity {
+                        if let (Ok(Some(monitor)), Ok(size)) =
+                            (window.current_monitor(), window.outer_size())
+                        {
+                            let area = monitor.work_area();
+                            let limit = pet_top_limit(
+                                area.position.y + area.size.height as i32,
+                                size.height as i32,
+                            );
+                            if position.y > limit {
+                                position.y = limit;
+                                let _ = window.set_position(position);
+                            }
                         }
                     }
                     let app = window.app_handle().clone();
-                    let revision = {
+                    {
                         let Some(state) = app.try_state::<AppState>() else {
                             return;
                         };
@@ -400,15 +412,36 @@ pub fn run() {
                             x: position.x.saturating_sub(shift_x),
                             y: position.y.saturating_sub(shift_y),
                         });
-                        state.pet_position_revision.fetch_add(1, Ordering::Relaxed) + 1
-                    };
-                    thread::spawn(move || {
+                        state.pet_position_revision.fetch_add(1, Ordering::SeqCst);
+                        if state
+                            .pet_position_persist_pending
+                            .swap(true, Ordering::SeqCst)
+                        {
+                            return;
+                        }
+                    }
+                    thread::spawn(move || loop {
                         thread::sleep(Duration::from_millis(350));
-                        if let Some(state) = app.try_state::<AppState>() {
-                            if state.pet_position_revision.load(Ordering::Relaxed) == revision {
-                                let settings = state.settings.lock();
-                                let _ = settings::persist_settings(&state.settings_path, &settings);
-                            }
+                        let Some(state) = app.try_state::<AppState>() else {
+                            return;
+                        };
+                        let revision = state.pet_position_revision.load(Ordering::SeqCst);
+                        {
+                            let settings = state.settings.lock();
+                            let _ = settings::persist_settings(&state.settings_path, &settings);
+                        }
+                        state
+                            .pet_position_persist_pending
+                            .store(false, Ordering::SeqCst);
+                        if state.pet_position_revision.load(Ordering::SeqCst) == revision {
+                            break;
+                        }
+                        // 期间又移动过：如果已经有新任务接手就退出，否则由这个任务继续。
+                        if state
+                            .pet_position_persist_pending
+                            .swap(true, Ordering::SeqCst)
+                        {
+                            break;
                         }
                     });
                 }
@@ -422,6 +455,7 @@ pub fn run() {
             settings::default_prompt,
             pet::select_pet_appearance,
             pet::set_pet_frame_shift,
+            pet::pet_animation_duration,
             pet::add_pet_assets,
             pet_catalog::fetch_pet_catalog,
             pet_catalog::show_pet_catalog,

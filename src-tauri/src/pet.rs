@@ -508,6 +508,40 @@ fn read_raw_animation(
     Ok((entry_name, bytes))
 }
 
+/// 一轮 GIF 的总时长。按浏览器常见的处理方式，把 0 延时帧视为 100ms、
+/// 小于 20ms 的帧至少留 20ms；单帧素材则展示 1 秒。
+fn gif_duration_ms(bytes: &[u8]) -> Result<u64, String> {
+    let options = gif::DecodeOptions::new();
+    let mut decoder = options
+        .read_info(Cursor::new(bytes))
+        .map_err(|error| format!("读取 GIF 时长失败：{error}"))?;
+    let mut frames = 0u64;
+    let mut total = 0u64;
+    while let Some(frame) = decoder
+        .next_frame_info()
+        .map_err(|error| format!("读取 GIF 帧失败：{error}"))?
+    {
+        frames += 1;
+        let delay = u64::from(frame.delay) * 10;
+        total += if delay == 0 { 100 } else { delay.max(20) };
+    }
+    if frames == 0 {
+        return Err("GIF 里没有可播放的帧".into());
+    }
+    Ok(if frames == 1 { 1000 } else { total })
+}
+
+/// 前端按一轮动画的时长决定何时回到待机，避免固定 3 秒把长动作截断。
+#[tauri::command]
+pub(crate) fn pet_animation_duration(
+    state: State<'_, AppState>,
+    id: String,
+    entry: String,
+) -> Result<u64, String> {
+    let (_, bytes) = read_raw_animation(&state, &id, Some(&entry))?;
+    gif_duration_ms(&bytes)
+}
+
 /// 拖动桌宠时播的走路动作（媒体协议用）。横穿画布的改成原地走（见 pet_walk），
 /// 结果按动作缓存在素材目录里；本来就原地走、或者处理不了的照用原图，拖动时总有图可播。
 pub(crate) fn read_walk(state: &AppState, id: &str, entry: &str) -> Result<Vec<u8>, String> {
@@ -680,5 +714,32 @@ mod tests {
         )
         .expect("旧配置里没有 layout 也应当能读");
         assert!(asset.layout.is_none());
+    }
+
+    #[test]
+    fn gif_duration_sums_one_full_animation_loop() {
+        let mut bytes = Vec::new();
+        {
+            let palette = [0, 0, 0, 255, 255, 255];
+            let mut encoder = gif::Encoder::new(&mut bytes, 1, 1, &palette).unwrap();
+            for delay in [5, 12, 0] {
+                let mut frame = gif::Frame::from_rgba_speed(1, 1, &mut [255, 255, 255, 255], 10);
+                frame.delay = delay;
+                encoder.write_frame(&frame).unwrap();
+            }
+        }
+        assert_eq!(gif_duration_ms(&bytes), Ok(50 + 120 + 100));
+    }
+
+    #[test]
+    fn a_single_frame_gif_stays_visible_long_enough_to_read() {
+        let mut bytes = Vec::new();
+        {
+            let palette = [0, 0, 0, 255, 255, 255];
+            let mut encoder = gif::Encoder::new(&mut bytes, 1, 1, &palette).unwrap();
+            let frame = gif::Frame::from_rgba_speed(1, 1, &mut [255, 255, 255, 255], 10);
+            encoder.write_frame(&frame).unwrap();
+        }
+        assert_eq!(gif_duration_ms(&bytes), Ok(1000));
     }
 }

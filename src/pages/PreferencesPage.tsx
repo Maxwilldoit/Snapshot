@@ -156,6 +156,33 @@ export function PetPanel() {
             <span className="mono ink-2 range-value">{scale}%</span>
           </span>
         </div>
+        <div className="row">
+          <label className="row-label" htmlFor="pref-petWander">{t("自由走动")}</label>
+          <Switch
+            id="pref-petWander"
+            label={t("自由走动")}
+            value={Boolean(settings.petWander)}
+            onChange={(value) => void update({ petWander: value })}
+          />
+        </div>
+        <div className="row">
+          <label className="row-label" htmlFor="pref-petRandomActions">{t("随机动作")}</label>
+          <Switch
+            id="pref-petRandomActions"
+            label={t("随机动作")}
+            value={Boolean(settings.petRandomActions)}
+            onChange={(value) => void update({ petRandomActions: value })}
+          />
+        </div>
+        <div className="row">
+          <label className="row-label" htmlFor="pref-petGravity">{t("重力")}</label>
+          <Switch
+            id="pref-petGravity"
+            label={t("重力")}
+            value={settings.petGravity ?? true}
+            onChange={(value) => void update({ petGravity: value })}
+          />
+        </div>
       </div>
     </section>
   );

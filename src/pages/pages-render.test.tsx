@@ -186,6 +186,37 @@ describe("B2 拆页后逐页渲染", () => {
     );
   });
 
+  it("桌面宠物的自由走动、随机动作和重力分别保存", async () => {
+    const calls: Array<{ command: string; payload?: InvokeArgs }> = [];
+    await renderApp((command, payload) => {
+      calls.push({ command, payload });
+      if (command === "save_preferences") return { ...settings, ...(payload as { prefs: Partial<Settings> }).prefs };
+      return handler(command);
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^偏好设置/ }));
+
+    const wander = await screen.findByRole("switch", { name: "自由走动" });
+    const random = screen.getByRole("switch", { name: "随机动作" });
+    const gravity = screen.getByRole("switch", { name: "重力" });
+    expect(wander.getAttribute("aria-checked")).toBe("false");
+    expect(random.getAttribute("aria-checked")).toBe("false");
+    expect(gravity.getAttribute("aria-checked")).toBe("true");
+
+    await user.click(wander);
+    await waitFor(() =>
+      expect(calls.some((call) => call.command === "save_preferences" && JSON.stringify(call.payload) === JSON.stringify({ prefs: { petWander: true } }))).toBe(true),
+    );
+    await user.click(random);
+    await waitFor(() =>
+      expect(calls.some((call) => call.command === "save_preferences" && JSON.stringify(call.payload) === JSON.stringify({ prefs: { petRandomActions: true } }))).toBe(true),
+    );
+    await user.click(gravity);
+    await waitFor(() =>
+      expect(calls.some((call) => call.command === "save_preferences" && JSON.stringify(call.payload) === JSON.stringify({ prefs: { petGravity: false } }))).toBe(true),
+    );
+  });
+
   it("偏好设置只在快门声右侧保留一个试听按钮", async () => {
     await renderApp();
     const user = userEvent.setup();

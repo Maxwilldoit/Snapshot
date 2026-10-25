@@ -2,7 +2,6 @@ use super::*;
 use image::buffer::ConvertBuffer;
 use serde::Deserialize;
 
-const SNAPSHOT_LIMIT: usize = 200;
 /// 缩略图的目标高度（像素）。列表里显示 76px 高，高分屏两倍再留点余量
 const THUMB_HEIGHT: u32 = 180;
 /// 超宽截图（带鱼屏、横向长图）缩略图的宽度上限
@@ -65,7 +64,6 @@ pub(crate) fn migrate_legacy_history(
         }
     }
     records.sort_by_key(|record| std::cmp::Reverse(record.created_at));
-    records.truncate(SNAPSHOT_LIMIT);
     write_snapshot_index(&target_index, &records)?;
     if let Some(parent) = marker.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -182,9 +180,6 @@ pub(crate) fn store_snapshot(
     let index_path = snapshot_index_path(state);
     let mut records = read_snapshot_index(&index_path);
     records.insert(0, record.clone());
-    for stale in records.split_off(records.len().min(SNAPSHOT_LIMIT)) {
-        remove_snapshot_files(state, &dir, &stale);
-    }
     write_snapshot_index(&index_path, &records)?;
     Ok(record)
 }
@@ -466,6 +461,39 @@ mod tests {
         let restored = read_snapshot_index(&destination.join("index.json"));
         assert_eq!(restored.len(), 1);
         assert_eq!(restored[0].app_name, "Codex");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_history_migration_keeps_every_record_beyond_the_old_limit() {
+        let root = std::env::temp_dir().join(format!(
+            "snapshot-history-no-limit-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        let legacy = root.join("legacy");
+        let destination = root.join("pictures/Snapshot");
+        let marker = root.join("app-data/migration-complete");
+        let records: Vec<_> = (0..250)
+            .map(|index| SnapshotRecord {
+                id: format!("snap-{index}"),
+                file_name: format!("snap-{index}.png"),
+                app_name: "Codex".into(),
+                width: 10,
+                height: 10,
+                size_bytes: 5,
+                created_at: index,
+            })
+            .collect();
+        fs::create_dir_all(&legacy).unwrap();
+        write_snapshot_index(&legacy.join("index.json"), &records).unwrap();
+
+        migrate_legacy_history(&legacy, &destination, &marker).unwrap();
+
+        let restored = read_snapshot_index(&destination.join("index.json"));
+        assert_eq!(restored.len(), 250);
+        assert_eq!(restored.first().unwrap().id, "snap-249");
+        assert_eq!(restored.last().unwrap().id, "snap-0");
         let _ = fs::remove_dir_all(root);
     }
 

@@ -8,10 +8,13 @@ import { motionReduced, usePresence } from "../lib/motion";
 import { errorText, useApp } from "../app/context";
 import { useNow, usePetAnimation, useWindowVisible } from "../hooks/useLive";
 import { useI18n } from "../lib/i18n";
+import { clickableAnimations } from "../lib/petActions";
 
 /** 播报只说最近发生的事，太久以前的不提 */
 const FRESH_MS = 15 * 60_000;
 const NOTICE_MS = 8_000;
+/** Match the desktop pet: a clicked action stays for a few seconds before the live pose returns. */
+const COMPANION_ACTION_MS = 3000;
 
 /**
  * 住在侧栏底部的猫，和它说的一句话。
@@ -25,9 +28,33 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
   const windowVisible = useWindowVisible();
   const petAnimation = usePetAnimation();
   const [hop, setHop] = useState(false);
+  const [localEntry, setLocalEntry] = useState<string | null>(null);
   const lastSeen = useRef(activity[0]?.id);
+  const actionTimer = useRef<number | undefined>(undefined);
 
   const asset = settings.petAssets.find((item) => item.id === settings.selectedAppearanceId && !item.missing);
+  const clickable = clickableAnimations(asset);
+  const liveEntry = asset && clickable.includes(asset.entry) ? asset.entry : clickable[0] ?? null;
+  const sharedEntry = petAnimation && petAnimation.assetId === asset?.id && clickable.includes(petAnimation.entry ?? "")
+    ? petAnimation.entry
+    : liveEntry;
+  const entry = localEntry && clickable.includes(localEntry) ? localEntry : sharedEntry;
+
+  useEffect(() => () => window.clearTimeout(actionTimer.current), []);
+
+  useEffect(() => {
+    window.clearTimeout(actionTimer.current);
+    setLocalEntry(null);
+  }, [asset?.id]);
+
+  function switchCompanionAction() {
+    if (!asset || clickable.length < 2) return;
+    const start = Math.max(0, clickable.indexOf(entry ?? liveEntry ?? ""));
+    const next = clickable[(start + 1) % clickable.length];
+    setLocalEntry(next);
+    window.clearTimeout(actionTimer.current);
+    actionTimer.current = window.setTimeout(() => setLocalEntry(null), COMPANION_ACTION_MS);
+  }
 
   // 有新活动时跳一下——全应用只有猫能弹
   useEffect(() => {
@@ -117,9 +144,8 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
   const { item: shown, leaving } = usePresence(say);
 
   const animate = windowVisible && !motionReduced();
-  // 跟着桌宠：桌宠播到哪个动作，这里就播哪个；还没收到桌宠的消息时先放默认动作
-  const entry = petAnimation && petAnimation.assetId === asset?.id ? petAnimation.entry : asset?.entry || null;
-  const catSrc = asset ? (animate ? petUrl(asset.id, entry) : petThumbUrl(asset.id)) : null;
+  // 默认跟着桌宠；点击这里只在应用内切动作，不广播，也不改变桌面上的宠物。
+  const catSrc = asset ? (animate || localEntry ? petUrl(asset.id, entry) : petThumbUrl(asset.id)) : null;
 
   return (
     <div className={`companion ${away ? "is-away" : ""} ${compact ? "is-compact" : ""}`}>
@@ -137,8 +163,8 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
       <button
         type="button"
         className={`companion-cat ${hop ? "is-hop" : ""}`}
-        aria-label={asset ? t("{name}，去桌面伴侣页", { name: asset.name }) : t("还没有伴侣，去导入一只")}
-        onClick={() => navigate("pet")}
+        aria-label={asset ? t("{name}，切换动作", { name: asset.name }) : t("还没有伴侣，去导入一只")}
+        onClick={() => asset ? switchCompanionAction() : navigate("pet")}
       >
         {catSrc ? (
           <img key={catSrc} src={catSrc} alt="" draggable={false} />

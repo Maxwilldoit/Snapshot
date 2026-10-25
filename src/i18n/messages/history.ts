@@ -77,6 +77,7 @@ export const historyEnglish: Record<string, string> = {
   "去看看": "Review",
   "知道了": "Dismiss",
   "{name}，去桌面伴侣页": "{name} — open Companion",
+  "{name}，切换动作": "Switch animation for {name}",
   "还没有伴侣，去导入一只": "No companion yet — import one",
   "还没有伴侣": "No companion yet",
 

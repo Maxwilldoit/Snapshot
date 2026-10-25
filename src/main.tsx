@@ -9,12 +9,13 @@ import { LaunchpadWindow } from "./windows/LaunchpadWindow";
 import { PetCatalogWindow } from "./windows/PetCatalogWindow";
 import { applyTheme, listenThemeChanges, readTheme } from "./lib/theme";
 import { applyMotion, listenMotionChanges, readMotionPreference, resolveMotion } from "./lib/prefs";
-import { I18nProvider } from "./lib/i18n";
+import { applyDocumentLanguage, I18nProvider, readLanguagePreference, resolveLanguage } from "./lib/i18n";
 import "./styles/variables.css";
 import "./styles.css";
 import "./styles/app.css";
 
 // 各个 WebView 独立，每个都要在首帧前套上主题与动效档位，避免浅色闪一下
+applyDocumentLanguage(resolveLanguage(readLanguagePreference()));
 applyTheme(readTheme());
 applyMotion(resolveMotion(readMotionPreference()));
 // 主窗口改了之后，其余窗口靠广播当场跟上，不必重开

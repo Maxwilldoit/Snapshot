@@ -16,7 +16,7 @@ Built with Tauri 2, React, and native platform APIs for Windows, macOS, and Linu
 
 ### Makima's actions
 
-The Makima companion comes from the [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md). Click the companion to play the next action; drag it sideways to walk.
+The Makima companion comes from the [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md). Click the companion to play the next action once; it fades back to idle after one full GIF loop. Drag it sideways to walk.
 
 <table>
   <tr>
@@ -46,9 +46,9 @@ The Makima companion comes from the [Pets library](https://github.com/Maxwilldoi
 
 - **Window capture**: capture a selected window or the full screen. Send it to the clipboard, open it for annotation, or save it directly to History. Linux X11 also supports scrolling capture.
 - **Window recording**: record a selected window to MP4, with optional system audio and microphone input.
-- **Unified history**: screenshots and prompt rewrites appear together in chronological order. Snapshot previews can be copied or annotated; prompt entries retain the original, result, rule, and time.
+- **Unified history**: screenshots and prompt rewrites appear together in chronological order. Snapshot previews can be copied or annotated; prompt entries retain the original, result, rule, and time. Neither kind has an automatic item limit.
 - **Prompt rewriting**: use an OpenAI-compatible endpoint and custom rules. API keys are stored in the operating system credential store, never in the settings file.
-- **Desktop companion**: display the active application's icon or an animated GIF. Right-click for quick actions; double-click to open the launchpad. On Windows, the companion steps aside when another app covers the same display in fullscreen.
+- **Desktop companion**: display the active application's icon or an animated GIF. It can roam the current display, play actions while idle, and drop back to the taskbar after dragging. Right-click for quick actions; double-click to open the launchpad. On Windows, the companion steps aside when another app covers the same display in fullscreen.
 - **Launchpad**: application catalog caching, icon warming, search, folders, and multi-page navigation keep application launching responsive.
 - **Global shortcuts**: bind capture, recording, prompt rewriting, and the quick menu. Pause every global shortcut without losing saved bindings; the paused state persists across restarts.
 - **Appearance**: four layout styles, light and dark themes, system-aware color, and reduced-motion support.
@@ -105,7 +105,7 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 
 **Prompt rewriting.** Configure the API URL and model under **Preferences → System and model**, then edit reusable rules under **Rewrite rules**. Start a rewrite from the quick menu or its global shortcut. Successful results, along with the original text, are added to History.
 
-**Companion and launchpad.** Import a ZIP of GIFs or a single GIF from the Companion page. Click once to play another action; double-click to open the launchpad. The launchpad supports search, folders, drag-and-drop organization, and paged navigation. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md).
+**Companion and launchpad.** Import a ZIP of GIFs or a single GIF from the Companion page. Under **Preferences → Desktop companion**, enable **Free roam** or **Random actions** for autonomous behavior, and **Gravity** to make a dragged companion fall back to the work-area floor. Click once to play another action; double-click to open the launchpad. The launchpad supports search, folders, drag-and-drop organization, and paged navigation. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md).
 
 **Language and appearance.** Choose **System**, **Simplified Chinese**, or **English** under **Preferences → Interface language**. The Themes page controls layout, color, and motion.
 

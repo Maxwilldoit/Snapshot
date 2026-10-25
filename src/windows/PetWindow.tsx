@@ -19,8 +19,12 @@ import { petImageFrame, usePetImages } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { placementForEntry, type PetPlacement } from "../lib/petFrame";
 import { PET_SCALE, petWindowSize } from "../lib/petSize";
-import { cycleEntries, nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
+import { nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
+import { clickableAnimations, ordinaryAnimations } from "../lib/petActions";
 import { useI18n, useWindowTitle } from "../lib/i18n";
+import { motionReduced } from "../lib/motion";
+import { usePetAutonomy } from "../hooks/usePetAutonomy";
+import { petActionDuration } from "../lib/petAnimation";
 import type { PetAsset, PetEvent, PetLayout, PreviousApp, RecordingStatus, Settings } from "../types";
 
 /** 放大后超出了所在屏幕的可用区域，就挪回来 */
@@ -96,21 +100,28 @@ async function commitPetWindow(
   await petWindow.setSize(new LogicalSize(place.width, place.height));
 }
 
-/** 窗口停下这么久没再动，就算松手了，换回原来的动作 */
-const WALK_SETTLE_MS = 250;
-/** 点一下换上的动作只停这么久，然后回到默认待机 */
-const CLICK_ACTION_MS = 3000;
-/** 语义反馈播完回到录制中/待机等当下仍有效的状态 */
-const EVENT_ACTION_MS = 2600;
 /** 等这么久还没来第二下，才算单击。第二下是双击，打开启动台，不换动作 */
 export const CLICK_DELAY_MS = 400;
 
-function ordinaryAnimations(asset: Pick<PetAsset, "animations" | "eventActions" | "stateActions"> | null | undefined) {
-  const reserved = new Set([
-    ...Object.values(asset?.eventActions ?? {}),
-    ...Object.values(asset?.stateActions ?? {}),
+type DragGeometry = {
+  position: { x: number; y: number };
+  scale: number;
+  /** 窗口左上角的物理像素上限；再往下就会碰到任务栏或屏幕工作区边缘。 */
+  floorY: number | null;
+};
+
+async function readDragGeometry(petWindow: Window): Promise<DragGeometry | null> {
+  const [position, size, scale, monitor] = await Promise.all([
+    petWindow.outerPosition(),
+    petWindow.outerSize(),
+    petWindow.scaleFactor(),
+    currentMonitor(),
   ]);
-  return (asset?.animations ?? []).filter((entry) => !reserved.has(entry));
+  if (!(scale > 0) || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
+  const floorY = monitor
+    ? monitor.workArea.position.y + monitor.workArea.size.height - size.height
+    : null;
+  return { position, scale, floorY };
 }
 
 export function PetWindow() {
@@ -125,13 +136,20 @@ export function PetWindow() {
   const [restingEntry, setRestingEntry] = useState<string | null>(null);
   const [shownEntry, setShownEntry] = useState<string | null>(null);
   const [eventEntry, setEventEntry] = useState<string | null>(null);
-  const [eventPulse, setEventPulse] = useState(0);
+  // 每次换动作都给 img 新 key，让 GIF 从首帧播放一轮，而不是接着隐藏时的进度。
+  const [actionPulse, setActionPulse] = useState(0);
   const [recording, setRecording] = useState(false);
   const [shortcutsPaused, setShortcutsPaused] = useState(false);
   const [petSize, setPetSize] = useState(80);
   // 读到设置前不定大小，免得先按默认缩放一次再跳到用户设的大小
   const [petScale, setPetScale] = useState<number | null>(null);
+  const [petWander, setPetWander] = useState(false);
+  const [petRandomActions, setPetRandomActions] = useState(false);
+  const [petGravity, setPetGravity] = useState(true);
   const [walking, setWalking] = useState<WalkDirection | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [falling, setFalling] = useState(false);
+  const [manualAction, setManualAction] = useState(false);
   const dragged = useRef(false);
   // 点过之后下一次从这里接着换，回到待机也不清掉，免得每次点击都是同一个动作
   const actionCursor = useRef(0);
@@ -139,14 +157,45 @@ export function PetWindow() {
   const clickTimer = useRef<number | undefined>(undefined);
   const eventTimer = useRef<number | undefined>(undefined);
   const restingRef = useRef<string | null>(null);
+  const targetEntry = useRef<string | null>(null);
+  const autoAction = useRef<string | null>(null);
   const appearanceKey = useRef("");
   const latestAsset = useRef<PetAsset | null>(null);
+  const gravityEnabled = useRef(true);
+  gravityEnabled.current = petGravity;
+  const dragMotion = useRef<DragWalk>(STANDING);
+  const finishDrag = useRef<() => void>(() => {});
+  const gravityToken = useRef(0);
+  const gravityFrame = useRef(0);
 
   // 点击切换只在常规动作里转，走路动作留给拖动
   const regularAnimations = ordinaryAnimations({ animations, eventActions, stateActions });
-  const cycle = cycleEntries(regularAnimations);
+  const cycle = clickableAnimations({ animations, eventActions, stateActions });
   const resting = restingEntry && cycle.includes(restingEntry) ? restingEntry : (cycle[0] ?? null);
   restingRef.current = resting;
+
+  function requestEntry(entry: string | null) {
+    if (entry === targetEntry.current) return;
+    targetEntry.current = entry;
+    if (entry && entry !== restingRef.current) void petActionDuration(appearanceId, entry);
+    setActionPulse((value) => value + 1);
+    setShownEntry(entry);
+  }
+
+  function showManualEntry(entry: string | null) {
+    autoAction.current = null;
+    requestEntry(entry);
+  }
+
+  function showAutoEntry(entry: string | null) {
+    if (entry) {
+      autoAction.current = entry;
+      requestEntry(entry);
+    } else if (autoAction.current && targetEntry.current === autoAction.current) {
+      autoAction.current = null;
+      requestEntry(null);
+    }
+  }
 
   useEffect(
     () => () => {
@@ -172,7 +221,7 @@ export function PetWindow() {
         setEventEntry(null);
         setShortcutsPaused(Boolean(settings.shortcutsPaused));
         const entries = asset?.animations ?? [];
-        const actions = cycleEntries(ordinaryAnimations(asset));
+        const actions = clickableAnimations(asset);
         const nextResting = asset && actions.includes(asset.entry) ? asset.entry : (actions[0] ?? null);
         actionCursor.current = Math.max(0, actions.indexOf(nextResting ?? ""));
         setAppearanceId(id);
@@ -182,11 +231,15 @@ export function PetWindow() {
         setStateActions(asset?.stateActions ?? {});
         latestAsset.current = asset ?? null;
         setRestingEntry(nextResting);
+        targetEntry.current = nextResting;
         setShownEntry(nextResting);
       } else {
         setShortcutsPaused(Boolean(settings.shortcutsPaused));
       }
       setPetScale(settings.petScale ?? PET_SCALE.default);
+      setPetWander(Boolean(settings.petWander));
+      setPetRandomActions(Boolean(settings.petRandomActions));
+      setPetGravity(settings.petGravity ?? true);
     };
     void getPreviousApp().then(setApp);
     void loadSettings().then(applyAppearance);
@@ -219,9 +272,9 @@ export function PetWindow() {
       const entry = asset?.eventActions?.[event];
       if (!entry || !asset?.animations.includes(entry)) return;
       window.clearTimeout(eventTimer.current);
+      void petActionDuration(asset.id, entry);
       setEventEntry(entry);
-      setEventPulse((value) => value + 1);
-      eventTimer.current = window.setTimeout(() => setEventEntry(null), EVENT_ACTION_MS);
+      setActionPulse((value) => value + 1);
     });
     return () => {
       active = false;
@@ -246,19 +299,141 @@ export function PetWindow() {
     : [];
   const stateEntry = (shortcutsPaused ? stateActions?.["shortcuts-paused"] : undefined) ??
     (recording ? stateActions?.recording : null);
+
+  const autonomy = usePetAutonomy({
+    enabled: custom && !motionReduced(),
+    wander: petWander,
+    randomActions: petRandomActions,
+    canWalk: walks.some((walk) => Boolean(walk.choice)),
+    actions: cycle.filter((entry) => entry !== resting),
+    paused: dragging || falling || manualAction || recording || shortcutsPaused || Boolean(stateEntry) || Boolean(eventEntry),
+    setWalking,
+    onAction: showAutoEntry,
+    actionDuration: (entry) => petActionDuration(appearanceId, entry),
+  });
+
   const shownWalk = stateEntry || eventEntry ? null : walks.find((walk) => walk.direction === walking && walk.choice)?.direction ?? null;
   const shownChoice = walks.find((walk) => walk.direction === shownWalk)?.choice ?? null;
   const normalEntry = stateEntry ?? eventEntry ?? currentEntry;
-  const normalFrame = custom ? petImageFrame(appearanceId, normalEntry, false, false, eventEntry && !stateEntry ? eventPulse : 0) : null;
+  const normalFrame = custom ? petImageFrame(appearanceId, normalEntry, false, false, actionPulse) : null;
   const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
   const targetFrame = shownWalk && shownChoice ? petImageFrame(appearanceId, shownChoice.entry, true, shownChoice.flip) : normalFrame;
-  const { frames, displayed, onLoad: onPetImageLoad } = usePetImages(targetFrame, [...(normalFrame ? [normalFrame] : []), ...walkFrames]);
+  const { frames, displayed, leaving, onLoad: onPetImageLoad } = usePetImages(targetFrame, [...(normalFrame ? [normalFrame] : []), ...walkFrames]);
   const visibleEntry = displayed?.entry ?? null;
   const visibleFlip = displayed?.flip ?? false;
   const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
   const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale, custom ? "pet" : "app-icon");
   const visiblePlacement = fittedSize === null ? null : placementForEntry(fittedSize, layout, visibleEntry, visibleFlip);
   const fittedKey = fittedSize === null ? "pending" : windowKey(fittedSize, visiblePlacement);
+
+  // 从动作真正显示到屏幕上的那一刻开始计时，完整走完一轮 GIF 后再返回待机。
+  useEffect(() => {
+    window.clearTimeout(returnTimer.current);
+    if (!manualAction || !currentEntry || currentEntry === resting || !normalFrame || displayed?.key !== normalFrame.key) return;
+    let cancelled = false;
+    void petActionDuration(appearanceId, currentEntry).then((duration) => {
+      if (cancelled) return;
+      returnTimer.current = window.setTimeout(() => {
+        if (cancelled) return;
+        showManualEntry(restingRef.current);
+        setManualAction(false);
+      }, duration);
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(returnTimer.current);
+    };
+  }, [appearanceId, currentEntry, displayed?.key, manualAction, normalFrame?.key, resting]);
+
+  useEffect(() => {
+    window.clearTimeout(eventTimer.current);
+    if (!eventEntry || !normalFrame || displayed?.key !== normalFrame.key) return;
+    let cancelled = false;
+    void petActionDuration(appearanceId, eventEntry).then((duration) => {
+      if (cancelled) return;
+      eventTimer.current = window.setTimeout(() => {
+        if (!cancelled) setEventEntry(null);
+      }, duration);
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(eventTimer.current);
+    };
+  }, [appearanceId, displayed?.key, eventEntry, normalFrame?.key]);
+
+  function cancelGravity() {
+    gravityToken.current += 1;
+    cancelAnimationFrame(gravityFrame.current);
+    setFalling(false);
+  }
+
+  async function dropToFloor() {
+    const petWindow = getCurrentWindow();
+    const token = ++gravityToken.current;
+    const [monitor, position, size, scale] = await Promise.all([
+      currentMonitor(),
+      petWindow.outerPosition(),
+      petWindow.outerSize(),
+      petWindow.scaleFactor(),
+    ]);
+    if (!monitor || token !== gravityToken.current) return;
+    const { position: origin, size: area } = monitor.workArea;
+    const minX = origin.x;
+    const maxX = origin.x + area.width - size.width;
+    const floor = origin.y + area.height - size.height;
+    let x = maxX < minX ? minX : Math.max(minX, Math.min(maxX, position.x));
+    let y = Math.min(floor, Math.max(origin.y, position.y));
+    if (x !== position.x || y !== position.y) {
+      await petWindow.setPosition(new PhysicalPosition(x, y)).catch(() => {});
+    }
+    if (!gravityEnabled.current || y >= floor) return;
+    if (motionReduced()) {
+      await petWindow.setPosition(new PhysicalPosition(x, floor)).catch(() => {});
+      return;
+    }
+
+    setFalling(true);
+    let velocity = 0;
+    let previous = performance.now();
+    await new Promise<void>((resolve) => {
+      const step = (now: number) => {
+        if (token !== gravityToken.current || !gravityEnabled.current) {
+          resolve();
+          return;
+        }
+        const dt = Math.min(0.05, Math.max(0, (now - previous) / 1000));
+        previous = now;
+        velocity += 2600 * scale * dt;
+        y += velocity * dt;
+        const landed = y >= floor;
+        if (landed) y = floor;
+        void petWindow.setPosition(new PhysicalPosition(Math.round(x), Math.round(y))).catch(() => {});
+        if (landed) resolve();
+        else gravityFrame.current = requestAnimationFrame(step);
+      };
+      gravityFrame.current = requestAnimationFrame(step);
+    });
+    if (token === gravityToken.current) setFalling(false);
+  }
+
+  finishDrag.current = () => {
+    if (gravityEnabled.current) void dropToFloor().catch(() => {});
+    else void keepOnScreen(getCurrentWindow()).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (petScale === null) return;
+    cancelGravity();
+    if (petGravity) void dropToFloor().catch(() => {});
+  }, [petGravity, petScale]);
+
+  useEffect(
+    () => () => {
+      gravityToken.current += 1;
+      cancelAnimationFrame(gravityFrame.current);
+    },
+    [],
+  );
 
   // 物理像素。放大时窗口左上角相对方窗的偏移，存位置要减掉
   const frameShift = useRef({ x: 0, y: 0 });
@@ -315,68 +490,161 @@ export function PetWindow() {
     };
   }, [fittedSize, petScale, fittedKey, t]);
 
-  // 拖动时网页收不到指针事件（系统接管了窗口），只能看窗口往哪边移
-  useEffect(() => {
-    const petWindow = getCurrentWindow();
-    let last: { x: number; y: number } | null = null;
-    let state: DragWalk = STANDING;
-    let settle: number | undefined;
-    const movedListener = petWindow.onMoved(({ payload }) => {
-      const previous = last;
-      last = { x: payload.x, y: payload.y };
-      if (!previous) return;
-      const next = nextDragWalk(state, payload.x - previous.x, payload.y - previous.y);
-      if (!next) return;
-      state = next;
-      setWalking(next.direction);
-      window.clearTimeout(settle);
-      settle = window.setTimeout(() => {
-        state = STANDING;
-        setWalking(null);
-      }, WALK_SETTLE_MS);
-    });
-    return () => {
-      window.clearTimeout(settle);
-      void movedListener.then((unlisten) => unlisten());
-    };
-  }, []);
-
   function onPointerDown(event: React.PointerEvent) {
     if (event.button !== 0) return;
+    autonomy.cancel();
+    cancelGravity();
+    setWalking(null);
+    setManualAction(false);
     dragged.current = false;
+    const petWindow = getCurrentWindow();
+    const element = event.currentTarget as HTMLElement;
+    const pointerId = event.pointerId;
     const startX = event.clientX;
     const startY = event.clientY;
-    const finishClick = () => {
-      cleanup();
-      if (dragged.current) return;
-      if (clickTimer.current !== undefined) {
-        window.clearTimeout(clickTimer.current);
-        clickTimer.current = undefined;
-        void showLaunchpad(event.screenX, event.screenY);
-        return;
-      }
-      clickTimer.current = window.setTimeout(() => {
-        clickTimer.current = undefined;
-        switchOnClick();
-      }, CLICK_DELAY_MS);
-    };
-    const markDrag = (move: PointerEvent) => {
-      if (Math.abs(move.clientX - startX) + Math.abs(move.clientY - startY) <= 4) return;
-      dragged.current = true;
-      window.clearTimeout(clickTimer.current);
-      clickTimer.current = undefined;
-      cleanup();
-      void getCurrentWindow().startDragging();
-    };
+    const startScreenX = event.screenX;
+    const startScreenY = event.screenY;
+    let lastScreenX = startScreenX;
+    let lastScreenY = startScreenY;
+    let geometry: DragGeometry | null = null;
+    let target: { x: number; y: number } | null = null;
+    let frame = 0;
+    let finished = false;
+    const moved = { x: startScreenX, y: startScreenY };
+
+    try {
+      element.setPointerCapture?.(pointerId);
+    } catch {
+      // 老 WebView 没实现指针捕获时仍可继续用窗口级监听。
+    }
+
     const cleanup = () => {
       window.removeEventListener("pointermove", markDrag);
-      window.removeEventListener("pointerup", finishClick);
+      window.removeEventListener("pointerup", finishPress);
+      window.removeEventListener("pointercancel", cancelPress);
+      element.removeEventListener("lostpointercapture", loseCapture);
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      try {
+        if (element.hasPointerCapture?.(pointerId)) element.releasePointerCapture(pointerId);
+      } catch {
+        // 窗口已经失去捕获时，释放会抛错，可以直接忽略。
+      }
     };
+
+    const placeTarget = () => {
+      if (finished || !geometry || !target) return;
+      const previousX = moved.x;
+      const previousY = moved.y;
+      const next = nextDragWalk(dragMotion.current, target.x - previousX, target.y - previousY);
+      moved.x = target.x;
+      moved.y = target.y;
+      if (next) {
+        dragMotion.current = next;
+        setWalking(next.direction);
+      }
+      const x = Math.round(target.x);
+      const y = Math.round(target.y);
+      if (x === Math.round(previousX) && y === Math.round(previousY)) return;
+      void petWindow.setPosition(new PhysicalPosition(x, y)).catch(() => {});
+    };
+
+    const schedulePlace = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        placeTarget();
+      });
+    };
+
+    const clampTarget = (screenX: number, screenY: number) => {
+      if (!geometry) return null;
+      const rawX = geometry.position.x + (screenX - startScreenX) * geometry.scale;
+      const rawY = geometry.position.y + (screenY - startScreenY) * geometry.scale;
+      // Rust 侧在 Moved 时也会守住这条线。两边使用同一个上限，避免反复把窗口压回又拖下去。
+      return { x: rawX, y: geometry.floorY === null ? rawY : Math.min(rawY, geometry.floorY) };
+    };
+
+    const startMoving = () => {
+      if (dragged.current) return;
+      dragged.current = true;
+      setDragging(true);
+      window.clearTimeout(clickTimer.current);
+      clickTimer.current = undefined;
+      dragMotion.current = STANDING;
+      moved.x = geometry?.position.x ?? startScreenX;
+      moved.y = geometry?.position.y ?? startScreenY;
+    };
+
+    const markDrag = (move: PointerEvent) => {
+      if (finished || move.pointerId !== pointerId) return;
+      lastScreenX = move.screenX;
+      lastScreenY = move.screenY;
+      if (!dragged.current) {
+        if (Math.hypot(move.clientX - startX, move.clientY - startY) < 4) return;
+        startMoving();
+      }
+      if (!geometry) return;
+      target = clampTarget(lastScreenX, lastScreenY);
+      schedulePlace();
+    };
+
+    const finish = (cancelled: boolean) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      if (!dragged.current) {
+        if (cancelled) return;
+        if (clickTimer.current !== undefined) {
+          window.clearTimeout(clickTimer.current);
+          clickTimer.current = undefined;
+          void showLaunchpad(event.screenX, event.screenY);
+          return;
+        }
+        clickTimer.current = window.setTimeout(() => {
+          clickTimer.current = undefined;
+          switchOnClick();
+        }, CLICK_DELAY_MS);
+        return;
+      }
+
+      setWalking(null);
+      setDragging(false);
+      dragMotion.current = STANDING;
+      const landing = target && geometry
+        ? petWindow.setPosition(new PhysicalPosition(Math.round(target.x), Math.round(target.y))).catch(() => {})
+        : Promise.resolve();
+      void landing.then(() => finishDrag.current());
+    };
+
+    const finishPress = (up: PointerEvent) => {
+      if (up.pointerId === pointerId) finish(false);
+    };
+    const cancelPress = (cancelled: PointerEvent) => {
+      if (cancelled.pointerId === pointerId) finish(true);
+    };
+    const loseCapture = () => {
+      if (dragged.current) finish(true);
+    };
+
     window.addEventListener("pointermove", markDrag);
-    window.addEventListener("pointerup", finishClick);
+    window.addEventListener("pointerup", finishPress);
+    window.addEventListener("pointercancel", cancelPress);
+    element.addEventListener("lostpointercapture", loseCapture);
+
+    void readDragGeometry(petWindow).then((result) => {
+      if (finished) return;
+      geometry = result;
+      if (dragged.current && geometry) {
+        moved.x = geometry.position.x;
+        moved.y = geometry.position.y;
+        target = clampTarget(lastScreenX, lastScreenY);
+        schedulePlace();
+      }
+    }).catch(() => {});
   }
 
-  // 平时停在默认待机。点一下换到下一个非走路动作，停几秒再回到待机。
+  // 平时停在默认待机。点一下换到下一个非走路动作，完整播放一轮后回到待机。
   function switchOnClick() {
     const rest = restingRef.current;
     if (appearanceId === "app-icon" || !rest || cycle.length < 2) return;
@@ -385,9 +653,9 @@ export function PetWindow() {
       const entry = cycle[index];
       if (entry === rest) continue;
       actionCursor.current = index;
-      setShownEntry(entry);
+      showManualEntry(entry);
+      setManualAction(true);
       window.clearTimeout(returnTimer.current);
-      returnTimer.current = window.setTimeout(() => setShownEntry(restingRef.current), CLICK_ACTION_MS);
       return;
     }
   }
@@ -422,6 +690,9 @@ export function PetWindow() {
 
   function onContextMenu(event: React.MouseEvent) {
     event.preventDefault();
+    autonomy.cancel();
+    cancelGravity();
+    setWalking(null);
     void showQuickMenu(event.screenX, event.screenY);
   }
 
@@ -441,12 +712,17 @@ export function PetWindow() {
               return (
                 <img
                   key={frame.key}
-                  className={[frame.walk ? "pet-walk" : "pet-action", frame.flip ? "pet-flip" : "", style ? "pet-framed" : ""].filter(Boolean).join(" ")}
+                  className={[
+                    frame.walk ? "pet-walk" : "pet-action",
+                    frame.flip ? "pet-flip" : "",
+                    style ? "pet-framed" : "",
+                    frame.key === displayed?.key ? "pet-crossfade-in" : frame.key === leaving?.key ? "pet-crossfade-out" : "",
+                  ].filter(Boolean).join(" ")}
                   style={style}
                   src={frame.src}
                   alt=""
                   draggable={false}
-                  hidden={displayed?.key !== frame.key}
+                  hidden={displayed?.key !== frame.key && leaving?.key !== frame.key}
                   onLoad={(event) => void onPetImageLoad(frame, event.currentTarget)}
                 />
               );

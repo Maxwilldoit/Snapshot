@@ -107,6 +107,12 @@ export interface Settings {
   petAssets: PetAsset[];
   /** 悬浮大小：基准大小的百分比，100 时应用图标为屏幕短边的 8%、宠物为 19%（见 lib/petSize.ts） */
   petScale: number;
+  /** 空闲时沿当前屏幕底部走动 */
+  petWander?: boolean;
+  /** 空闲时随机播放普通动作 */
+  petRandomActions?: boolean;
+  /** 拖拽松开后落回工作区底部 */
+  petGravity?: boolean;
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
   shortcutsPaused?: boolean;

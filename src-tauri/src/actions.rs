@@ -62,17 +62,35 @@ pub(crate) fn show_palette_centered(app: &AppHandle) -> Result<(), String> {
 }
 
 fn open_palette(app: &AppHandle, state: &AppState) -> Result<(), String> {
-    let window = app
-        .get_webview_window("quick-menu")
+    app.get_webview_window("quick-menu")
         .ok_or_else(|| "输入框窗口不存在".to_string())?;
-    let (width, height) = current_logical_size(&window).unwrap_or(PALETTE_INITIAL_SIZE);
-    window
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|e| e.to_string())?;
-    position_palette(app, &window, *state.quick_menu_anchor.lock(), width, height)?;
-    window.show().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())?;
+    // The frontend resets content and remounts the panel on palette-opened. Wait until
+    // that mount reports its measured size before showing the native window.
+    state.quick_menu_pending_show.store(true, Ordering::SeqCst);
     let _ = app.emit_to("quick-menu", "palette-opened", ());
+
+    // If the webview is still starting, do not leave the menu permanently hidden.
+    let fallback_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = tauri::async_runtime::spawn_blocking(|| {
+            thread::sleep(Duration::from_millis(160));
+        })
+        .await;
+        let Some(state) = fallback_app.try_state::<AppState>() else {
+            return;
+        };
+        if !state.quick_menu_pending_show.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        if let Some(window) = fallback_app.get_webview_window("quick-menu") {
+            let (width, height) = current_logical_size(&window).unwrap_or(PALETTE_INITIAL_SIZE);
+            let anchor = *state.quick_menu_anchor.lock();
+            if position_palette(&fallback_app, &window, anchor, width, height).is_ok() {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
+    });
     Ok(())
 }
 
@@ -104,7 +122,12 @@ pub(crate) fn resize_quick_menu(
         *state.quick_menu_anchor.lock(),
         width,
         height,
-    )
+    )?;
+    if state.quick_menu_pending_show.swap(false, Ordering::SeqCst) {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 fn monitor_at(window: &tauri::WebviewWindow, sx: f64, sy: f64) -> Option<tauri::Monitor> {
@@ -195,6 +218,9 @@ fn position_palette(
 
 #[tauri::command]
 pub(crate) fn hide_quick_menu(app: AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        state.quick_menu_pending_show.store(false, Ordering::SeqCst);
+    }
     if let Some(window) = app.get_webview_window("quick-menu") {
         let _ = window.hide();
     }
