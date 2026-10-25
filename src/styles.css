@@ -351,6 +351,7 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .palette-icon-blank { width: 16px; height: 13px; border: 1.2px solid var(--ink-3); border-top-width: 3.5px; border-radius: 2px; }
 .palette-window-name { flex: 0 0 auto; }
 .palette-window-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.palette-window-state { flex: 0 0 auto; opacity: 0.8; }
 
 .palette-polish { display: flex; flex-direction: column; }
 .palette-source { display: flex; align-items: baseline; gap: 12px; padding: 14px 18px 0; }

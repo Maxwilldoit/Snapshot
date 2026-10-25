@@ -35,6 +35,7 @@ export const windowsEnglish: Record<string, string> = {
   "动作": "Actions",
   "正在读取窗口…": "Loading windows…",
   "没有找到可用的窗口": "No windows available",
+  "已最小化": "Minimized",
 
   "正在读取截图…": "Loading screenshot…",
   "没有待标注的截图": "No screenshot to annotate",

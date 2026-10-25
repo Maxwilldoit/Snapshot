@@ -498,6 +498,9 @@ export function QuickMenuWindow() {
                         </span>
                         <span className="palette-window-name">{item.appName}</span>
                         <span className="palette-window-title small quiet">{item.title}</span>
+                        {item.minimized && (
+                          <span className="palette-window-state small quiet">{t("已最小化")}</span>
+                        )}
                       </span>
                     </button>
                   ))}

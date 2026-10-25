@@ -28,6 +28,7 @@ pub(crate) struct CapturableWindow {
     pid: u32,
     app_name: String,
     title: String,
+    minimized: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -67,6 +68,16 @@ fn content_window_area(window: &Window) -> Option<u64> {
     content_window_area_from_size(width, height)
 }
 
+/// 最小化窗口在 Windows 上会报告成任务栏条目大小的矩形，不能套用内容窗口的
+/// 80 像素下限；它仍然是可以还原并录制/截图的目标。
+fn capturable_window_area_from(area: Option<u64>, minimized: bool) -> Option<u64> {
+    if minimized {
+        Some(u64::MAX)
+    } else {
+        area
+    }
+}
+
 #[tauri::command]
 pub(crate) fn list_capturable_windows() -> Result<Vec<CapturableWindow>, String> {
     let mut result = Window::all()
@@ -74,7 +85,10 @@ pub(crate) fn list_capturable_windows() -> Result<Vec<CapturableWindow>, String>
         .into_iter()
         .filter(|window| !is_own_window(window))
         .filter_map(|window| {
-            let area = content_window_area(&window)?;
+            let area = capturable_window_area_from(
+                content_window_area(&window),
+                window.is_minimized().unwrap_or(false),
+            )?;
             let title = window.title().ok()?;
             if title.trim().is_empty() {
                 return None;
@@ -86,6 +100,7 @@ pub(crate) fn list_capturable_windows() -> Result<Vec<CapturableWindow>, String>
                     pid: window.pid().ok()?,
                     app_name: window.app_name().unwrap_or_else(|_| "应用".into()),
                     title,
+                    minimized: window.is_minimized().unwrap_or(false),
                 },
             ))
         })
@@ -97,7 +112,6 @@ pub(crate) fn list_capturable_windows() -> Result<Vec<CapturableWindow>, String>
             .then(right_area.cmp(left_area))
             .then(left.title.cmp(&right.title))
     });
-    result.truncate(80);
     Ok(result.into_iter().map(|(_, window)| window).collect())
 }
 
@@ -182,5 +196,16 @@ mod tests {
         assert_eq!(content_window_area_from_size(34, 24), None);
         assert_eq!(content_window_area_from_size(79, 600), None);
         assert_eq!(content_window_area_from_size(1024, 655), Some(670_720));
+    }
+
+    #[test]
+    fn minimized_windows_bypass_the_small_tray_window_filter() {
+        assert_eq!(capturable_window_area_from(None, true), Some(u64::MAX));
+        assert_eq!(
+            capturable_window_area_from(Some(1234), true),
+            Some(u64::MAX)
+        );
+        assert_eq!(capturable_window_area_from(None, false), None);
+        assert_eq!(capturable_window_area_from(Some(1234), false), Some(1234));
     }
 }

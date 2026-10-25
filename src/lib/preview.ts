@@ -325,9 +325,9 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     case "list_capturable_windows":
       return demo
         ? [
-            { id: 1, pid: 1, appName: "Visual Studio Code", title: "HistoryPage.tsx — 应用快照" },
-            { id: 2, pid: 2, appName: "Google Chrome", title: "Tauri 2 · Window Customization" },
-            { id: 3, pid: 3, appName: "微信", title: "微信" },
+            { id: 1, pid: 1, appName: "Visual Studio Code", title: "HistoryPage.tsx — 应用快照", minimized: false },
+            { id: 2, pid: 2, appName: "Google Chrome", title: "Tauri 2 · Window Customization", minimized: false },
+            { id: 3, pid: 3, appName: "微信", title: "微信", minimized: true },
           ]
         : [];
     case "get_shortcut_conflicts":

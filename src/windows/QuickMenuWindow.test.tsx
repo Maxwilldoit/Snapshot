@@ -5,7 +5,7 @@ import type { InvokeArgs } from "@tauri-apps/api/core";
 import type { RecordingStatus, Settings } from "../types";
 import { setupTauriMock } from "../test/tauri";
 
-const windowList = [{ id: 73, pid: 4242, appName: "Visual Studio Code", title: "notes.md" }];
+const windowList = [{ id: 73, pid: 4242, appName: "Visual Studio Code", title: "notes.md", minimized: true }];
 
 type Call = { command: string; payload?: InvokeArgs };
 
@@ -32,6 +32,7 @@ describe("快捷菜单：录制", () => {
 
     await user.click(await screen.findByRole("option", { name: "录制" }));
     expect(await screen.findByRole("listbox", { name: "选择要录制的窗口" })).toBeTruthy();
+    expect(screen.getByText("已最小化")).toBeTruthy();
     await user.click(await screen.findByRole("option", { name: /Visual Studio Code/ }));
     expect(await screen.findByText("开始录制 Visual Studio Code")).toBeTruthy();
 

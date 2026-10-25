@@ -145,6 +145,7 @@ export interface CapturableWindow {
   pid: number;
   appName: string;
   title: string;
+  minimized: boolean;
 }
 
 export interface RecordingStatus {
