@@ -138,6 +138,7 @@ describe("快捷菜单：精简菜单", () => {
     });
 
     expect(await screen.findByRole("option", { name: "润色 Prompt" })).toBeTruthy();
+    expect(screen.queryByText("快速操作")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("option", { name: "打开主窗口" })).toBeNull();
     expect(calls.some((call) => call.command === "show_main_window")).toBe(false);

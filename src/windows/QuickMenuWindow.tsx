@@ -478,19 +478,17 @@ export function QuickMenuWindow() {
             </div>
           ) : (
             <>
-              <div className="palette-window-head">
-                {view === "windows" && (
+              {view === "windows" && (
+                <div className="palette-window-head">
                   <button type="button" className="palette-back" aria-label={t("返回")} onClick={() => setView("menu")}>
                     <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
                   </button>
-                )}
-                <span className="palette-window-heading">
-                  {view === "menu"
-                    ? t("快速操作")
-                    : t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}
-                </span>
-                <span className="mono small quiet">Esc</span>
-              </div>
+                  <span className="palette-window-heading">
+                    {t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}
+                  </span>
+                  <span className="mono small quiet">Esc</span>
+                </div>
+              )}
 
               {view === "menu" ? (
                 <div className="palette-list palette-menu" role="listbox" aria-label={t("动作")}>

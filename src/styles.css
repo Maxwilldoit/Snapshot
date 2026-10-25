@@ -327,8 +327,8 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .palette-back { display: grid; place-items: center; width: 24px; height: 24px; margin-left: -6px; padding: 0; border: 0; background: none; color: var(--ink-2); }
 
 .palette-list { display: flex; flex-direction: column; padding: 0; max-height: 360px; overflow-y: auto; }
-/* 菜单和窗口列表的正文都占 5 行高度，换页时原生窗口尺寸保持不变 */
-.palette-menu { height: 180px; }
+/* 无标题菜单与窗口列表同高，换页时不改原生窗口；上下留白让四行操作居中 */
+.palette-menu { height: 230px; padding: 25px 0; }
 .palette-menu .palette-item { flex: 0 0 45px; }
 .palette-windows { height: 180px; max-height: 180px; overscroll-behavior: contain; }
 .palette-windows .palette-item { flex: 0 0 36px; }
