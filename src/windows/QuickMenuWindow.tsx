@@ -92,6 +92,7 @@ export function QuickMenuWindow() {
   const panelRef = useRef<HTMLDivElement>(null);
   const windowListRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<number | null>(null);
+  const pickerToken = useRef(0);
 
   const refresh = useCallback(() => {
     loadSettings().then(setSettings).catch(() => {});
@@ -115,6 +116,7 @@ export function QuickMenuWindow() {
     setRunning(false);
     setPeek(false);
     setOpening((value) => value + 1);
+    pickerToken.current += 1;
     window.setTimeout(() => rootRef.current?.focus(), 0);
   }, []);
 
@@ -181,15 +183,20 @@ export function QuickMenuWindow() {
   };
 
   async function openPicker(mode: "capture" | "record") {
+    const token = ++pickerToken.current;
     setPickerMode(mode);
-    setView("windows");
     setCursor(0);
-    setWindows(null);
     showStatus(null);
     try {
-      setWindows(await listWindows());
+      const list = await listWindows();
+      if (token !== pickerToken.current) return;
+      // 等列表到手再切页：避免「读取中」矮面板和完整列表之间再改一次高度。
+      setWindows(list);
+      setView("windows");
     } catch (error) {
+      if (token !== pickerToken.current) return;
       setWindows([]);
+      setView("windows");
       showStatus({ kind: "error", text: t(errorText(error)) });
     }
     rootRef.current?.focus();

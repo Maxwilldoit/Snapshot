@@ -76,6 +76,28 @@ describe("快捷菜单：录制", () => {
     expect(screen.queryByRole("listbox", { name: "选择要录制的窗口" })).toBeNull();
   });
 
+  it("窗口枚举完成前保留菜单，完成后直接切到稳定高度的列表", async () => {
+    let finishWindows!: (windows: typeof windowList) => void;
+    const { user } = await renderPalette((command) => {
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "list_capturable_windows") {
+        return new Promise<typeof windowList>((resolve) => {
+          finishWindows = resolve;
+        });
+      }
+      return undefined;
+    });
+
+    await user.click(await screen.findByRole("option", { name: "录制" }));
+    expect(screen.getByRole("listbox", { name: "动作" })).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "选择要录制的窗口" })).toBeNull();
+
+    await act(async () => finishWindows(windowList));
+    const list = await screen.findByRole("listbox", { name: "选择要录制的窗口" });
+    expect(screen.queryByRole("listbox", { name: "动作" })).toBeNull();
+    expect(list.querySelectorAll('[role="option"]')).toHaveLength(windowList.length);
+  });
+
   it("超过 5 个窗口时保留完整列表，键盘选择会滚动到当前应用", async () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
