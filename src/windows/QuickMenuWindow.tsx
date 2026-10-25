@@ -36,6 +36,19 @@ const EDGE = 40;
 /** 各视图的面板宽度：菜单装得下一行动作和快捷键就够；窗口列表多给点看标题；润色要放下底栏四个按钮 */
 const PANEL_WIDTH: Record<View, number> = { menu: 260, windows: 360, polish: 480 };
 
+export function windowPickerLabels(item: Pick<CapturableWindow, "appName" | "title">) {
+  const appName = item.appName.trim();
+  const title = item.title.trim();
+  // Microsoft Store 的 ChatGPT 可执行文件名仍是 Codex。优先显示用户认识的应用名。
+  const name = appName.toLocaleLowerCase() === "codex" && title.toLocaleLowerCase() === "chatgpt"
+    ? title
+    : appName || title;
+  return {
+    name,
+    title: title && title.toLocaleLowerCase() !== name.toLocaleLowerCase() ? title : "",
+  };
+}
+
 const errorText = (error: unknown) => localizeMessage(error instanceof Error ? error.message : String(error));
 
 /**
@@ -482,8 +495,9 @@ export function QuickMenuWindow() {
                   {windows !== null && visibleWindows.length === 0 && (
                     <p className="palette-empty small quiet">{t("没有找到可用的窗口")}</p>
                   )}
-                  {visibleWindows.map((item, index) => (
-                    <button
+                  {visibleWindows.map((item, index) => {
+                    const labels = windowPickerLabels(item);
+                    return <button
                       key={item.id}
                       type="button"
                       role="option"
@@ -496,14 +510,14 @@ export function QuickMenuWindow() {
                         <span className="palette-icon">
                           <MediaImage src={iconUrl(item.pid, 20)} fallback={<span className="palette-icon-blank" />} />
                         </span>
-                        <span className="palette-window-name">{item.appName}</span>
-                        <span className="palette-window-title small quiet">{item.title}</span>
+                        <span className="palette-window-name">{labels.name}</span>
+                        {labels.title && <span className="palette-window-title small quiet">{labels.title}</span>}
                         {item.minimized && (
                           <span className="palette-window-state small quiet">{t("已最小化")}</span>
                         )}
                       </span>
-                    </button>
-                  ))}
+                    </button>;
+                  })}
                 </div>
               )}
             </>
