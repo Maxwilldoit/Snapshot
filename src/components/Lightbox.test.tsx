@@ -31,4 +31,19 @@ describe("历史预览标注", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("快照文件已被移动或删除");
     expect((screen.getByRole("button", { name: "标注" }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it("把当前快照复制回剪贴板，并支持 Ctrl+C", async () => {
+    const copied: string[] = [];
+    setupTauriMock((command, args) => {
+      if (command === "copy_snapshot") {
+        copied.push(String(invokeArgs(args).id));
+        return "已复制 first";
+      }
+    });
+    render(<Lightbox records={records} startId="first" onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "复制" }));
+    expect((await screen.findByRole("status")).textContent).toContain("已复制 first");
+    fireEvent.keyDown(window, { key: "c", ctrlKey: true });
+    await waitFor(() => expect(copied).toEqual(["first", "first"]));
+  });
 });

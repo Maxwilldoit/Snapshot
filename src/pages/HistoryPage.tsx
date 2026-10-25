@@ -207,11 +207,17 @@ export function HistoryPage() {
   const total = records?.length ?? 0;
   const promptTotal = promptRecords?.length ?? 0;
   const totalItems = total + promptTotal;
+  const visibleSnapshotIds = useMemo(
+    () => filtered.flatMap((item) => (item.kind === "snapshot" ? [item.snapshot.id] : [])),
+    [filtered],
+  );
   const previewRecords = useMemo(() => {
     const visible = filtered.flatMap((item) => (item.kind === "snapshot" ? [item.snapshot] : []));
     return visible.length ? visible : (records ?? []);
   }, [filtered, records]);
   const allSelected = total > 0 && selected.size === total;
+  const allVisibleSelected = visibleSnapshotIds.length > 0
+    && visibleSnapshotIds.every((id) => selected.has(id));
   // 退场时文案别跟着变成「删除 0 张」：打开那一刻的文案一直留到对话框淡出
   const confirmDialog = usePresence(
     confirming
@@ -235,11 +241,17 @@ export function HistoryPage() {
       <button
         type="button"
         className="link small"
-        onClick={() => setSelected(allSelected ? new Set() : new Set(filtered.flatMap((item) => (item.kind === "snapshot" ? [item.snapshot.id] : []))))}
+        onClick={() => {
+          if (allVisibleSelected) {
+            setSelected(new Set());
+          } else {
+            setSelected(new Set([...selected, ...visibleSnapshotIds]));
+          }
+        }}
       >
-        {allSelected
+        {allVisibleSelected
           ? t("全不选")
-          : t("全选 {count} 张", { count: query ? filtered.length : total })}
+          : t("全选 {count} 张", { count: visibleSnapshotIds.length })}
       </button>
       <span className="spacer" />
       <button type="button" className="text-btn ink-2" onClick={exitSelecting}>{t("取消")}</button>

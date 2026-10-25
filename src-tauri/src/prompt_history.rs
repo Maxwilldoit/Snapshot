@@ -24,10 +24,7 @@ pub(crate) struct PromptHistory {
 
 impl PromptHistory {
     pub(crate) fn load(path: PathBuf) -> Self {
-        let entries = fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<Vec<PromptHistoryEntry>>(&text).ok())
-            .unwrap_or_default();
+        let entries = read_json_with_backup::<Vec<PromptHistoryEntry>>(&path).unwrap_or_default();
         Self {
             path,
             entries,
@@ -35,7 +32,12 @@ impl PromptHistory {
         }
     }
 
-    fn push(&mut self, original: &str, polished: &str, template: &str) -> PromptHistoryEntry {
+    fn push(
+        &mut self,
+        original: &str,
+        polished: &str,
+        template: &str,
+    ) -> Result<PromptHistoryEntry, String> {
         self.counter += 1;
         let created_at = now_millis();
         let entry = PromptHistoryEntry {
@@ -46,26 +48,32 @@ impl PromptHistory {
             polished: polished.to_string(),
         };
         self.entries.insert(0, entry.clone());
-        if let Some(parent) = self.path.parent() {
-            let _ = fs::create_dir_all(parent);
+        match write_json_atomic(&self.path, &self.entries) {
+            Ok(()) => Ok(entry),
+            Err(error) => {
+                self.entries.remove(0);
+                Err(error)
+            }
         }
-        if let Ok(payload) = serde_json::to_vec(&self.entries) {
-            let _ = fs::write(&self.path, payload);
-        }
-        entry
     }
 }
 
 /// 只在润色成功后调用；写盘失败不影响用户拿到结果。
-pub(crate) fn record(app: &AppHandle, original: &str, polished: &str, template: &str) {
+pub(crate) fn record(
+    app: &AppHandle,
+    original: &str,
+    polished: &str,
+    template: &str,
+) -> Result<(), String> {
     let Some(state) = app.try_state::<AppState>() else {
-        return;
+        return Err("应用状态尚未就绪".into());
     };
     let entry = state
         .prompt_history
         .lock()
-        .push(original, polished, template);
+        .push(original, polished, template)?;
     let _ = app.emit("prompt-history-changed", &entry);
+    Ok(())
 }
 
 #[tauri::command]
@@ -103,8 +111,8 @@ mod tests {
         let dir = TestDir::new();
         let path = dir.0.join("prompt-history.json");
         let mut history = PromptHistory::load(path.clone());
-        history.push("原文一", "润色一", "规则一");
-        history.push("原文二", "润色二", "规则二");
+        history.push("原文一", "润色一", "规则一").unwrap();
+        history.push("原文二", "润色二", "规则二").unwrap();
 
         let restored = PromptHistory::load(path);
         assert_eq!(restored.entries.len(), 2);
@@ -120,7 +128,9 @@ mod tests {
         let path = dir.0.join("prompt-history.json");
         let mut history = PromptHistory::load(path.clone());
         for index in 0..250 {
-            history.push(&format!("原文 {index}"), &format!("润色 {index}"), "规则");
+            history
+                .push(&format!("原文 {index}"), &format!("润色 {index}"), "规则")
+                .unwrap();
         }
 
         let restored = PromptHistory::load(path);

@@ -40,11 +40,12 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Local;
 use image::{ImageFormat, RgbaImage};
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 use std::{
     borrow::Cow,
     collections::HashMap,
+    ffi::OsStr,
     fs,
     io::{Cursor, Read},
     path::{Path, PathBuf},
@@ -99,9 +100,12 @@ struct AppState {
     tray_quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     launch_catalog: launchpad_cache::CatalogCache,
     launch_icons: Mutex<HashMap<String, Vec<u8>>>,
+    /// 快照索引的读改写必须原子化；否则并发截图会互相覆盖历史记录。
+    snapshot_index_lock: Mutex<()>,
 }
 
 static INTERFACE_ENGLISH: AtomicBool = AtomicBool::new(false);
+pub(crate) const AUTOSTART_ARG: &str = "--autostart";
 
 pub(crate) fn interface_is_english() -> bool {
     INTERFACE_ENGLISH.load(Ordering::Relaxed)
@@ -120,11 +124,95 @@ fn pet_top_limit(work_area_bottom: i32, window_height: i32) -> i32 {
     work_area_bottom - window_height.max(0)
 }
 
+fn should_show_main_window(started_at_login: bool, tray_available: bool) -> bool {
+    !started_at_login || !tray_available
+}
+
 pub(crate) fn truncate(value: &str, max: usize) -> String {
     if value.chars().count() <= max {
         return value.into();
     }
     value.chars().take(max).collect::<String>() + "…"
+}
+
+fn json_backup_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".bak");
+    path.with_file_name(name)
+}
+
+fn atomic_write_bytes(path: &Path, payload: &[u8]) -> Result<(), String> {
+    static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| "数据文件路径缺少文件名".to_string())?;
+    let (temporary, mut file) = loop {
+        let mut name = file_name.to_os_string();
+        name.push(format!(
+            ".{}.{}.tmp",
+            std::process::id(),
+            TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let candidate = path.with_file_name(name);
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => break (candidate, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    };
+    use std::io::Write;
+    let result = file.write_all(payload).and_then(|_| file.sync_all());
+    drop(file);
+    let result = result.and_then(|_| fs::rename(&temporary, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.map_err(|error| error.to_string())
+}
+
+/// 写入 JSON 前保留上一份可解析的版本。替换本身通过同目录临时文件完成，
+/// 避免进程中断后只留下半截文件。
+pub(crate) fn write_json_atomic<T: Serialize + ?Sized>(
+    path: &Path,
+    value: &T,
+) -> Result<(), String> {
+    let payload = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
+    if let Ok(previous) = fs::read(path) {
+        if serde_json::from_slice::<Value>(&previous).is_ok() {
+            if let Err(error) = atomic_write_bytes(&json_backup_path(path), &previous) {
+                eprintln!(
+                    "snapshot: could not preserve backup for {}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+    atomic_write_bytes(path, &payload)
+}
+
+/// 主文件损坏时读取上一份有效备份，避免把历史静默显示为空。
+pub(crate) fn read_json_with_backup<T: DeserializeOwned>(path: &Path) -> Option<T> {
+    if let Ok(bytes) = fs::read(path) {
+        if let Ok(value) = serde_json::from_slice(&bytes) {
+            return Some(value);
+        }
+    }
+    let backup = json_backup_path(path);
+    let bytes = fs::read(&backup).ok()?;
+    let value = serde_json::from_slice(&bytes).ok()?;
+    eprintln!(
+        "snapshot: recovered {} from {}",
+        path.display(),
+        backup.display()
+    );
+    Some(value)
 }
 
 fn now_millis() -> u64 {
@@ -151,6 +239,7 @@ fn init_x11_threads() {}
 
 pub fn run() {
     init_x11_threads();
+    let started_at_login = std::env::args_os().any(|arg| arg == OsStr::new(AUTOSTART_ARG));
     // 配置文件里定义的窗口在 setup() 之前就已创建并开始加载前端，
     // 若把 manage() 留在 setup() 里，前端可能抢先发出命令并撞上
     // "state not managed"。所以状态提到 Builder 阶段准备好。
@@ -224,8 +313,9 @@ pub fn run() {
                 data_dir.join("launchpad-catalog.json"),
             ),
             launch_icons: Mutex::new(HashMap::new()),
+            snapshot_index_lock: Mutex::new(()),
         })
-        .setup(|app| {
+        .setup(move |app| {
             let state = app.state::<AppState>();
             let settings = state.settings.lock().clone();
             let tracker = state.tracker.clone();
@@ -356,8 +446,22 @@ pub fn run() {
             }
             // Linux 上若会话没有 StatusNotifierHost（精简环境 / 无扩展的 GNOME），
             // 托盘会建失败；主窗口与快捷键仍应可用，不能把整个 setup 拖死。
-            if let Err(error) = tray.build(app) {
-                eprintln!("snapshot: system tray unavailable ({error}); continuing without tray");
+            let tray_available = match tray.build(app) {
+                Ok(_) => true,
+                Err(error) => {
+                    eprintln!(
+                        "snapshot: system tray unavailable ({error}); continuing without tray"
+                    );
+                    false
+                }
+            };
+            // 主窗口在配置里默认隐藏，正常启动时到这里再显示，避免开机自启时闪一下。
+            // 没有可用托盘时，自启后仍需保留一个可见入口。
+            if should_show_main_window(started_at_login, tray_available) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
             Ok(())
         })
@@ -451,6 +555,7 @@ pub fn run() {
             actions::set_app_language,
             settings::load_settings,
             settings::save_prompt_settings,
+            settings::clear_api_key,
             settings::fetch_models,
             settings::default_prompt,
             pet::select_pet_appearance,
@@ -588,5 +693,13 @@ mod pet_asset_tests {
         assert_eq!(pet_top_limit(-80, 200), -280);
         // 桌宠本身比工作区还高时，也优先守住底边，不让脚落到任务栏下面。
         assert_eq!(pet_top_limit(600, 900), -300);
+    }
+
+    #[test]
+    fn login_startup_stays_hidden_when_the_tray_is_available() {
+        assert!(should_show_main_window(false, true));
+        assert!(!should_show_main_window(true, true));
+        assert!(should_show_main_window(false, false));
+        assert!(should_show_main_window(true, false));
     }
 }

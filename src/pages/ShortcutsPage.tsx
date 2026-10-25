@@ -36,6 +36,19 @@ function pressedModifiers(event: React.KeyboardEvent): string[] {
   return parts;
 }
 
+/** 修饰键改变字符，但 event.code 仍是物理键位；用它避免 Shift+2 被记成 @。 */
+function shortcutKey(event: React.KeyboardEvent): string {
+  const code = event.code;
+  if (code && code !== "Unidentified") {
+    const digit = /^Digit([0-9])$/.exec(code);
+    if (digit) return digit[1];
+    const letter = /^Key([A-Z])$/.exec(code);
+    if (letter) return letter[1];
+    return code;
+  }
+  return normalizeKey(event.key);
+}
+
 /** 全局快捷键列表 + 保存条。改动先留在本页，按「保存」才交给后端校验、注册、落盘 */
 export function ShortcutsPanel() {
   const { settings, onSaved, notify, conflicts, setConflicts, caps } = useApp();
@@ -87,7 +100,7 @@ export function ShortcutsPanel() {
       setHeld(modifiers);
       return;
     }
-    const key = normalizeKey(event.key);
+    const key = shortcutKey(event);
     if (modifiers.length === 0) {
       // 原先这里是静默 return，用户按了没反应还以为坏了
       setRejected({ action, key });

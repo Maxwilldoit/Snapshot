@@ -2,6 +2,7 @@
 //! 不走「启动」文件夹的 .lnk —— 那需要 COM IShellLink，而且用户手动删掉快捷方式后
 //! 设置项仍显示开启，状态会和系统对不上。注册表读写都在当前用户下，无需提权。
 
+use crate::AUTOSTART_ARG;
 use std::{ffi::OsStr, iter::once, os::windows::ffi::OsStrExt};
 use windows_sys::Win32::System::Registry::{
     RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ,
@@ -20,7 +21,7 @@ fn wide(text: &str) -> Vec<u16> {
 /// 可执行文件路径要带引号：路径含空格时，不加引号会被 Windows 拆成程序名 + 参数。
 fn command_line() -> Result<Vec<u16>, String> {
     let exe = std::env::current_exe().map_err(|error| format!("无法定位可执行文件：{error}"))?;
-    Ok(wide(&format!("\"{}\"", exe.display())))
+    Ok(wide(&format!("\"{}\" {AUTOSTART_ARG}", exe.display())))
 }
 
 pub fn apply(enabled: bool) -> Result<(), String> {
@@ -53,4 +54,20 @@ pub fn apply(enabled: bool) -> Result<(), String> {
         return Err(format!("无法{action}开机启动项（注册表错误 {status}）"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn autostart_command_requests_a_hidden_startup_window() {
+        let command: String = command_line()
+            .unwrap()
+            .into_iter()
+            .take_while(|unit| *unit != 0)
+            .map(|unit| char::from_u32(u32::from(unit)).unwrap_or('\u{fffd}'))
+            .collect();
+        assert!(command.contains(AUTOSTART_ARG));
+    }
 }

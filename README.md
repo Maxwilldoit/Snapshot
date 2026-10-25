@@ -134,6 +134,7 @@ On Debian or Ubuntu, `sudo bash scripts/linux/install-deps.sh` installs the requ
 ```bash
 npm test          # translation coverage + frontend tests
 npm run build     # TypeScript and production frontend build
+npm audit --audit-level=moderate
 
 cd src-tauri
 cargo fmt --check
@@ -141,7 +142,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-CI runs the frontend suite and Rust checks on Windows, macOS, Ubuntu 22.04, and Ubuntu 24.04 through [check.yml](.github/workflows/check.yml). Release packages are built and smoke-tested by [release.yml](.github/workflows/release.yml) and [linux-packages.yml](.github/workflows/linux-packages.yml).
+CI also runs RustSec and npm dependency audits. It runs the frontend suite and Rust checks on Windows, macOS, Ubuntu 22.04, and Ubuntu 24.04 through [check.yml](.github/workflows/check.yml). Release packages are built and smoke-tested by [release.yml](.github/workflows/release.yml) and [linux-packages.yml](.github/workflows/linux-packages.yml).
 
 ## Project structure
 

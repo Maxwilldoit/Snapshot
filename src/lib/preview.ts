@@ -215,6 +215,8 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       delete input.apiKey;
       return update(input);
     }
+    case "clear_api_key":
+      return update({ hasApiKey: false });
     case "save_preferences":
       return update(args.prefs);
     case "save_shortcuts":

@@ -27,6 +27,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: npm dependency audit
+        run: npm audit --audit-level=moderate
       - run: npm test
       # tsc + vite build，前端类型错误在这里就拦住
       - run: npm run build
@@ -77,3 +79,16 @@ jobs:
       - name: cargo test
         working-directory: src-tauri
         run: cargo test
+
+  security:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: src-tauri

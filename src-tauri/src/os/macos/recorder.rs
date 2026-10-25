@@ -72,6 +72,7 @@ fn capture_child_stderr(stderr: Option<ChildStderr>) -> Arc<Mutex<String>> {
 pub(crate) struct Recording {
     child: Child,
     diagnostic: Arc<Mutex<String>>,
+    output: PathBuf,
 }
 
 impl Recording {
@@ -94,8 +95,24 @@ impl Recording {
         if let Some(stdin) = self.child.stdin.as_mut() {
             let _ = stdin.write_all(b"q\n");
         }
-        let Ok(status) = self.child.wait() else {
-            return Ok(());
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        let status = loop {
+            match self.child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Ok(None) => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    let _ = std::fs::remove_file(&self.output);
+                    return Err("录制组件在 15 秒内没有完成收尾".into());
+                }
+                Err(error) => {
+                    let _ = std::fs::remove_file(&self.output);
+                    return Err(format!("等待录制组件结束失败：{error}"));
+                }
+            }
         };
         if status.success() {
             return Ok(());
@@ -103,11 +120,13 @@ impl Recording {
         // 给读 stderr 的线程一点时间把最后几行收进来
         thread::sleep(Duration::from_millis(20));
         let detail = self.diagnostic();
-        Err(if detail.is_empty() {
+        let message = if detail.is_empty() {
             format!("录制停止异常（{status}）")
         } else {
             format!("录制停止异常：{detail}")
-        })
+        };
+        let _ = std::fs::remove_file(&self.output);
+        Err(message)
     }
 }
 
@@ -176,7 +195,14 @@ pub(crate) fn start_recording(
     };
 
     if line.starts_with("READY ") {
-        return Ok((Recording { child, diagnostic }, None));
+        return Ok((
+            Recording {
+                child,
+                diagnostic,
+                output: output.to_path_buf(),
+            },
+            None,
+        ));
     }
 
     let _ = child.kill();

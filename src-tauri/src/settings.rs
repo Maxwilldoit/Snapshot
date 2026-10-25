@@ -450,6 +450,23 @@ pub(crate) fn save_prompt_settings(
     Ok(result)
 }
 
+/// 删除系统钥匙串里保存的 API Key，并让所有窗口同步更新。
+#[tauri::command]
+pub(crate) fn clear_api_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Settings, String> {
+    match keyring_entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    let mut settings = state.settings.lock();
+    settings.has_api_key = false;
+    let result = settings.clone();
+    emit_settings(&app, &result);
+    Ok(result)
+}
+
 /// 内置规则的原文：用户改过内置规则后，前端用它「恢复原文」
 #[tauri::command]
 pub(crate) fn default_prompt() -> &'static str {

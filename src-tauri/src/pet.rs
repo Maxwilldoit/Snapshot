@@ -397,6 +397,7 @@ pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, Stri
         return Ok(bytes);
     }
     let gif = read_animation(state, id, None)?;
+    pet_walk::validate_gif_budget(&gif)?;
     let frame = image::load_from_memory_with_format(&gif, ImageFormat::Gif)
         .map_err(|_| "读不出这份素材的第一帧".to_string())?
         .to_rgba8();
@@ -511,6 +512,7 @@ fn read_raw_animation(
 /// 一轮 GIF 的总时长。按浏览器常见的处理方式，把 0 延时帧视为 100ms、
 /// 小于 20ms 的帧至少留 20ms；单帧素材则展示 1 秒。
 fn gif_duration_ms(bytes: &[u8]) -> Result<u64, String> {
+    pet_walk::validate_gif_budget(bytes)?;
     let options = gif::DecodeOptions::new();
     let mut decoder = options
         .read_info(Cursor::new(bytes))
@@ -594,7 +596,10 @@ pub(crate) fn find_pet_animation_entries(path: &PathBuf) -> Result<Vec<String>, 
         if entry.is_dir() || entry.size() > 50 * 1024 * 1024 {
             continue;
         }
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|_| "无法读取桌宠压缩包条目名".to_string())?
+            .into_owned();
         let lower = name.to_lowercase();
         if !is_pet_gif(&lower) {
             continue;

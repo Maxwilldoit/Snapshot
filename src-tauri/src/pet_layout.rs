@@ -125,10 +125,13 @@ pub(crate) fn read_pet_layout(
         let entry = archive
             .by_index(index)
             .map_err(|_| "无法读取桌宠压缩包目录".to_string())?;
-        if entry.is_dir() || !is_manifest(entry.name()) {
+        let entry_name = entry
+            .name()
+            .map_err(|_| "无法读取桌宠压缩包条目名".to_string())?;
+        if entry.is_dir() || !is_manifest(&entry_name) {
             continue;
         }
-        manifests.push(entry.name().to_string());
+        manifests.push(entry_name.into_owned());
     }
     manifests.sort_by_key(|name| {
         (

@@ -3,12 +3,13 @@
 //! 不写 systemd user unit，也不默认 enable——Windows 侧同样是用户勾选后才生效。
 //! 只在 `~/.config/autostart/` 放 / 删一份 `.desktop`。
 
-use std::env;
+use crate::AUTOSTART_ARG;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::{env, ffi::OsStr};
 
 const DESKTOP_NAME: &str = "com.appsnapshot.snapshot.desktop";
 
@@ -24,10 +25,28 @@ fn desktop_path() -> PathBuf {
 
 /// 解析当前可执行文件路径，供 Exec= 使用。
 fn current_exe() -> Result<PathBuf, String> {
+    if let Some(path) = appimage_path(env::var_os("APPIMAGE").as_deref()) {
+        return Ok(path);
+    }
     env::current_exe().map_err(|error| format!("无法定位当前程序：{error}"))
 }
 
+fn appimage_path(value: Option<&OsStr>) -> Option<PathBuf> {
+    let path = PathBuf::from(value?);
+    path.is_file().then_some(path)
+}
+
+fn desktop_exec_arg(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('`', "\\`")
+        .replace('$', "\\$")
+        .replace('%', "%%")
+}
+
 fn desktop_entry(exe: &str) -> String {
+    let exe = desktop_exec_arg(exe);
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
@@ -36,7 +55,7 @@ fn desktop_entry(exe: &str) -> String {
          Name[zh_CN]=应用快照\n\
          Comment=Application snapshot, prompt polish, companion\n\
          Comment[zh_CN]=应用快照、Prompt 润色、桌宠和快捷键\n\
-         Exec=\"{exe}\"\n\
+         Exec=\"{exe}\" {AUTOSTART_ARG}\n\
          Icon=snapshot\n\
          Terminal=false\n\
          Categories=Utility;\n\
@@ -136,6 +155,26 @@ mod tests {
         let dir = unique_temp_subdir("ok");
         fs::create_dir_all(&dir).expect("create temp autostart dir");
         assert!(probe_autostart_dir(&dir).is_ok());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn desktop_entry_uses_appimage_and_hidden_startup_flag() {
+        let executable = "/home/me/Applications/snapshot 100%.AppImage";
+        let entry = desktop_entry(executable);
+        assert!(
+            entry.contains("Exec=\"/home/me/Applications/snapshot 100%%.AppImage\" --autostart")
+        );
+    }
+
+    #[test]
+    fn appimage_override_must_be_an_existing_file() {
+        let dir = unique_temp_subdir("appimage");
+        fs::create_dir_all(&dir).expect("create temp appimage dir");
+        let image = dir.join("snapshot.AppImage");
+        fs::write(&image, b"appimage").expect("write test appimage");
+        assert_eq!(appimage_path(Some(image.as_os_str())), Some(image.clone()));
+        assert_eq!(appimage_path(Some(dir.as_os_str())), None);
         let _ = fs::remove_dir_all(&dir);
     }
 

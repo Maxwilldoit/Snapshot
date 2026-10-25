@@ -34,10 +34,7 @@ pub(crate) struct ActivityLog {
 
 impl ActivityLog {
     pub(crate) fn load(path: PathBuf) -> Self {
-        let entries = fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<Vec<ActivityEntry>>(&text).ok())
-            .unwrap_or_default();
+        let entries = read_json_with_backup::<Vec<ActivityEntry>>(&path).unwrap_or_default();
         Self {
             path,
             entries,
@@ -50,11 +47,8 @@ impl ActivityLog {
         entry.id = format!("act-{}-{}", entry.at, self.counter);
         self.entries.insert(0, entry.clone());
         self.entries.truncate(ACTIVITY_LIMIT);
-        if let Some(parent) = self.path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        if let Ok(payload) = serde_json::to_vec(&self.entries) {
-            let _ = fs::write(&self.path, payload);
+        if let Err(error) = write_json_atomic(&self.path, &self.entries) {
+            eprintln!("snapshot: could not persist activity: {error}");
         }
         entry
     }

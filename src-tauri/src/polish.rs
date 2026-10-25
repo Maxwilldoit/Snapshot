@@ -100,7 +100,9 @@ async fn run_polish(
 fn log_polish(app: &AppHandle, original: &str, result: &Result<(String, String), String>) {
     match result {
         Ok((polished, rule)) => {
-            prompt_history::record(app, original, polished, rule);
+            if let Err(error) = prompt_history::record(app, original, polished, rule) {
+                activity::record_error(app, "润色历史未能保存", &error);
+            }
             activity::record(
                 app,
                 activity::Activity::new("polish", rule.clone())

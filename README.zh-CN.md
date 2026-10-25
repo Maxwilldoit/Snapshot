@@ -134,6 +134,7 @@ Debian 或 Ubuntu 可运行 `sudo bash scripts/linux/install-deps.sh` 安装构�
 ```bash
 npm test          # 本地化文案覆盖检查 + 前端测试
 npm run build     # TypeScript 检查和生产构建
+npm audit --audit-level=moderate
 
 cd src-tauri
 cargo fmt --check
@@ -141,7 +142,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-CI 会在 Windows、macOS、Ubuntu 22.04 和 Ubuntu 24.04 上执行 [check.yml](.github/workflows/check.yml)。安装包由 [release.yml](.github/workflows/release.yml) 与 [linux-packages.yml](.github/workflows/linux-packages.yml) 构建并完成安装启动检查。
+CI 还会运行 RustSec 与 npm 依赖审计，并在 Windows、macOS、Ubuntu 22.04 和 Ubuntu 24.04 上执行 [check.yml](.github/workflows/check.yml)。安装包由 [release.yml](.github/workflows/release.yml) 与 [linux-packages.yml](.github/workflows/linux-packages.yml) 构建并完成安装启动检查。
 
 ## 目录结构
 

@@ -2,13 +2,13 @@
 //! → ffmpeg rawvideo；X11 会话用 ffmpeg x11grab。Wayland 下门户不可用时才退回 x11grab，
 //! 那条退路只抓得到 XWayland 的画面，由能力文案说明。
 
-use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::{fs, io::Write};
 
 use xcap::{Monitor, Window};
 
@@ -298,21 +298,27 @@ pub struct ActiveRecording {
     pub child: Child,
     pub stop_kind: StopKind,
     pub portal: Option<PortalHandle>,
+    output: PathBuf,
 }
 
 impl ActiveRecording {
     /// 优雅停止：portal 先停 PipeWire 泵，再 EOF/quit ffmpeg。
-    pub fn stop(mut self) {
+    pub fn stop(mut self) -> Result<(), String> {
+        let mut stop_error = None;
         if let Some(portal) = self.portal.take() {
             portal.stop_flag.store(true, Ordering::SeqCst);
-            let _ = portal.video_recorder.stop();
+            if let Err(error) = portal.video_recorder.stop() {
+                stop_error = Some(format!("停止 ScreenCast 失败：{error}"));
+            }
             // 给写帧线程一点时间关掉 stdin，让 MP4 收尾
             thread::sleep(Duration::from_millis(200));
         }
         match self.stop_kind {
             StopKind::FfmpegQuit => {
                 if let Some(stdin) = self.child.stdin.as_mut() {
-                    let _ = stdin.write_all(b"q\n");
+                    if let Err(error) = stdin.write_all(b"q\n") {
+                        stop_error.get_or_insert_with(|| format!("通知 ffmpeg 停止失败：{error}"));
+                    }
                 }
             }
             StopKind::StdinEof => {
@@ -320,7 +326,40 @@ impl ActiveRecording {
                 drop(self.child.stdin.take());
             }
         }
-        let _ = self.child.wait();
+        let status = match wait_for_child(&mut self.child, Duration::from_secs(15)) {
+            Ok(status) => status,
+            Err(error) => {
+                let _ = fs::remove_file(&self.output);
+                return Err(format!("等待 ffmpeg 收尾失败：{error}"));
+            }
+        };
+        if !status.success() {
+            let _ = fs::remove_file(&self.output);
+            return Err(stop_error.unwrap_or_else(|| format!("ffmpeg 收尾失败（{status}）")));
+        }
+        if let Some(error) = stop_error {
+            let _ = fs::remove_file(&self.output);
+            return Err(error);
+        }
+        Ok(())
+    }
+}
+
+fn wait_for_child(
+    child: &mut Child,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("ffmpeg 在 15 秒内没有退出".into());
+        }
+        thread::sleep(Duration::from_millis(20));
     }
 }
 
@@ -383,6 +422,7 @@ fn start_x11_recording(
         child,
         stop_kind: StopKind::FfmpegQuit,
         portal: None,
+        output: output.to_path_buf(),
     })
 }
 
@@ -518,6 +558,7 @@ fn start_portal_recording(
             video_recorder,
             stop_flag,
         }),
+        output: output.to_path_buf(),
     })
 }
 

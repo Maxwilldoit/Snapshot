@@ -23,7 +23,7 @@
         "center": true,
         "resizable": true,
         "decorations": false,
-        "visible": true
+        "visible": false
       },
       {
         "label": "pet",

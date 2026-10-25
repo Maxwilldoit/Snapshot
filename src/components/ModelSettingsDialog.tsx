@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { fetchModels, savePromptSettings } from "../lib/backend";
+import { clearApiKey, fetchModels, savePromptSettings } from "../lib/backend";
 import { useI18n } from "../lib/i18n";
 import type { Settings } from "../types";
 
@@ -25,6 +25,7 @@ export function ModelSettingsDialog({
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
+  const [clearingKey, setClearingKey] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +79,20 @@ export function ModelSettingsDialog({
     }
   }
 
+  async function removeSavedKey() {
+    setClearingKey(true);
+    setError(null);
+    try {
+      onSaved(await clearApiKey());
+      setApiKey("");
+      notify(t("已删除保存的 API Key"));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setClearingKey(false);
+    }
+  }
+
   return createPortal(
     <div className={`dialog-backdrop ${leaving ? "is-leaving" : ""}`} onClick={onClose}>
       <div
@@ -100,16 +115,29 @@ export function ModelSettingsDialog({
               spellCheck={false}
             />
           </label>
-          <label className="form-field">
-            <span className="form-label">API Key</span>
+          <div className="form-field">
+            <span className="form-label">
+              API Key
+              {settings.hasApiKey && (
+                <button
+                  type="button"
+                  className="link small"
+                  disabled={clearingKey || saving}
+                  onClick={() => void removeSavedKey()}
+                >
+                  {clearingKey ? t("正在删除…") : t("删除已保存的 Key")}
+                </button>
+              )}
+            </span>
             <input
               className="input"
+              aria-label="API Key"
               type="password"
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               placeholder={settings.hasApiKey ? t("已保存；留空就不改") : t("可选")}
             />
-          </label>
+          </div>
           <label className="form-field">
             <span className="form-label">{t("模型")}</span>
             <span className="form-inline">

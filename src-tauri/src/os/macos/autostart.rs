@@ -4,6 +4,7 @@
 //! `launchctl bootstrap`——RunAtLoad 的 agent 一旦 bootstrap 会立刻把应用再拉起来一份，
 //! 勾选设置的当下多出一个实例不是用户要的。写进去的条目在下次登录时生效。
 
+use crate::AUTOSTART_ARG;
 use std::fs;
 use std::path::PathBuf;
 
@@ -38,6 +39,7 @@ fn plist_body(exe: &str) -> String {
 <key>ProgramArguments</key>
 <array>
     <string>{exe}</string>
+    <string>{AUTOSTART_ARG}</string>
 </array>
 <key>RunAtLoad</key>
 <true/>
@@ -98,6 +100,7 @@ mod tests {
         assert!(
             body.contains("<string>/Applications/snapshot.app/Contents/MacOS/snapshot</string>")
         );
+        assert!(body.contains("<string>--autostart</string>"));
     }
 
     #[test]

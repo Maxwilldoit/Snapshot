@@ -7,7 +7,7 @@
 //! 本来就原地走的不动。
 
 use super::*;
-use image::{codecs::gif::GifDecoder, AnimationDecoder, Rgba};
+use image::{codecs::gif::GifDecoder, AnimationDecoder, ImageDecoder, Rgba};
 
 /// 人物中心的横向移动超过自身宽度的这个比例，才算横穿画布
 const TRAVEL_RATIO: f64 = 0.5;
@@ -18,6 +18,9 @@ const OVERSIZE_RATIO: f64 = 1.15;
 
 /// 背景画进 GIF 里的素材，和背景色差多少才算人物
 const SOLID_TOLERANCE: i16 = 24;
+const MAX_GIF_DIMENSION: u32 = 4096;
+/// 动画会以 RGBA 形式全部驻留内存；限制总画布像素，避免小文件解压成数 GB。
+const MAX_GIF_TOTAL_PIXELS: u64 = 64 * 1024 * 1024;
 
 /// 哪些像素算人物：带透明色的看 alpha；整张不透明的（背景画进去了）看和背景色差多少
 #[derive(Clone, Copy)]
@@ -84,7 +87,15 @@ fn figure_box(frame: &RgbaImage, backdrop: Backdrop) -> Option<[u32; 4]> {
 
 /// 解出每一帧（已按处置方式合成成整张画布）和它的时长（百分之一秒）
 pub(crate) fn decode(bytes: &[u8]) -> Result<Vec<(RgbaImage, u16)>, String> {
-    let decoder = GifDecoder::new(Cursor::new(bytes)).map_err(|error| error.to_string())?;
+    validate_gif_budget(bytes)?;
+    let mut decoder = GifDecoder::new(Cursor::new(bytes)).map_err(|error| error.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_GIF_DIMENSION);
+    limits.max_image_height = Some(MAX_GIF_DIMENSION);
+    limits.max_alloc = Some(MAX_GIF_TOTAL_PIXELS * 4);
+    decoder
+        .set_limits(limits)
+        .map_err(|error| error.to_string())?;
     let frames = decoder
         .into_frames()
         .collect_frames()
@@ -97,6 +108,36 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Vec<(RgbaImage, u16)>, String> {
             (frame.into_buffer(), centis)
         })
         .collect())
+}
+
+/// 在真正解码像素前按逻辑画布和帧数估算内存，拒绝异常膨胀的素材。
+pub(crate) fn validate_gif_budget(bytes: &[u8]) -> Result<(), String> {
+    let mut decoder = gif::DecodeOptions::new()
+        .read_info(Cursor::new(bytes))
+        .map_err(|error| format!("读取 GIF 失败：{error}"))?;
+    let width = u32::from(decoder.width());
+    let height = u32::from(decoder.height());
+    if width == 0 || height == 0 || width > MAX_GIF_DIMENSION || height > MAX_GIF_DIMENSION {
+        return Err(format!(
+            "桌宠画布过大（最大 {MAX_GIF_DIMENSION} × {MAX_GIF_DIMENSION}）"
+        ));
+    }
+    let frame_pixels = u64::from(width) * u64::from(height);
+    let mut frames = 0u64;
+    while decoder
+        .next_frame_info()
+        .map_err(|error| format!("读取 GIF 帧失败：{error}"))?
+        .is_some()
+    {
+        frames += 1;
+        if frame_pixels.saturating_mul(frames) > MAX_GIF_TOTAL_PIXELS {
+            return Err("桌宠动画帧数过多或总画面过大".into());
+        }
+    }
+    if frames == 0 {
+        return Err("GIF 里没有可播放的帧".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn encode(
@@ -344,6 +385,15 @@ pub(crate) fn walk_in_place(walk: &[u8], idle: &[u8]) -> Result<Option<Vec<u8>>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_gif_canvases_that_would_allocate_unbounded_memory() {
+        let mut bytes = b"GIF89a".to_vec();
+        bytes.extend_from_slice(&5000u16.to_le_bytes());
+        bytes.extend_from_slice(&5000u16.to_le_bytes());
+        bytes.extend_from_slice(&[0, 0, 0, 0x3b]);
+        assert!(validate_gif_budget(&bytes).is_err());
+    }
 
     const INK: Rgba<u8> = Rgba([30, 30, 40, 255]);
     const CLEAR: Rgba<u8> = Rgba([0, 0, 0, 0]);

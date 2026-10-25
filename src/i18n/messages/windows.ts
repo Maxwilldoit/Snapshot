@@ -28,6 +28,7 @@ export const windowsEnglish: Record<string, string> = {
   "看原文": "View original",
   "再来一次": "Run again",
   "复制并关闭": "Copy and close",
+  "自动复制失败：{detail}": "Automatic copy failed: {detail}",
   "返回": "Back",
   "选择要截取的窗口": "Choose a window to capture",
   "选择要录制的窗口": "Choose a window to record",

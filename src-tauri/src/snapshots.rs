@@ -131,22 +131,15 @@ pub(crate) fn format_clear_label(setting: &str) -> String {
     }
 }
 
-pub(crate) fn read_snapshot_index(path: &PathBuf) -> Vec<SnapshotRecord> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+pub(crate) fn read_snapshot_index(path: &Path) -> Vec<SnapshotRecord> {
+    read_json_with_backup(path).unwrap_or_default()
 }
 
-pub(crate) fn write_snapshot_index(
-    path: &PathBuf,
-    records: &[SnapshotRecord],
-) -> Result<(), String> {
+pub(crate) fn write_snapshot_index(path: &Path, records: &[SnapshotRecord]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let payload = serde_json::to_vec_pretty(records).map_err(|error| error.to_string())?;
-    fs::write(path, payload).map_err(|error| error.to_string())
+    write_json_atomic(path, records)
 }
 
 /// 把截图落盘并登记进历史索引。
@@ -161,7 +154,11 @@ pub(crate) fn store_snapshot(
     let format_setting = state.settings.lock().snapshot_format.clone();
     let (format, ext) = snapshot_format_parts(&format_setting);
     let created_at = now_millis();
-    let id = format!("snap-{created_at}");
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let id = format!(
+        "snap-{created_at}-{}",
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
     let file_name = format!("{id}.{ext}");
     let path = dir.join(&file_name);
     write_image(image, &path, format).map_err(|error| format!("保存快照失败：{error}"))?;
@@ -178,9 +175,12 @@ pub(crate) fn store_snapshot(
     // 缩略图失败不影响快照本身：列表里取不到时会按原图现做一张
     let _ = write_thumbnail(state, &record.id, image);
     let index_path = snapshot_index_path(state);
-    let mut records = read_snapshot_index(&index_path);
-    records.insert(0, record.clone());
-    write_snapshot_index(&index_path, &records)?;
+    {
+        let _guard = state.snapshot_index_lock.lock();
+        let mut records = read_snapshot_index(&index_path);
+        records.insert(0, record.clone());
+        write_snapshot_index(&index_path, &records)?;
+    }
     Ok(record)
 }
 
@@ -266,6 +266,7 @@ pub(crate) fn get_snapshot_dir(state: State<'_, AppState>) -> String {
 #[tauri::command]
 pub(crate) fn list_snapshots(state: State<'_, AppState>) -> Vec<SnapshotRecord> {
     let index_path = snapshot_index_path(&state);
+    let _guard = state.snapshot_index_lock.lock();
     let records = read_snapshot_index(&index_path);
     // 文件被手动删掉的条目顺手从索引里剔除，避免历史库里全是打不开的记录
     let (alive, dropped): (Vec<_>, Vec<_>) = records
@@ -278,6 +279,7 @@ pub(crate) fn list_snapshots(state: State<'_, AppState>) -> Vec<SnapshotRecord> 
 }
 
 fn find_record(state: &AppState, id: &str) -> Result<SnapshotRecord, String> {
+    let _guard = state.snapshot_index_lock.lock();
     read_snapshot_index(&snapshot_index_path(state))
         .into_iter()
         .find(|item| item.id == id)
@@ -315,6 +317,7 @@ pub(crate) fn delete_snapshots(
 ) -> Result<Vec<SnapshotRecord>, String> {
     let dir = history_dir(&state);
     let index_path = snapshot_index_path(&state);
+    let _guard = state.snapshot_index_lock.lock();
     let (removed, kept): (Vec<_>, Vec<_>) = read_snapshot_index(&index_path)
         .into_iter()
         .partition(|item| ids.contains(&item.id));
@@ -506,5 +509,33 @@ mod tests {
         } else {
             assert_eq!(resolved, fallback);
         }
+    }
+
+    #[test]
+    fn corrupt_index_falls_back_to_the_last_valid_backup() {
+        let root = std::env::temp_dir().join(format!(
+            "snapshot-index-recovery-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        let path = root.join("index.json");
+        let record = |id: &str, created_at: u64| SnapshotRecord {
+            id: id.into(),
+            file_name: format!("{id}.png"),
+            app_name: id.into(),
+            width: 10,
+            height: 10,
+            size_bytes: 5,
+            created_at,
+        };
+        write_snapshot_index(&path, &[record("first", 1)]).unwrap();
+        write_snapshot_index(&path, &[record("second", 2)]).unwrap();
+        write_snapshot_index(&path, &[record("third", 3)]).unwrap();
+        fs::write(&path, b"{").unwrap();
+
+        let recovered = read_snapshot_index(&path);
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].id, "second");
+        let _ = fs::remove_dir_all(root);
     }
 }

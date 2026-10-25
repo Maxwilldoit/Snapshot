@@ -18,6 +18,7 @@ import {
 import { iconUrl } from "../lib/media";
 import { formatDuration } from "../lib/format";
 import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
+import { readAutoCopy } from "../lib/prefs";
 import { MediaImage } from "../components/MediaImage";
 import { Keys } from "../components/ui/Keys";
 import type { CapturableWindow, RecordingStatus, Settings, ShortcutAction } from "../types";
@@ -217,12 +218,20 @@ export function QuickMenuWindow() {
       const token = ++runToken.current;
       setRunning(true);
       setPolishError(null);
+      setResult(null);
       setPeek(false);
       setStartedAt(Date.now());
       try {
         const polished = await polishText(text, template);
         if (token !== runToken.current) return;
         setResult(polished);
+        if (readAutoCopy()) {
+          void copyText(polished).catch((error) => {
+            if (token === runToken.current) {
+              setPolishError(t("自动复制失败：{detail}", { detail: errorText(error) }));
+            }
+          });
+        }
       } catch (error) {
         if (token !== runToken.current) return;
         setPolishError(t(errorText(error)));
@@ -344,7 +353,7 @@ export function QuickMenuWindow() {
         cycleRule(event.shiftKey ? -1 : 1);
       } else if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-        void copyAndClose();
+        if (!running) void copyAndClose();
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r") {
         event.preventDefault();
         if (!running) void run(source, templateId);

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { InvokeArgs } from "@tauri-apps/api/core";
@@ -207,5 +207,46 @@ describe("快捷菜单：润色", () => {
 
     expect(await screen.findByText(/还没填模型接口/)).toBeTruthy();
     expect(calls.some((call) => call.command === "polish_text")).toBe(false);
+  });
+
+  it("开启自动复制后，成功结果直接写入剪贴板", async () => {
+    localStorage.setItem("snapshot-auto-copy", "1");
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "load_settings") return settings;
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "read_clipboard_text") return "原始提示";
+      if (command === "polish_text") return "润色结果";
+      return undefined;
+    });
+    await waitFor(() => expect(calls.some((call) => call.command === "load_settings")).toBe(true));
+    await user.click(screen.getByRole("option", { name: "润色 Prompt" }));
+    await waitFor(() => {
+      expect(calls.find((call) => call.command === "copy_text")?.payload).toEqual({ text: "润色结果" });
+    });
+  });
+
+  it("重试请求进行中按 Enter 不会复制旧结果", async () => {
+    let finishSecond!: (value: string) => void;
+    let runs = 0;
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "load_settings") return settings;
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "read_clipboard_text") return "原始提示";
+      if (command === "polish_text") {
+        runs += 1;
+        if (runs === 1) return "旧结果";
+        return new Promise<string>((resolve) => { finishSecond = resolve; });
+      }
+      return undefined;
+    });
+    await waitFor(() => expect(calls.some((call) => call.command === "load_settings")).toBe(true));
+    await user.click(screen.getByRole("option", { name: "润色 Prompt" }));
+    await screen.findByText("旧结果");
+    await user.keyboard("{Tab}");
+    await waitFor(() => expect(runs).toBe(2));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
+    expect(calls.some((call) => call.command === "copy_text")).toBe(false);
+    await act(async () => { finishSecond("新结果"); });
+    expect(await screen.findByText("新结果")).toBeTruthy();
   });
 });

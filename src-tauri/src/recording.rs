@@ -63,13 +63,28 @@ impl Recorder {
             output: active.output,
         };
         match active.session.stop() {
-            Ok(()) => Some(finished),
+            Ok(()) => match validate_recording_output(&finished.output) {
+                Ok(()) => Some(finished),
+                Err(error) => {
+                    self.last_message = Some(error);
+                    None
+                }
+            },
             Err(message) => {
                 self.last_message = Some(message);
                 None
             }
         }
     }
+}
+
+fn validate_recording_output(path: &Path) -> Result<(), String> {
+    let metadata = fs::metadata(path).map_err(|error| format!("录制文件不可用：{error}"))?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        let _ = fs::remove_file(path);
+        return Err("录制没有生成有效文件".into());
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -168,34 +183,46 @@ pub(crate) fn toggle_recording(
         );
         let _ = app.emit("recording-changed", &status);
         let _ = app.emit("pet-event", "recording.failure");
-        return Ok(status);
+        return Err(format!(
+            "{}：{reason}",
+            ui_text("录制意外结束", "Recording stopped unexpectedly")
+        ));
     }
     if recorder.active.is_some() {
         let finished = recorder.stop();
-        let stopped_successfully = finished.is_some();
         let status = recorder.status(None);
         drop(recorder);
-        match finished {
-            Some(finished) => activity::record(
-                &app,
-                activity::Activity::new("record", finished.target)
-                    .meta(format_duration(finished.duration_ms))
-                    .detail(finished.output.to_string_lossy().to_string()),
-            ),
-            None => activity::record_error(
-                &app,
-                ui_text("录制没能保存", "Recording was not saved"),
-                status.message.as_deref().unwrap_or("录制组件没有正常结束"),
-            ),
-        }
-        let _ = app.emit("recording-changed", &status);
-        let event = if stopped_successfully {
-            "recording.stopped"
-        } else {
-            "recording.failure"
+        return match finished {
+            Some(finished) => {
+                activity::record(
+                    &app,
+                    activity::Activity::new("record", finished.target)
+                        .meta(format_duration(finished.duration_ms))
+                        .detail(finished.output.to_string_lossy().to_string()),
+                );
+                let _ = app.emit("recording-changed", &status);
+                let _ = app.emit("pet-event", "recording.stopped");
+                Ok(status)
+            }
+            None => {
+                let reason = status
+                    .message
+                    .as_deref()
+                    .unwrap_or("录制组件没有正常结束")
+                    .to_string();
+                activity::record_error(
+                    &app,
+                    ui_text("录制没能保存", "Recording was not saved"),
+                    &reason,
+                );
+                let _ = app.emit("recording-changed", &status);
+                let _ = app.emit("pet-event", "recording.failure");
+                Err(format!(
+                    "{}：{reason}",
+                    ui_text("录制没能保存", "Recording was not saved")
+                ))
+            }
         };
-        let _ = app.emit("pet-event", event);
-        return Ok(status);
     }
 
     // 指定了窗口就录它；没指定才回到「上一个应用」，与窗口快照的口径一致
@@ -250,13 +277,29 @@ pub(crate) fn format_duration(ms: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_duration;
+    use super::{format_duration, now_millis};
 
     #[test]
     fn durations_read_like_a_clock() {
         assert_eq!(format_duration(0), "00:00");
         assert_eq!(format_duration(133_400), "02:13");
         assert_eq!(format_duration(3_723_000), "1:02:03");
+    }
+
+    #[test]
+    fn empty_or_missing_recording_files_are_rejected() {
+        let path = std::env::temp_dir().join(format!(
+            "snapshot-recording-validation-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        assert!(super::validate_recording_output(&path).is_err());
+        std::fs::write(&path, []).unwrap();
+        assert!(super::validate_recording_output(&path).is_err());
+        assert!(!path.exists());
+        std::fs::write(&path, b"mp4").unwrap();
+        assert!(super::validate_recording_output(&path).is_ok());
+        let _ = std::fs::remove_file(path);
     }
 
     /// Linux 测试报告里的环境：没有 ~/.config/user-dirs.dirs，dirs 拿不到下载目录。

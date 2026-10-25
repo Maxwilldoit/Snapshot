@@ -16,7 +16,7 @@ use crate::capabilities::{CapabilityStatus, PlatformCapabilities};
 use crate::capture::Area;
 use crate::recording::RecordOptions;
 use image::RgbaImage;
-use std::{fs, os::windows::ffi::OsStrExt, path::Path};
+use std::{os::windows::ffi::OsStrExt, path::Path};
 use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
 
 pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
@@ -40,16 +40,7 @@ impl Recording {
 
     pub(crate) fn stop(self) -> Result<(), String> {
         // stop 内部会 Finalize，MP4 的 moov 在这一步才写进去
-        let (path, frames) = self.0.stop();
-        // 一帧都没有时产物是个播放器打不开的空壳，留着只会让人以为录成功了
-        if frames == 0 {
-            let _ = fs::remove_file(&path);
-            eprintln!(
-                "snapshot: recording produced no frames, removed {}",
-                path.display()
-            );
-        }
-        Ok(())
+        self.0.stop().map(|_| ())
     }
 }
 

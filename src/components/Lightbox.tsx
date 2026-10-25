@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { snapshotUrl } from "../lib/media";
-import { annotateSnapshot } from "../lib/backend";
+import { annotateSnapshot, copySnapshot } from "../lib/backend";
 import { formatBytes, formatClock, dayLabel } from "../lib/format";
 import { growFrom, shrinkTo } from "../lib/motion";
 import { useI18n } from "../lib/i18n";
@@ -18,7 +18,7 @@ function thumbRect(id: string): DOMRect | null {
 
 /**
  * 放大查看。图从缩略图原位长出来，关掉时缩回原位——始终知道它在列表哪儿。
- * ← → 切换，Esc 返回，Del 删除（按两次），Ctrl C 复制。
+ * ← → 切换，Esc 返回，Ctrl C 复制。
  */
 export function Lightbox({
   records,
@@ -34,6 +34,8 @@ export function Lightbox({
   const [isClosing, setIsClosing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   // 翻页方向：下一张从右边滑进来，上一张从左边
   const [direction, setDirection] = useState<1 | -1>(1);
   const { t } = useI18n();
@@ -84,10 +86,25 @@ export function Lightbox({
         setDirection(delta > 0 ? 1 : -1);
         setCurrentId(next.id);
         setEditError(null);
+        setCopyMessage(null);
       }
     },
     [index, records, editing],
   );
+
+  const copy = useCallback(async () => {
+    if (!record || copying) return;
+    setCopying(true);
+    setCopyMessage(null);
+    setEditError(null);
+    try {
+      setCopyMessage(await copySnapshot(record.id));
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCopying(false);
+    }
+  }, [copying, record]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -96,10 +113,14 @@ export function Lightbox({
         void close();
       } else if (event.key === "ArrowLeft") step(-1);
       else if (event.key === "ArrowRight") step(1);
+      else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        void copy();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [close, step]);
+  }, [close, copy, step]);
 
   if (!record) return null;
 
@@ -128,6 +149,9 @@ export function Lightbox({
         <button type="button" className="lightbox-back" disabled={editing} onClick={() => void edit()}>
           {editing ? t("正在打开…") : t("标注")}
         </button>
+        <button type="button" className="lightbox-back" disabled={editing || copying} onClick={() => void copy()}>
+          {copying ? t("正在复制…") : t("复制")}
+        </button>
         <span className="lightbox-count mono">{index + 1} / {records.length}</span>
       </div>
 
@@ -155,6 +179,7 @@ export function Lightbox({
 
       <div className="lightbox-foot">
         {editError && <span role="alert">{editError}</span>}
+        {copyMessage && <span role="status">{copyMessage}</span>}
         <span className="mono lightbox-meta">
           {record.width} × {record.height} · {formatBytes(record.sizeBytes)} · {record.fileName.split(".").pop()?.toUpperCase()} · {dayLabel(record.createdAt)} {formatClock(record.createdAt)}
         </span>

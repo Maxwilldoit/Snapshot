@@ -33,6 +33,8 @@ export const savePromptSettings = (input: {
   templates: Settings["templates"];
 }) => invoke<Settings>("save_prompt_settings", { input });
 
+export const clearApiKey = () => invoke<Settings>("clear_api_key");
+
 /** 内置规则的原文（「恢复原文」用） */
 export const defaultPrompt = () => invoke<string>("default_prompt");
 

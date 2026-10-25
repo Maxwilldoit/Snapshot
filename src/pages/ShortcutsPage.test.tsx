@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { emit } from "@tauri-apps/api/event";
 import { describe, expect, it, vi } from "vitest";
@@ -68,6 +68,27 @@ async function recordBinding(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("global shortcut editing", () => {
+  it("uses the physical key code instead of the Shift-modified character", async () => {
+    const save = vi.fn((args: Record<string, unknown>) => structuredClone({
+      ...base,
+      shortcuts: args.shortcuts as ShortcutBinding[],
+    }));
+    await renderApp((command, payload) => {
+      if (command === "save_shortcuts") return save(invokeArgs(payload));
+      return undefined;
+    });
+    const row = screen.getByRole("button", { name: "快捷键：窗口录制，当前按键：未设置" });
+    fireEvent.click(row);
+    fireEvent.keyDown(row, { key: "#", code: "Digit3", altKey: true, shiftKey: true });
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(save.mock.calls[0][0]).toMatchObject({
+      shortcuts: [
+        { action: "snapshot", accelerator: "Alt+Shift+2" },
+        { action: "record", accelerator: "Alt+Shift+3" },
+      ],
+    });
+  });
+
   it("saves immediately and removes the save, clear-all and Esc hint controls", async () => {
     const save = vi.fn((args: Record<string, unknown>) => structuredClone({
       ...base,

@@ -81,6 +81,8 @@ export const shortcutsEnglish: Record<string, string> = {
   "润色用的模型": "Rewrite model",
   "接口地址": "API URL",
   "已保存；留空就不改": "Saved; leave blank to keep",
+  "删除已保存的 Key": "Remove saved key",
+  "已删除保存的 API Key": "Saved API key removed",
   "可选": "Optional",
   "模型": "Model",
   "拉取中…": "Loading models…",

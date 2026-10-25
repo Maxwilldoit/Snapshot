@@ -9,6 +9,7 @@
 //! 这个外部依赖从录制链路上摘掉。
 
 use std::{
+    fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -279,9 +280,11 @@ impl Encoder {
         }
     }
 
-    fn finish(self) {
+    fn finish(self) -> Result<(), String> {
         unsafe {
-            let _ = self.writer.Finalize();
+            self.writer
+                .Finalize()
+                .map_err(|e| err("收尾录制文件失败", e))
         }
     }
 }
@@ -538,6 +541,41 @@ fn pack_frame(pixels: &[u8], stride: usize, width: u32, height: u32) -> Vec<u8> 
     packed
 }
 
+/// 窗口在录制中改变尺寸时，WGC 会继续提供新尺寸的纹理。编码器不能在中途改变
+/// H.264 流尺寸，因此在进入编码器前把每一帧映射回开始时约定的输出尺寸。
+fn pack_frame_scaled(
+    pixels: &[u8],
+    stride: usize,
+    source_width: u32,
+    source_height: u32,
+    width: u32,
+    height: u32,
+) -> Vec<u8> {
+    if source_width == width && source_height == height {
+        return pack_frame(pixels, stride, width, height);
+    }
+    let row_bytes = width as usize * 4;
+    let mut packed = vec![0u8; row_bytes * height as usize];
+    for row in 0..height as usize {
+        let source_y = ((row as u64 * u64::from(source_height)) / u64::from(height))
+            .min(u64::from(source_height.saturating_sub(1))) as usize;
+        // D3D 纹理自顶向下，Media Foundation RGB32 自底向上。
+        let source_row = source_height as usize - 1 - source_y;
+        let source = source_row.saturating_mul(stride);
+        for column in 0..width as usize {
+            let source_x = ((column as u64 * u64::from(source_width)) / u64::from(width))
+                .min(u64::from(source_width.saturating_sub(1))) as usize;
+            let from = source.saturating_add(source_x * 4);
+            let to = row * row_bytes + column * 4;
+            if from + 4 > pixels.len() {
+                break;
+            }
+            packed[to..to + 4].copy_from_slice(&pixels[from..from + 4]);
+        }
+    }
+    packed
+}
+
 struct FrameSink {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
@@ -563,7 +601,7 @@ pub struct ActiveRecording {
 
 impl ActiveRecording {
     /// 返回 (产物路径, 写入帧数)
-    pub fn stop(mut self) -> (PathBuf, u64) {
+    pub fn stop(mut self) -> Result<(PathBuf, u64), String> {
         self.stopped.store(true, Ordering::SeqCst);
         let _ = self.session.Close();
         let _ = self.frame_pool.Close();
@@ -576,17 +614,24 @@ impl ActiveRecording {
                 eprintln!("snapshot: audio capture stopped: {error}");
             }
         }
-        let frames = match self.sink.lock().take() {
+        let (frames, finalize_result) = match self.sink.lock().take() {
             Some(sink) => {
                 let frames = sink.encoder.frames;
-                sink.encoder.finish();
-                frames
+                (frames, sink.encoder.finish())
             }
-            None => 0,
+            None => (0, Ok(())),
         };
+        if let Err(error) = finalize_result {
+            let _ = fs::remove_file(&self.output);
+            return Err(error);
+        }
         // 这里不调 MFShutdown：它是进程级的，会把整个进程的 Media Foundation 关掉，
         // 之后任何 MF 操作都报「已调用 Shutdown」。初始化只做一次、不再收回。
-        (self.output, frames)
+        if frames == 0 {
+            let _ = fs::remove_file(&self.output);
+            return Err("录制没有收到任何视频帧，未生成文件".into());
+        }
+        Ok((self.output, frames))
     }
 }
 
@@ -771,7 +816,14 @@ pub fn start(
                 // 只更新「最近一帧」，写入交给定时器——采集是事件驱动的，
                 // 直接在这里写会让输出帧率随窗口重绘频率漂移
                 let (width, height) = (sink.encoder.width, sink.encoder.height);
-                sink.latest = Some(pack_frame(pixels, stride, width, height));
+                sink.latest = Some(pack_frame_scaled(
+                    pixels,
+                    stride,
+                    desc.Width,
+                    desc.Height,
+                    width,
+                    height,
+                ));
                 unsafe { sink.context.Unmap(&staging, 0) };
                 Ok(())
             },
@@ -804,7 +856,7 @@ pub fn start(
                     let _ = worker.join();
                 }
                 if let Some(sink) = sink.lock().take() {
-                    sink.encoder.finish();
+                    let _ = sink.encoder.finish();
                 }
                 let _ = std::fs::remove_file(output);
                 return Err(error);
@@ -859,6 +911,18 @@ pub fn start(
 mod tests {
     use super::*;
 
+    #[test]
+    fn resized_capture_frames_are_scaled_to_the_fixed_encoder_canvas() {
+        let red = [255, 0, 0, 255];
+        let blue = [0, 0, 255, 255];
+        // 两行、每行两个像素；纹理顶部是红，底部是蓝。
+        let source = [red, red, blue, blue].concat();
+        let packed = pack_frame_scaled(&source, 8, 2, 2, 4, 4);
+        assert_eq!(&packed[0..4], &blue);
+        assert_eq!(&packed[packed.len() - 4..], &red);
+        assert_eq!(packed.len(), 4 * 4 * 4);
+    }
+
     /// 找一个可见的、不是本应用自己的窗口来做被摄对象
     fn some_window() -> Option<(isize, String)> {
         let windows = xcap::Window::all().ok()?;
@@ -891,7 +955,7 @@ mod tests {
         eprintln!("录制目标：{title}");
         let active = start(hwnd, true, false, false, &output).expect("启动录制失败");
         std::thread::sleep(std::time::Duration::from_secs(3));
-        let (path, frames) = active.stop();
+        let (path, frames) = active.stop().expect("停止录制失败");
 
         let bytes = std::fs::metadata(&path).expect("产物不存在").len();
         eprintln!("产物：{} 字节，{} 帧 → {}", bytes, frames, path.display());
@@ -1053,7 +1117,7 @@ mod decode_tests {
         std::thread::sleep(std::time::Duration::from_millis(250));
         let truth = window.capture_image().expect("实拍失败");
         std::thread::sleep(std::time::Duration::from_millis(400));
-        let (path, frames) = active.stop();
+        let (path, frames) = active.stop().expect("停止录制失败");
         eprintln!("写入 {frames} 帧");
 
         let (width, height, pixels) = decode_first_frame(&path).expect("解码失败");
@@ -1117,7 +1181,14 @@ mod frame_yield_tests {
             match start(id as isize, false, false, false, &output) {
                 Ok(active) => {
                     std::thread::sleep(std::time::Duration::from_millis(1500));
-                    let (path, frames) = active.stop();
+                    let stopped = active.stop();
+                    let (path, frames) = match stopped {
+                        Ok(value) => value,
+                        Err(error) => {
+                            eprintln!("   -  零帧或收尾失败：{error}  {title}");
+                            continue;
+                        }
+                    };
                     let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                     eprintln!(
                         "{:>4} 帧  {:>9} 字节  最小化={:<5}  {}",
@@ -1197,9 +1268,16 @@ mod minimized_tests {
         match start(hwnd, false, false, false, &output) {
             Ok(active) => {
                 std::thread::sleep(std::time::Duration::from_millis(1500));
-                let (path, frames) = active.stop();
-                let _ = std::fs::remove_file(&path);
-                frames
+                match active.stop() {
+                    Ok((path, frames)) => {
+                        let _ = std::fs::remove_file(&path);
+                        frames
+                    }
+                    Err(error) => {
+                        eprintln!("{tag} 停止时没有有效帧：{error}");
+                        0
+                    }
+                }
             }
             Err(error) => {
                 eprintln!("{tag} 启动失败：{error}");
