@@ -319,6 +319,7 @@ pub(crate) fn action_failure_title(action: &str) -> &'static str {
         "scrolling" => ui_text("滚动长截图失败", "Scrolling capture failed"),
         "record" => ui_text("录制失败", "Recording failed"),
         "polish" => ui_text("润色失败", "Rewrite failed"),
+        "prompts" => ui_text("Prompt 库打开失败", "Could not open Prompt library"),
         _ => ui_text("操作失败", "Action failed"),
     }
 }
@@ -358,6 +359,9 @@ pub(crate) async fn perform(app: &AppHandle, action: &str) -> Result<String, Str
     match action {
         "snapshot" => capture::capture_window(app.clone(), state, None),
         "palette" => show_palette_centered(app).map(|_| String::new()),
+        "prompts" => prompt_library::show_prompt_library(app.clone())
+            .await
+            .map(|_| String::new()),
         "record" => recording::toggle_recording(app.clone(), state, None).map(|status| {
             if status.active {
                 status

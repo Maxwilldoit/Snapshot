@@ -14,6 +14,7 @@ export type ShortcutAction =
   | "scrolling"
   | "record"
   | "polish"
+  | "prompts"
   | "palette";
 
 export interface PromptTemplate {
@@ -186,6 +187,15 @@ export interface PromptHistoryEntry {
   template: string;
   original: string;
   polished: string;
+}
+
+/** 用户主动保存、随时复制的 Prompt；与润色规则和历史完全分开 */
+export interface SavedPrompt {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** 剪贴板里放着我们的图时的状态 */

@@ -1,0 +1,363 @@
+/* Prompt 库窗口。所有选择器都收在 .prompt-library 前缀下，避免影响其它 WebView。 */
+
+.prompt-library-root {
+  --prompt-library-edge: clamp(24px, 4vw, 48px);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.prompt-library-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 28px var(--prompt-library-edge) 22px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.prompt-library-heading {
+  min-width: 0;
+}
+
+.prompt-library-kicker {
+  margin: 0 0 6px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+}
+
+.prompt-library-heading h1 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 32px);
+  line-height: 1.12;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.prompt-library-new {
+  flex: 0 0 auto;
+  margin-top: 10px;
+}
+
+.prompt-library-shortcut {
+  margin-left: 7px;
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.62;
+}
+
+.prompt-library-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.prompt-library-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px var(--prompt-library-edge) 14px;
+}
+
+.prompt-library-search {
+  display: flex;
+  flex: 1 1 440px;
+  align-items: center;
+  max-width: 520px;
+  height: 38px;
+  padding: 0 2px 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper-raised);
+  color: var(--ink-3);
+  transition: border-color var(--t-press) var(--ease-out);
+}
+
+.prompt-library-search:focus-within {
+  border-color: var(--ink-3);
+}
+
+.prompt-library-search-icon {
+  flex: 0 0 auto;
+  margin-right: 9px;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.prompt-library-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+}
+
+.prompt-library-search-clear {
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: 18px;
+}
+
+.prompt-library-search-clear:hover {
+  color: var(--ink);
+}
+
+.prompt-library-count {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.prompt-library-content-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--prompt-library-edge);
+  overscroll-behavior: contain;
+}
+
+.prompt-library-list {
+  max-width: 900px;
+  border-top: 1px solid var(--rule);
+}
+
+.prompt-library-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: start;
+  padding: 18px 0 17px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.prompt-library-row:hover {
+  border-bottom-color: var(--rule);
+}
+
+.prompt-library-row-copy {
+  min-width: 0;
+}
+
+.prompt-library-row-copy h2 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-library-row-copy p {
+  display: -webkit-box;
+  max-width: 760px;
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-small);
+  line-height: 19px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.prompt-library-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 20px;
+  padding-top: 2px;
+  font-size: var(--text-small);
+}
+
+.prompt-library-row-actions .text-btn:first-child {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.prompt-library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 520px;
+  padding: clamp(48px, 10vh, 96px) 0 40px;
+}
+
+.prompt-library-empty-mark {
+  margin: 0 0 18px;
+  color: var(--rule-strong);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+.prompt-library-empty h2 {
+  margin: 0;
+  font-size: var(--text-lead);
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.prompt-library-empty p {
+  margin: 7px 0 0;
+  color: var(--ink-2);
+}
+
+.prompt-library-empty .text-btn {
+  margin-top: 18px;
+}
+
+.prompt-library-loading {
+  display: grid;
+  gap: 12px;
+  max-width: 480px;
+  padding-top: 34px;
+  color: var(--ink-3);
+  font-size: var(--text-small);
+}
+
+.prompt-library-status {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 11px var(--prompt-library-edge) 13px;
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-2);
+  font-size: var(--text-small);
+}
+
+.prompt-library-status.is-ok {
+  color: var(--ink-2);
+}
+
+.prompt-library-status.is-error {
+  color: var(--signal);
+}
+
+.prompt-library-editor {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 20px var(--prompt-library-edge) 22px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.prompt-library-back {
+  align-self: flex-start;
+  margin-bottom: 18px;
+  color: var(--ink-2);
+  font-size: var(--text-small);
+}
+
+.prompt-library-field {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 7px;
+  width: min(100%, 840px);
+}
+
+.prompt-library-field + .prompt-library-field {
+  margin-top: 18px;
+}
+
+.prompt-library-content-field {
+  flex: 1 1 auto;
+  min-height: 180px;
+}
+
+.prompt-library-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--ink-2);
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+.prompt-library-label .quiet {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.prompt-library-title-input {
+  height: 40px;
+}
+
+.prompt-library-content {
+  flex: 1 1 auto;
+  min-height: 180px;
+  padding: 12px 14px;
+  resize: none;
+  line-height: 21px;
+}
+
+.prompt-library-editor-foot {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: min(100%, 840px);
+  margin-top: 18px;
+}
+
+.prompt-library-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.prompt-library-editor-status {
+  width: min(100%, 840px);
+  margin-top: 14px;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--rule);
+}
+
+@media (max-width: 620px) {
+  .prompt-library-header {
+    padding-top: 22px;
+  }
+
+  .prompt-library-new .prompt-library-shortcut {
+    display: none;
+  }
+
+  .prompt-library-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .prompt-library-row-actions {
+    padding-top: 0;
+  }
+}

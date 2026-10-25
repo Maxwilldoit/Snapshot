@@ -4,6 +4,7 @@ export const shortcutsEnglish: Record<string, string> = {
   "滚动长截图": "Scrolling capture",
   "窗口录制": "Window recording",
   "润色 Prompt": "Rewrite prompt",
+  "打开 Prompt 库": "Open Prompt library",
   "呼出快捷菜单": "Open quick menu",
 
   "快捷键绑定已保存，全局快捷键仍保持暂停": "Shortcuts saved; global shortcuts remain paused",

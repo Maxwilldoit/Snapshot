@@ -13,6 +13,7 @@ import {
   readClipboardText,
   resizeQuickMenu,
   runAction,
+  showPromptLibrary,
   toggleRecording,
 } from "../lib/backend";
 import { iconUrl } from "../lib/media";
@@ -204,6 +205,14 @@ export function QuickMenuWindow() {
     rootRef.current?.focus();
   }
 
+  async function openPromptLibrary() {
+    try {
+      await showPromptLibrary();
+    } catch (error) {
+      showStatus({ kind: "error", text: t(errorText(error)) });
+    }
+  }
+
   async function pickWindow(item: CapturableWindow) {
     if (pickerMode === "capture") {
       // 后端先把快捷菜单藏起来再截，免得截进画面；失败会记进活动，主窗口的猫会说
@@ -341,6 +350,12 @@ export function QuickMenuWindow() {
             hint: shortcutHint("record"),
             run: () => void openPicker("record"),
           },
+      {
+        id: "prompts",
+        label: t("Prompt 库"),
+        hint: shortcutHint("prompts"),
+        run: () => void openPromptLibrary(),
+      },
       {
         id: "polish",
         label: t("润色 Prompt"),

@@ -1,6 +1,6 @@
 import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, Settings, SnapshotRecord } from "../types";
+import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, SavedPrompt, Settings, SnapshotRecord } from "../types";
 
 /**
  * 浏览器预览（直接 `npm run dev` 打开页面）用的假后端。
@@ -89,6 +89,7 @@ let settings: Settings = {
     { action: "fullscreen", accelerator: demo ? "CommandOrControl+Shift+F" : null },
     { action: "record", accelerator: demo ? "CommandOrControl+Alt+R" : null },
     { action: "polish", accelerator: null },
+    { action: "prompts", accelerator: demo ? "CommandOrControl+Shift+P" : null },
     { action: "palette", accelerator: demo ? "Alt+Space" : null },
   ],
   clipboardAutoClear: "60s",
@@ -164,6 +165,25 @@ const promptHistory: PromptHistoryEntry[] = demo
         template: "清晰、可执行",
         original: "检查右键菜单，去掉搜索框和打开主窗口。",
         polished: "检查右键桌宠打开的快捷菜单，移除搜索框及其筛选、粘贴润色逻辑，同时移除“打开主窗口”入口；保留快照、全屏截图、录制和润色动作，并保持键盘上下选择、回车执行与 Esc 关闭可用。",
+      },
+    ]
+  : [];
+
+let savedPrompts: SavedPrompt[] = demo
+  ? [
+      {
+        id: "saved-prompt-demo-1",
+        title: "代码审查",
+        content: "请审查这段代码，优先找出会导致错误、数据丢失或安全问题的缺陷，并给出具体修复建议。",
+        createdAt: minutesAgo(180),
+        updatedAt: minutesAgo(18),
+      },
+      {
+        id: "saved-prompt-demo-2",
+        title: "结构化会议记录",
+        content: "把下面的会议内容整理成：结论、待办、负责人、截止时间。只保留明确出现的信息。",
+        createdAt: minutesAgo(320),
+        updatedAt: minutesAgo(95),
       },
     ]
   : [];
@@ -311,6 +331,34 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       return structuredClone(snapshots);
     case "list_prompt_history":
       return structuredClone(promptHistory);
+    case "list_saved_prompts":
+      return structuredClone(savedPrompts);
+    case "save_saved_prompt": {
+      const input = args.input as { id?: string | null; title: string; content: string };
+      if (!input.content.trim()) throw new Error("Prompt 内容不能为空");
+      const now = Date.now();
+      const current = savedPrompts.find((prompt) => prompt.id === input.id);
+      if (current) {
+        savedPrompts = savedPrompts.map((prompt) => prompt.id === current.id
+          ? { ...prompt, title: input.title.trim() || prompt.title, content: input.content, updatedAt: now }
+          : prompt);
+      } else {
+        savedPrompts = [
+          {
+            id: `saved-prompt-preview-${now}`,
+            title: input.title.trim() || input.content.trim().split("\n")[0].slice(0, 80),
+            content: input.content,
+            createdAt: now,
+            updatedAt: now,
+          },
+          ...savedPrompts,
+        ];
+      }
+      return structuredClone(savedPrompts);
+    }
+    case "delete_saved_prompt":
+      savedPrompts = savedPrompts.filter((prompt) => prompt.id !== args.id);
+      return structuredClone(savedPrompts);
     case "delete_snapshots":
       snapshots = snapshots.filter((item) => !(args.ids as string[]).includes(item.id));
       return structuredClone(snapshots);

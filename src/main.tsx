@@ -7,6 +7,7 @@ import { QuickMenuWindow } from "./windows/QuickMenuWindow";
 import { AnnotateWindow } from "./windows/AnnotateWindow";
 import { LaunchpadWindow } from "./windows/LaunchpadWindow";
 import { PetCatalogWindow } from "./windows/PetCatalogWindow";
+import { PromptLibraryWindow } from "./windows/PromptLibraryWindow";
 import { applyTheme, listenThemeChanges, readTheme } from "./lib/theme";
 import { applyMotion, listenMotionChanges, readMotionPreference, resolveMotion } from "./lib/prefs";
 import { applyDocumentLanguage, I18nProvider, readLanguagePreference, resolveLanguage } from "./lib/i18n";
@@ -34,6 +35,7 @@ function mount() {
     : label === "annotate" ? AnnotateWindow
     : label === "launchpad" ? LaunchpadWindow
     : label === "pet-catalog" ? PetCatalogWindow
+    : label === "prompt-library" ? PromptLibraryWindow
     : App;
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

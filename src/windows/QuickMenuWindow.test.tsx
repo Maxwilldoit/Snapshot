@@ -129,6 +129,17 @@ describe("窗口名称", () => {
   });
 });
 
+describe("快捷菜单：Prompt 库", () => {
+  it("可以直接从右键宠物的菜单打开 Prompt 库", async () => {
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: /Prompt 库/ }));
+    await waitFor(() => expect(calls.some((call) => call.command === "show_prompt_library_window")).toBe(true));
+  });
+});
+
 describe("快捷菜单：精简菜单", () => {
   it("不显示搜索框和打开主窗口入口，窗口选择也不带搜索框", async () => {
     const { calls, user } = await renderPalette((command) => {
@@ -210,7 +221,7 @@ describe("快捷菜单：窗口大小", () => {
     });
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
       if (!this.isConnected || !this.classList.contains("palette")) return 0;
-      return this.querySelector(".palette-windows") ? 194 : 180;
+      return this.querySelector(".palette-windows") ? 194 : 225;
     });
     const { calls, user } = await renderPalette((command) => (command === "list_capturable_windows" ? windowList : undefined));
     const sizes = () =>
@@ -218,7 +229,7 @@ describe("快捷菜单：窗口大小", () => {
         .filter((call) => call.command === "resize_quick_menu")
         .map((call) => call.payload as { width: number; height: number });
     // 面板宽 + 左右各 40
-    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 180 + 24 + 40 }));
+    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 225 + 24 + 40 }));
     const callsBeforeSwitch = sizes().length;
 
     await user.click(await screen.findByRole("option", { name: "快照" }));
@@ -227,7 +238,7 @@ describe("快捷菜单：窗口大小", () => {
     expect(sizes()).toHaveLength(callsBeforeSwitch + 1);
 
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 180 + 24 + 40 }));
+    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 225 + 24 + 40 }));
     expect(sizes()).toHaveLength(callsBeforeSwitch + 2);
     expect(sizes().every((size) => size.width === 360 + 80)).toBe(true);
   });

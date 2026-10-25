@@ -13,6 +13,7 @@ mod pet_layout;
 mod pet_walk;
 mod polish;
 mod prompt_history;
+mod prompt_library;
 mod recording;
 mod settings;
 mod shortcuts;
@@ -72,6 +73,7 @@ struct AppState {
     pets_dir: PathBuf,
     activity: Mutex<activity::ActivityLog>,
     prompt_history: Mutex<prompt_history::PromptHistory>,
+    saved_prompts: Mutex<prompt_library::PromptLibrary>,
     pet_catalog_cache: pet_catalog::PetCatalogCache,
     /// 剪贴板里是不是我们放的图、多久后清
     clipboard: Mutex<Option<clipboard::ClipboardState>>,
@@ -262,6 +264,7 @@ pub fn run() {
     let pets_dir = data_dir.join("pets");
     let activity_path = settings_path.with_file_name("activity.json");
     let prompt_history_path = data_dir.join("prompt-history.json");
+    let saved_prompts_path = data_dir.join("saved-prompts.json");
     let settings = settings::read_settings(&settings_path);
     if settings.save_dir.trim().is_empty() {
         let migration_marker = data_dir.join("snapshot-history-migrated");
@@ -291,6 +294,7 @@ pub fn run() {
             pets_dir,
             activity: Mutex::new(activity::ActivityLog::load(activity_path)),
             prompt_history: Mutex::new(prompt_history::PromptHistory::load(prompt_history_path)),
+            saved_prompts: Mutex::new(prompt_library::PromptLibrary::load(saved_prompts_path)),
             pet_catalog_cache: pet_catalog::PetCatalogCache::new(data_dir.join("pet-catalog.json")),
             clipboard: Mutex::new(None),
             clipboard_generation: AtomicU64::new(0),
@@ -481,6 +485,11 @@ pub fn run() {
                     api.prevent_close();
                     capture::conceal_annotate_window(window.app_handle());
                 }
+            } else if window.label() == "prompt-library" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             } else if window.label() == "pet" {
                 if let WindowEvent::Moved(position) = event {
                     let mut position = PhysicalPosition::new(position.x, position.y);
@@ -565,6 +574,11 @@ pub fn run() {
             pet_catalog::fetch_pet_catalog,
             pet_catalog::show_pet_catalog,
             pet_catalog::install_catalog_pet,
+            prompt_library::show_prompt_library_window,
+            prompt_library::hide_prompt_library,
+            prompt_library::list_saved_prompts,
+            prompt_library::save_saved_prompt,
+            prompt_library::delete_saved_prompt,
             pet::rename_pet_asset,
             pet::delete_pet_asset,
             settings::save_shortcuts,
@@ -656,13 +670,21 @@ mod pet_asset_tests {
                 "polish",
                 "scrolling",
                 "fullscreen",
+                "prompts",
                 "palette"
             ]
         );
         #[cfg(not(target_os = "linux"))]
         assert_eq!(
             actions,
-            vec!["snapshot", "record", "polish", "fullscreen", "palette"]
+            vec![
+                "snapshot",
+                "record",
+                "polish",
+                "fullscreen",
+                "prompts",
+                "palette"
+            ]
         );
 
         // 已绑定的键不能在迁移中丢失
@@ -679,9 +701,51 @@ mod pet_asset_tests {
             .find(|item| item.action == "fullscreen")
             .unwrap();
         assert!(fullscreen.accelerator.is_none());
+        let prompts = settings
+            .shortcuts
+            .iter()
+            .find(|item| item.action == "prompts")
+            .unwrap();
+        assert_eq!(
+            prompts.accelerator.as_deref(),
+            Some("CommandOrControl+Shift+P")
+        );
         // 老版录制与快照共用 saveDir，新版应将它迁移到独立录制目录。
         assert_eq!(settings.recording_dir, "~/LegacyCaptures");
 
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn prompt_shortcut_does_not_duplicate_an_existing_binding() {
+        let path = std::env::temp_dir().join(format!(
+            "snapshot-settings-prompt-shortcut-{}.json",
+            std::process::id()
+        ));
+        let legacy = r#"{
+            "baseUrl":"",
+            "model":"",
+            "templates":[],
+            "activeTemplateId":"builtin-default",
+            "shortcuts":[{"action":"polish","accelerator":"CommandOrControl+Shift+P"}]
+        }"#;
+        fs::write(&path, legacy).expect("写测试配置失败");
+        let settings = settings::read_settings(&path);
+        let prompts = settings
+            .shortcuts
+            .iter()
+            .find(|item| item.action == "prompts")
+            .unwrap();
+        assert!(prompts.accelerator.is_none());
+        let polish = settings
+            .shortcuts
+            .iter()
+            .find(|item| item.action == "polish")
+            .unwrap();
+        assert_eq!(
+            polish.accelerator.as_deref(),
+            Some("CommandOrControl+Shift+P")
+        );
         let _ = fs::remove_file(&path);
     }
 

@@ -246,7 +246,7 @@ fn default_shortcut_bindings() -> Vec<ShortcutBinding> {
         .iter()
         .map(|action| ShortcutBinding {
             action: action.to_string(),
-            accelerator: None,
+            accelerator: (*action == "prompts").then(|| "CommandOrControl+Shift+P".into()),
         })
         .collect()
 }
@@ -332,12 +332,21 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
         .retain(|item| is_supported_action(&item.action));
     // 老配置里没有后来新增的动作（如 fullscreen）。其余已有绑定原样保留，
     // 缺的追加到末尾；平台不支持的动作（如 Win/mac 的 scrolling）不补。
-    for fallback in default_shortcut_bindings() {
+    for mut fallback in default_shortcut_bindings() {
         if !settings
             .shortcuts
             .iter()
             .any(|item| item.action == fallback.action)
         {
+            // 不把新动作的默认键插到用户已经占用的同一个键上。
+            if fallback.accelerator.as_deref().is_some_and(|key| {
+                settings
+                    .shortcuts
+                    .iter()
+                    .any(|item| item.accelerator.as_deref() == Some(key))
+            }) {
+                fallback.accelerator = None;
+            }
             settings.shortcuts.push(fallback);
         }
     }

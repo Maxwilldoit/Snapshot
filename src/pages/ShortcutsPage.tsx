@@ -23,6 +23,7 @@ const ACTION_LABELS: Record<ShortcutAction, { name: string }> = {
   scrolling: { name: "滚动长截图" },
   record: { name: "窗口录制" },
   polish: { name: "润色 Prompt" },
+  prompts: { name: "打开 Prompt 库" },
   palette: { name: "呼出快捷菜单" },
 };
 

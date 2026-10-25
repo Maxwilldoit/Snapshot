@@ -12,6 +12,7 @@ import type {
   PreviousApp,
   PromptHistoryEntry,
   RecordingStatus,
+  SavedPrompt,
   Settings,
   ShortcutBinding,
   SnapshotRecord,
@@ -173,6 +174,21 @@ export const onSnapshotsChanged = (callback: () => void) => listen("snapshots-ch
 export const listActivity = () => invoke<ActivityEntry[]>("list_activity");
 
 export const listPromptHistory = () => invoke<PromptHistoryEntry[]>("list_prompt_history");
+
+export const showPromptLibrary = () => invoke<void>("show_prompt_library_window");
+
+export const hidePromptLibrary = () => invoke<void>("hide_prompt_library");
+
+export const listSavedPrompts = () => invoke<SavedPrompt[]>("list_saved_prompts");
+
+export const saveSavedPrompt = (input: { id?: string | null; title: string; content: string }) =>
+  invoke<SavedPrompt[]>("save_saved_prompt", { input });
+
+export const deleteSavedPrompt = (id: string) =>
+  invoke<SavedPrompt[]>("delete_saved_prompt", { id });
+
+export const onPromptLibraryOpened = (callback: () => void) =>
+  listen("prompt-library-opened", () => callback());
 
 export const onPromptHistoryChanged = (callback: () => void) =>
   listen("prompt-history-changed", () => callback());

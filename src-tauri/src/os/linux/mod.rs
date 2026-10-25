@@ -31,6 +31,7 @@ pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[
     "scrolling",
     "record",
     "polish",
+    "prompts",
     "palette",
 ];
 

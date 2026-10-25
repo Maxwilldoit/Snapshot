@@ -218,6 +218,17 @@ describe("manual global shortcut pause", () => {
     expect(await screen.findByRole("button", { name: "快捷键：窗口快照，当前按键：Alt+Shift+4" })).toBeTruthy();
   });
 
+  it("offers a direct shortcut for opening the Prompt library", async () => {
+    await renderApp(undefined, {
+      ...base,
+      shortcuts: [
+        ...base.shortcuts,
+        { action: "prompts", accelerator: "CommandOrControl+Shift+P" },
+      ],
+    });
+    expect(screen.getByRole("button", { name: /快捷键：打开 Prompt 库/ })).toBeTruthy();
+  });
+
   it("persists paused state through the real preview backend", async () => {
     vi.resetModules();
     const { installPreviewBackend } = await import("../lib/preview");

@@ -327,8 +327,8 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .palette-back { display: grid; place-items: center; width: 24px; height: 24px; margin-left: -6px; padding: 0; border: 0; background: none; color: var(--ink-2); }
 
 .palette-list { display: flex; flex-direction: column; padding: 0; max-height: 360px; overflow-y: auto; }
-/* 无标题菜单恰好包裹四项操作 */
-.palette-menu { height: 180px; }
+/* 无标题菜单恰好包裹五项操作 */
+.palette-menu { height: 225px; }
 .palette-menu .palette-item { flex: 0 0 45px; }
 /* 窗口列表最多显示 4 项，少于此数时高度随内容收紧 */
 .palette-windows { max-height: 144px; overscroll-behavior: contain; }
