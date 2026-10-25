@@ -44,8 +44,7 @@ impl Recording {
     }
 
     pub(crate) fn stop(self) -> Result<(), String> {
-        self.0.stop();
-        Ok(())
+        self.0.stop()
     }
 }
 
