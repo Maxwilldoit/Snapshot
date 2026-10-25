@@ -256,15 +256,64 @@ pub(crate) fn open_annotate_window(
     let window = app
         .get_webview_window("annotate")
         .ok_or_else(|| "标注窗口不存在".to_string())?;
-    // 按图幅大致缩放窗口，避免小图撑满或大图溢出
-    let w = image.width().clamp(480, 1280) as f64;
-    let h = (image.height().clamp(360, 900) + 56) as f64;
-    let _ = window.set_size(LogicalSize::new(w, h));
-    let _ = window.center();
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let scale = monitor
+        .as_ref()
+        .map(|monitor| monitor.scale_factor())
+        .unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
+    let work_area = monitor.as_ref().map(|monitor| monitor.work_area().size);
+    let (width, height) = annotate_window_logical_size(
+        image.width(),
+        image.height(),
+        scale,
+        work_area.map_or(1200, |size| size.width),
+        work_area.map_or(800, |size| size.height),
+    );
+    let _ = window.unmaximize();
+    let _ = window.set_size(LogicalSize::new(width, height));
+    if let Some(monitor) = monitor {
+        let area = monitor.work_area();
+        let x = area.position.x as f64 + (area.size.width as f64 - width * scale) / 2.0;
+        let y = area.position.y as f64 + (area.size.height as f64 - height * scale) / 2.0;
+        let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+    } else {
+        let _ = window.center();
+    }
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     let _ = app.emit("annotate-ready", json!({ "title": title }));
     Ok(())
+}
+
+/// 截图尺寸是物理像素，窗口尺寸是逻辑像素。按 DPI 换算后再限制到工作区，
+/// 否则高分屏上大图会把工具栏推到屏幕外。
+fn annotate_window_logical_size(
+    image_width: u32,
+    image_height: u32,
+    scale: f64,
+    work_width: u32,
+    work_height: u32,
+) -> (f64, f64) {
+    const MIN_WIDTH: f64 = 480.0;
+    const MIN_HEIGHT: f64 = 360.0;
+    const MAX_WIDTH: f64 = 1280.0;
+    const MAX_HEIGHT: f64 = 900.0;
+    const MARGIN: f64 = 24.0;
+    const CHROME_HEIGHT: f64 = 112.0;
+
+    let scale = scale.max(0.1);
+    let max_width = (work_width as f64 / scale - MARGIN * 2.0).clamp(MIN_WIDTH, MAX_WIDTH);
+    let max_height = (work_height as f64 / scale - MARGIN * 2.0).clamp(MIN_HEIGHT, MAX_HEIGHT);
+    let desired_width = image_width as f64 / scale + MARGIN;
+    let desired_height = image_height as f64 / scale + CHROME_HEIGHT;
+    (
+        desired_width.clamp(MIN_WIDTH, max_width),
+        desired_height.clamp(MIN_HEIGHT, max_height),
+    )
 }
 
 #[tauri::command]
@@ -491,5 +540,33 @@ mod blend_tests {
         blend_cursor(&mut canvas, &overlay, 0, 0);
         let value = canvas.get_pixel(0, 0).0[0];
         assert!((127..=129).contains(&value), "got {value}");
+    }
+}
+
+#[cfg(test)]
+mod annotate_window_tests {
+    use super::annotate_window_logical_size;
+
+    #[test]
+    fn high_dpi_large_capture_stays_inside_the_work_area() {
+        // 复现 175% 缩放下 2558×1599 的截图：旧逻辑开出的高度会超过工作区。
+        let scale = 1.75;
+        let work = (2560, 1515);
+        let (width, height) = annotate_window_logical_size(2558, 1599, scale, work.0, work.1);
+        assert!(width * scale <= work.0 as f64 - 40.0);
+        assert!(height * scale <= work.1 as f64 - 40.0);
+        assert!(height < 900.0, "工具栏必须留在屏幕内");
+    }
+
+    #[test]
+    fn ordinary_capture_keeps_room_for_the_toolbar_and_small_images_are_compact() {
+        let (width, height) = annotate_window_logical_size(1200, 700, 1.0, 1920, 1040);
+        assert_eq!(width, 1224.0);
+        assert_eq!(height, 812.0);
+
+        assert_eq!(
+            annotate_window_logical_size(100, 80, 1.0, 1920, 1040),
+            (480.0, 360.0)
+        );
     }
 }
