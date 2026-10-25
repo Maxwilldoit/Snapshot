@@ -1,5 +1,10 @@
 use super::*;
 
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    SetWindowPos, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER,
+};
+
 #[tauri::command]
 pub(crate) fn set_app_language(
     app: AppHandle,
@@ -113,10 +118,7 @@ pub(crate) fn resize_quick_menu(
         .ok_or_else(|| "输入框窗口不存在".to_string())?;
     let width = width.clamp(PALETTE_WIDTH_RANGE.0, PALETTE_WIDTH_RANGE.1);
     let height = height.clamp(PALETTE_HEIGHT_RANGE.0, PALETTE_HEIGHT_RANGE.1);
-    window
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|e| e.to_string())?;
-    position_palette(
+    set_palette_bounds(
         &app,
         &window,
         *state.quick_menu_anchor.lock(),
@@ -150,6 +152,65 @@ fn position_palette(
     logical_width: f64,
     logical_height: f64,
 ) -> Result<(), String> {
+    window
+        .set_position(palette_position(
+            app,
+            window,
+            anchor,
+            logical_width,
+            logical_height,
+        )?)
+        .map_err(|e| e.to_string())
+}
+
+/// 尺寸和位置放在同一次系统窗口更新里。分成 set_size + set_position 会先长一下、
+/// 再挪到新位置；快捷菜单换页时，这两帧之间的空隙就会闪。
+fn set_palette_bounds(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    anchor: Option<(f64, f64)>,
+    logical_width: f64,
+    logical_height: f64,
+) -> Result<(), String> {
+    let position = palette_position(app, window, anchor, logical_width, logical_height)?;
+    #[cfg(target_os = "windows")]
+    {
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let width = (logical_width * scale).round().max(1.0) as i32;
+        let height = (logical_height * scale).round().max(1.0) as i32;
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?.0;
+        let updated = unsafe {
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                position.x,
+                position.y,
+                width,
+                height,
+                SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
+            )
+        };
+        if updated == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_size(LogicalSize::new(logical_width, logical_height))
+            .map_err(|e| e.to_string())?;
+        window.set_position(position).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn palette_position(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    anchor: Option<(f64, f64)>,
+    logical_width: f64,
+    logical_height: f64,
+) -> Result<PhysicalPosition<i32>, String> {
     let scale = window.scale_factor().unwrap_or(1.0);
     let width = logical_width * scale;
     let height = logical_height * scale;
@@ -211,9 +272,7 @@ fn position_palette(
         px = px.clamp(position.x as f64, max_x.max(position.x as f64));
         py = py.clamp(position.y as f64, max_y.max(position.y as f64));
     }
-    window
-        .set_position(PhysicalPosition::new(px.round() as i32, py.round() as i32))
-        .map_err(|e| e.to_string())
+    Ok(PhysicalPosition::new(px.round() as i32, py.round() as i32))
 }
 
 #[tauri::command]

@@ -322,19 +322,14 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent);
   overflow: hidden;
 }
-/* 往里走（选窗口、润色）新内容从右边进来，退回菜单从左边回来 */
-.enter-forward { animation: view-forward var(--t-open) var(--ease-enter) both; }
-.enter-back { animation: view-back var(--t-open) var(--ease-enter) both; }
-/* 只做位移，不从透明淡入；换成窗口列表时避免出现一帧空白闪烁 */
-@keyframes view-forward { from { transform: translateX(calc(var(--shift) * 0.75)); } }
-@keyframes view-back { from { transform: translateX(calc(var(--shift) * -0.75)); } }
-
 .palette-window-head { display: flex; align-items: center; gap: 12px; height: 50px; padding: 0 18px; border-bottom: 1px solid var(--rule); }
 .palette-window-heading { flex: 1; min-width: 0; font-size: 14px; }
 .palette-back { display: grid; place-items: center; width: 24px; height: 24px; margin-left: -6px; padding: 0; border: 0; background: none; color: var(--ink-2); }
 
 .palette-list { display: flex; flex-direction: column; padding: 0; max-height: 360px; overflow-y: auto; }
-/* 快照/录制的窗口选择器固定显示 5 行，加载前后高度不变；更多应用在列表内滚动 */
+/* 菜单和窗口列表的正文都占 5 行高度，换页时原生窗口尺寸保持不变 */
+.palette-menu { height: 180px; }
+.palette-menu .palette-item { flex: 0 0 45px; }
 .palette-windows { height: 180px; max-height: 180px; overscroll-behavior: contain; }
 .palette-windows .palette-item { flex: 0 0 36px; }
 .palette-item {

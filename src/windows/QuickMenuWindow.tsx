@@ -33,8 +33,8 @@ const OK_HIDE_DELAY_MS = 900;
 const TOP_EDGE = 24;
 /** 面板左右和下方的透明边 */
 const EDGE = 40;
-/** 各视图的面板宽度：菜单装得下一行动作和快捷键就够；窗口列表多给点看标题；润色要放下底栏四个按钮 */
-const PANEL_WIDTH: Record<View, number> = { menu: 260, windows: 360, polish: 480 };
+/** 菜单和窗口列表共用尺寸，换页时不改原生窗口，避开 WebView2 的 resize 重绘闪烁 */
+const PANEL_WIDTH: Record<View, number> = { menu: 360, windows: 360, polish: 480 };
 
 export function windowPickerLabels(item: Pick<CapturableWindow, "appName" | "title">) {
   const appName = item.appName.trim();
@@ -61,13 +61,6 @@ export function QuickMenuWindow() {
   useWindowTitle(t("快速操作"));
   const [settings, setSettings] = useState<Settings | null>(null);
   const [view, setView] = useState<View>("menu");
-  // 往里走（选窗口、润色）新内容从右边进来，退回菜单从左边回来；刚打开时不额外动
-  const previousView = useRef<View>("menu");
-  const enterClass = useRef("");
-  if (previousView.current !== view) {
-    enterClass.current = view === "menu" ? "enter-back" : "enter-forward";
-    previousView.current = view;
-  }
   const [cursor, setCursor] = useState(0);
   const [pickerMode, setPickerMode] = useState<"capture" | "record">("capture");
   const [windows, setWindows] = useState<CapturableWindow[] | null>(null);
@@ -93,6 +86,7 @@ export function QuickMenuWindow() {
   const windowListRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<number | null>(null);
   const pickerToken = useRef(0);
+  const lastQuickMenuSize = useRef<{ width: number; height: number } | null>(null);
 
   const refresh = useCallback(() => {
     loadSettings().then(setSettings).catch(() => {});
@@ -105,8 +99,6 @@ export function QuickMenuWindow() {
   const reset = useCallback(() => {
     if (hideTimer.current !== null) window.clearTimeout(hideTimer.current);
     runToken.current += 1;
-    previousView.current = "menu";
-    enterClass.current = "";
     setView("menu");
     setCursor(0);
     setStatus(null);
@@ -115,6 +107,7 @@ export function QuickMenuWindow() {
     setPolishError(null);
     setRunning(false);
     setPeek(false);
+    lastQuickMenuSize.current = null;
     setOpening((value) => value + 1);
     pickerToken.current += 1;
     window.setTimeout(() => rootRef.current?.focus(), 0);
@@ -157,7 +150,16 @@ export function QuickMenuWindow() {
     if (!panel) return;
     const apply = () => {
       if (!panel.isConnected || panel.offsetHeight === 0) return;
-      void resizeQuickMenu(panel.offsetWidth + EDGE * 2, panel.offsetHeight + TOP_EDGE + EDGE).catch(() => {});
+      const width = panel.offsetWidth + EDGE * 2;
+      const height = panel.offsetHeight + TOP_EDGE + EDGE;
+      const previous = lastQuickMenuSize.current;
+      if (previous?.width === width && previous.height === height) return;
+      lastQuickMenuSize.current = { width, height };
+      void resizeQuickMenu(width, height).catch(() => {
+        if (lastQuickMenuSize.current?.width === width && lastQuickMenuSize.current.height === height) {
+          lastQuickMenuSize.current = null;
+        }
+      });
     };
     apply();
     if (typeof ResizeObserver === "undefined") return;
@@ -427,7 +429,7 @@ export function QuickMenuWindow() {
       <div className="palette-wrap" key={opening} style={{ width: PANEL_WIDTH[view] }}>
         <div className="palette" ref={panelRef} role="dialog" aria-label={t("应用快照快捷菜单")}>
           {view === "polish" ? (
-            <div className={`palette-polish ${enterClass.current}`}>
+            <div className="palette-polish">
               <div className="palette-source small">
                 <span className="quiet">{t("原文")}</span>
                 <span className="palette-source-text">{source}</span>
@@ -476,20 +478,22 @@ export function QuickMenuWindow() {
             </div>
           ) : (
             <>
-              {view === "windows" && (
-                <div className="palette-window-head">
+              <div className="palette-window-head">
+                {view === "windows" && (
                   <button type="button" className="palette-back" aria-label={t("返回")} onClick={() => setView("menu")}>
                     <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
                   </button>
-                  <span className="palette-window-heading">
-                    {t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}
-                  </span>
-                  <span className="mono small quiet">Esc</span>
-                </div>
-              )}
+                )}
+                <span className="palette-window-heading">
+                  {view === "menu"
+                    ? t("快速操作")
+                    : t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}
+                </span>
+                <span className="mono small quiet">Esc</span>
+              </div>
 
               {view === "menu" ? (
-                <div className={`palette-list ${enterClass.current}`} role="listbox" aria-label={t("动作")}>
+                <div className="palette-list palette-menu" role="listbox" aria-label={t("动作")}>
                   {items.map((item, index) => (
                     <button
                       key={item.id}
@@ -506,7 +510,7 @@ export function QuickMenuWindow() {
                   ))}
                 </div>
               ) : (
-                <div ref={windowListRef} className={`palette-list palette-windows ${enterClass.current}`} role="listbox" aria-label={t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}>
+                <div ref={windowListRef} className="palette-list palette-windows" role="listbox" aria-label={t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}>
                   {windows === null && <p className="palette-empty small quiet">{t("正在读取窗口…")}</p>}
                   {windows !== null && visibleWindows.length === 0 && (
                     <p className="palette-empty small quiet">{t("没有找到可用的窗口")}</p>

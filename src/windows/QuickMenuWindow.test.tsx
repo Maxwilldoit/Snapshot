@@ -202,7 +202,7 @@ describe("快捷菜单：窗口大小", () => {
     vi.unstubAllGlobals();
   });
 
-  it("菜单窄，点「快照」列窗口时变宽，Esc 回菜单再变窄", async () => {
+  it("菜单与窗口列表共用尺寸，切换和返回都不触发原生 resize", async () => {
     // jsdom 没有布局：面板宽度按外层按视图给的宽度算，高度随便给一个
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
       return this.classList.contains("palette") ? parseFloat((this.parentElement as HTMLElement).style.width) || 0 : 0;
@@ -214,14 +214,16 @@ describe("快捷菜单：窗口大小", () => {
     const widths = () =>
       calls.filter((call) => call.command === "resize_quick_menu").map((call) => (call.payload as { width: number }).width);
     // 面板宽 + 左右各 40
-    await waitFor(() => expect(widths().at(-1)).toBe(260 + 80));
+    await waitFor(() => expect(widths().at(-1)).toBe(360 + 80));
+    const callsBeforeSwitch = widths().length;
 
     await user.click(await screen.findByRole("option", { name: "快照" }));
     expect(await screen.findByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
-    await waitFor(() => expect(widths().at(-1)).toBe(360 + 80));
+    expect(widths()).toHaveLength(callsBeforeSwitch);
 
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(widths().at(-1)).toBe(260 + 80));
+    expect(widths()).toHaveLength(callsBeforeSwitch);
+    expect(widths().every((width) => width === 360 + 80)).toBe(true);
   });
 });
 
