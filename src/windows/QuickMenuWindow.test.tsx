@@ -98,7 +98,7 @@ describe("快捷菜单：录制", () => {
     expect(list.querySelectorAll('[role="option"]')).toHaveLength(windowList.length);
   });
 
-  it("超过 5 个窗口时保留完整列表，键盘选择会滚动到当前应用", async () => {
+  it("超过 4 个窗口时保留完整列表，键盘选择会滚动到当前应用", async () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -203,28 +203,33 @@ describe("快捷菜单：窗口大小", () => {
     vi.unstubAllGlobals();
   });
 
-  it("菜单与窗口列表共用尺寸，切换和返回都不触发原生 resize", async () => {
-    // jsdom 没有布局：面板宽度按外层按视图给的宽度算，高度随便给一个
+  it("菜单与窗口列表保持同宽，切页按包裹后的高度只更新一次原生窗口", async () => {
+    // jsdom 没有布局：宽度取外层视图宽度，高度按当前正文模拟恰好包裹
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
       return this.classList.contains("palette") ? parseFloat((this.parentElement as HTMLElement).style.width) || 0 : 0;
     });
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
-      return this.isConnected && this.classList.contains("palette") ? 250 : 0;
+      if (!this.isConnected || !this.classList.contains("palette")) return 0;
+      return this.querySelector(".palette-windows") ? 194 : 180;
     });
     const { calls, user } = await renderPalette((command) => (command === "list_capturable_windows" ? windowList : undefined));
-    const widths = () =>
-      calls.filter((call) => call.command === "resize_quick_menu").map((call) => (call.payload as { width: number }).width);
+    const sizes = () =>
+      calls
+        .filter((call) => call.command === "resize_quick_menu")
+        .map((call) => call.payload as { width: number; height: number });
     // 面板宽 + 左右各 40
-    await waitFor(() => expect(widths().at(-1)).toBe(360 + 80));
-    const callsBeforeSwitch = widths().length;
+    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 180 + 24 + 40 }));
+    const callsBeforeSwitch = sizes().length;
 
     await user.click(await screen.findByRole("option", { name: "快照" }));
     expect(await screen.findByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
-    expect(widths()).toHaveLength(callsBeforeSwitch);
+    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 194 + 24 + 40 }));
+    expect(sizes()).toHaveLength(callsBeforeSwitch + 1);
 
     await user.keyboard("{Escape}");
-    expect(widths()).toHaveLength(callsBeforeSwitch);
-    expect(widths().every((width) => width === 360 + 80)).toBe(true);
+    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 180 + 24 + 40 }));
+    expect(sizes()).toHaveLength(callsBeforeSwitch + 2);
+    expect(sizes().every((size) => size.width === 360 + 80)).toBe(true);
   });
 });
 

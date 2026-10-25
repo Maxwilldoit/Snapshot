@@ -33,7 +33,7 @@ const OK_HIDE_DELAY_MS = 900;
 const TOP_EDGE = 24;
 /** 面板左右和下方的透明边 */
 const EDGE = 40;
-/** 菜单和窗口列表共用尺寸，换页时不改原生窗口，避开 WebView2 的 resize 重绘闪烁 */
+/** 菜单和窗口列表同宽；高度按各自内容包裹，切换时只更新一次原生窗口尺寸 */
 const PANEL_WIDTH: Record<View, number> = { menu: 360, windows: 360, polish: 480 };
 
 export function windowPickerLabels(item: Pick<CapturableWindow, "appName" | "title">) {
