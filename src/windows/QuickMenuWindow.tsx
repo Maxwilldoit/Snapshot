@@ -90,6 +90,7 @@ export function QuickMenuWindow() {
   const rootRef = useRef<HTMLDivElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const windowListRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<number | null>(null);
 
   const refresh = useCallback(() => {
@@ -353,6 +354,14 @@ export function QuickMenuWindow() {
   const rowCount = view === "menu" ? items.length : view === "windows" ? visibleWindows.length : 0;
   useEffect(() => setCursor(0), [view]);
 
+  // 键盘越过第 5 个窗口时，让当前选中项始终留在 5 行的可视区域内。
+  useEffect(() => {
+    if (view !== "windows") return;
+    windowListRef.current
+      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [cursor, view, windows]);
+
   function onKeyDown(event: React.KeyboardEvent) {
     if (view === "polish") {
       if (event.key === "Escape") {
@@ -490,7 +499,7 @@ export function QuickMenuWindow() {
                   ))}
                 </div>
               ) : (
-                <div className={`palette-list palette-windows ${enterClass.current}`} role="listbox" aria-label={t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}>
+                <div ref={windowListRef} className={`palette-list palette-windows ${enterClass.current}`} role="listbox" aria-label={t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}>
                   {windows === null && <p className="palette-empty small quiet">{t("正在读取窗口…")}</p>}
                   {windows !== null && visibleWindows.length === 0 && (
                     <p className="palette-empty small quiet">{t("没有找到可用的窗口")}</p>

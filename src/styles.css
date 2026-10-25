@@ -333,6 +333,9 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .palette-back { display: grid; place-items: center; width: 24px; height: 24px; margin-left: -6px; padding: 0; border: 0; background: none; color: var(--ink-2); }
 
 .palette-list { display: flex; flex-direction: column; padding: 0; max-height: 360px; overflow-y: auto; }
+/* 快照/录制的窗口选择器固定显示 5 行，更多应用在列表内滚动 */
+.palette-windows { max-height: 180px; overscroll-behavior: contain; }
+.palette-windows .palette-item { flex: 0 0 36px; }
 .palette-item {
   width: 100%;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;

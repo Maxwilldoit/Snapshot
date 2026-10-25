@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InvokeArgs } from "@tauri-apps/api/core";
 import type { RecordingStatus, Settings } from "../types";
 import { setupTauriMock } from "../test/tauri";
@@ -10,6 +10,21 @@ const windowList = [
   { id: 73, pid: 4242, appName: "Visual Studio Code", title: "notes.md", minimized: true },
   { id: 74, pid: 4243, appName: "Codex", title: "ChatGPT", minimized: false },
 ];
+
+const manyWindows = Array.from({ length: 7 }, (_, index) => ({
+  id: 100 + index,
+  pid: 5000 + index,
+  appName: `应用 ${index + 1}`,
+  title: `窗口 ${index + 1}`,
+  minimized: false,
+}));
+
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+
+afterEach(() => {
+  if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
+  else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+});
 
 type Call = { command: string; payload?: InvokeArgs };
 
@@ -59,6 +74,28 @@ describe("快捷菜单：录制", () => {
     expect(calls.find((call) => call.command === "toggle_recording")?.payload).toEqual({ targetId: null });
     expect(calls.some((call) => call.command === "list_capturable_windows")).toBe(false);
     expect(screen.queryByRole("listbox", { name: "选择要录制的窗口" })).toBeNull();
+  });
+
+  it("超过 5 个窗口时保留完整列表，键盘选择会滚动到当前应用", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const { user } = await renderPalette((command) => {
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "list_capturable_windows") return manyWindows;
+      return undefined;
+    });
+
+    await user.click(await screen.findByRole("option", { name: "录制" }));
+    const list = await screen.findByRole("listbox", { name: "选择要录制的窗口" });
+    expect(list.classList.contains("palette-windows")).toBe(true);
+    expect(list.querySelectorAll('[role="option"]')).toHaveLength(7);
+
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
+    expect(screen.getByRole("option", { name: /应用 6/ }).getAttribute("aria-selected")).toBe("true");
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
   });
 });
 
