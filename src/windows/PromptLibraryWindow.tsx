@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { WindowTitleBar } from "../components/WindowTitleBar";
 import {
   copyText,
   deleteSavedPrompt,
@@ -284,18 +285,18 @@ export function PromptLibraryWindow() {
 
   return (
     <div className="prompt-library-root">
-      <header className="prompt-library-header">
-        <div className="prompt-library-heading">
-          <p className="prompt-library-kicker">{t("PROMPT LIBRARY")}</p>
-          <h1>{editing ? t(editing.id ? "编辑" : "新建") : t("Prompt 库")}</h1>
-        </div>
-        {!editing && (
-          <button type="button" className="btn btn-primary prompt-library-new" onClick={openNew}>
-            {t("新建")}
-            <span className="prompt-library-shortcut mono" aria-hidden="true">Ctrl N</span>
-          </button>
-        )}
-      </header>
+      <WindowTitleBar
+        className="prompt-library-titlebar"
+        onError={(text) => setStatus({ kind: "error", text })}
+      >
+        <h1 className="titlebar-name prompt-library-window-name" data-tauri-drag-region>{t("Prompt 库")}</h1>
+      </WindowTitleBar>
+
+      {editing && (
+        <header className="prompt-library-header">
+          <h2>{t(editing.id ? "编辑" : "新建")}</h2>
+        </header>
+      )}
 
       {editing ? (
         <form
@@ -414,6 +415,10 @@ export function PromptLibraryWindow() {
                 {t("{count} 项", { count: visiblePrompts.length })}
               </span>
             )}
+            <button type="button" className="btn btn-primary prompt-library-new" onClick={openNew}>
+              {t("新建")}
+              <span className="prompt-library-shortcut mono" aria-hidden="true">Ctrl N</span>
+            </button>
           </div>
 
           <div className="prompt-library-content-area">

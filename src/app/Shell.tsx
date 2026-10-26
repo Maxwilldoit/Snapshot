@@ -1,49 +1,18 @@
 import type { ReactNode } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { formatClock } from "../lib/format";
 import { shortLabel } from "../lib/activity";
 import { usePresence } from "../lib/motion";
-import { errorText, useApp } from "./context";
+import { useApp } from "./context";
+import { WindowTitleBar } from "../components/WindowTitleBar";
 import type { NavPage } from "../types";
 import { useI18n } from "../lib/i18n";
 
-/** 窗口操作要 capability 里显式放行，缺权限时 promise 会被拒——必须让它说出来，不能「点了没反应」 */
-function useWindowAction() {
-  const { notify } = useApp();
-  const { t } = useI18n();
-  return (action: () => Promise<unknown>, label: string) => {
-    void action().catch((error) => notify(t("{action}失败：{detail}", { action: label, detail: errorText(error) }), "error"));
-  };
-}
-
 export function TitleBar({ children, right, tall = false }: { children?: ReactNode; right?: ReactNode; tall?: boolean }) {
-  const run = useWindowAction();
-  const { t } = useI18n();
-  const appWindow = getCurrentWindow();
+  const { notify } = useApp();
   return (
-    <header
-      className={`titlebar ${tall ? "is-tall" : ""}`}
-      data-tauri-drag-region
-      onDoubleClick={(event) => {
-        if ((event.target as HTMLElement).closest("button, a, input")) return;
-        run(() => appWindow.toggleMaximize(), t("最大化"));
-      }}
-    >
-      {children ?? <span className="titlebar-name" data-tauri-drag-region>{t("应用快照")}</span>}
-      <span className="titlebar-fill" data-tauri-drag-region />
-      {right}
-      <span className="window-controls">
-        <button type="button" aria-label={t("最小化")} onClick={() => run(() => appWindow.minimize(), t("最小化"))}>
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" stroke="currentColor" /></svg>
-        </button>
-        <button type="button" aria-label={t("最大化或还原")} onClick={() => run(() => appWindow.toggleMaximize(), t("最大化"))}>
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor" /></svg>
-        </button>
-        <button type="button" className="is-close" aria-label={t("关闭")} onClick={() => run(() => appWindow.close(), t("关闭"))}>
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" /></svg>
-        </button>
-      </span>
-    </header>
+    <WindowTitleBar right={right} tall={tall} onError={(message) => notify(message, "error")}>
+      {children}
+    </WindowTitleBar>
   );
 }
 

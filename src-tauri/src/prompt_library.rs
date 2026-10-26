@@ -128,6 +128,7 @@ pub(crate) async fn show_prompt_library(app: AppHandle) -> Result<(), String> {
         .inner_size(900.0, 640.0)
         .min_inner_size(600.0, 480.0)
         .resizable(true)
+        .decorations(false)
         .center()
         .visible(false)
         .build()
