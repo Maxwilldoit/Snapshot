@@ -4,7 +4,7 @@
 //! 贴着画布边缘的背景连成一片挖掉；被人物圈住的背景（叉腰时胳膊和身体之间的缝）
 //! 只有四周不是白色时才挖，人物身上的白（衬衫、领口）留下；边上和背景混在一起的
 //! 像素按最近的纯色像素反解回原色，不然深色桌面上会留一圈浅色毛边。处理完重新编成
-//! 带透明色的 GIF；本来就是透明背景、或者一帧都没抠掉的，原样返回。
+//! 带透明色的 GIF。已经透明的素材只检查轮廓上的白底混色；没有变化时原样返回。
 
 use super::*;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -21,6 +21,15 @@ const HOLE_MAX_WHITE: f64 = 0.25;
 const BAND: i32 = 2;
 /// 人物本身的颜色和背景差不到这个数就不反解，免得把浅色衣服洗花
 const MIN_CONTRAST: f32 = 40.0;
+/// 当前颜色必须确实接近「人物色 + 背景色」的混合，避免把彩色轮廓当成毛边。
+const MAX_UNMIX_ERROR: f32 = 12.0;
+/// 有些素材抠底时把轮廓染成了中性灰，允许这类白底毛边有少量色相误差。
+const MAX_NEUTRAL_UNMIX_ERROR: f32 = 36.0;
+/// 狭缝里的背景可能被抗锯齿染灰；只在连着透明区且两侧都是人物时使用。
+const GAP_MIN_CHANNEL: f32 = 128.0;
+const NEUTRAL_CHROMA: f32 = 8.0;
+/// 先确认素材确有白底毛边，再补抠封闭缝隙，干净的像素素材不启用此规则。
+const MIN_MATTE_PIXELS: usize = 8;
 /// 反解时最多找这么远，再远就用一层层摊开的近似结果
 const SEARCH_LIMIT: i32 = 8;
 /// GIF 里留给透明的索引
@@ -35,6 +44,13 @@ struct Canvas {
     height: usize,
     rgb: Vec<[f32; 3]>,
     removed: Vec<bool>,
+}
+
+#[derive(Clone, Copy)]
+enum BackgroundRegion {
+    Solid,
+    OpenGap,
+    EnclosedGap,
 }
 
 /// 四邻域下标，越界的位置是 `usize::MAX`
@@ -65,6 +81,20 @@ impl Canvas {
     fn near(&self, index: usize, bg: [f32; 3]) -> bool {
         self.diff(index, bg) <= FILL_TOL
     }
+
+    fn neutral(&self, index: usize) -> bool {
+        let pixel = self.rgb[index];
+        pixel.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+            - pixel.iter().copied().fold(f32::INFINITY, f32::min)
+            <= NEUTRAL_CHROMA
+    }
+
+    fn light_neutral(&self, index: usize) -> bool {
+        self.neutral(index)
+            && self.rgb[index]
+                .iter()
+                .all(|&channel| channel >= GAP_MIN_CHANNEL)
+    }
 }
 
 /// 贴着画布边缘的背景连成一片挖掉；人物圈在里面的（胳膊和身体之间的缝）留着后面再看
@@ -93,12 +123,31 @@ fn fill_from_border(canvas: &mut Canvas, bg: [f32; 3]) {
 ///
 /// 块四周三到五像素那一圈里白色占多数时留着：那是人物自己的白（衬衫、领口），
 /// 挖了就成了窟窿；不然就是真的背景缝，挖掉。
-fn enclosed_background(canvas: &mut Canvas, bg: [f32; 3]) {
+fn enclosed_background(
+    canvas: &mut Canvas,
+    bg: [f32; 3],
+    region: BackgroundRegion,
+) -> Vec<Vec<usize>> {
     let (width, height) = (canvas.width, canvas.height);
+    let is_background = |index: usize| match region {
+        BackgroundRegion::OpenGap => canvas.light_neutral(index),
+        BackgroundRegion::EnclosedGap => {
+            canvas.neutral(index)
+                && canvas.rgb[index]
+                    .iter()
+                    .all(|&channel| channel >= WHITE_MIN_CHANNEL)
+        }
+        BackgroundRegion::Solid => canvas.near(index, bg),
+    };
+    let max_white = if matches!(region, BackgroundRegion::EnclosedGap) {
+        0.1
+    } else {
+        HOLE_MAX_WHITE
+    };
     let mut seen = vec![false; canvas.rgb.len()];
     let mut holes = Vec::new();
     for start in 0..canvas.rgb.len() {
-        if seen[start] || canvas.removed[start] || !canvas.near(start, bg) {
+        if seen[start] || canvas.removed[start] || !is_background(start) {
             continue;
         }
         let mut block = vec![start];
@@ -109,7 +158,7 @@ fn enclosed_background(canvas: &mut Canvas, bg: [f32; 3]) {
                 if neighbour != usize::MAX
                     && !seen[neighbour]
                     && !canvas.removed[neighbour]
-                    && canvas.near(neighbour, bg)
+                    && is_background(neighbour)
                 {
                     seen[neighbour] = true;
                     block.push(neighbour);
@@ -117,16 +166,129 @@ fn enclosed_background(canvas: &mut Canvas, bg: [f32; 3]) {
                 }
             }
         }
-        if block.len() >= HOLE_MIN && whitish_around(&block, canvas) < HOLE_MAX_WHITE {
+        if block.len() >= HOLE_MIN
+            && match region {
+                BackgroundRegion::Solid => true,
+                BackgroundRegion::OpenGap => is_open_gap(&block, canvas, bg),
+                BackgroundRegion::EnclosedGap => is_enclosed_gap(&block, canvas),
+            }
+            && whitish_around(&block, canvas) < max_white
+        {
             holes.push(block);
         }
     }
     // 先看完再一起挖：不然前一块挖掉的地方会影响后一块的四周
-    for hole in holes {
-        for index in hole {
+    for hole in &holes {
+        for &index in hole {
             canvas.removed[index] = true;
         }
     }
+    holes
+}
+
+/// 被头发、皮肤等有色轮廓围住的狭长白底（例如头发与脖子之间的缝）。
+/// 白块要足够长、周边要有明显色彩；白眼睛、灰色物体上的高光及白衣服不满足条件。
+fn is_enclosed_gap(block: &[usize], canvas: &Canvas) -> bool {
+    let (mut left, mut top, mut right, mut bottom) = (usize::MAX, usize::MAX, 0, 0);
+    for &index in block {
+        let (x, y) = (index % canvas.width, index / canvas.width);
+        left = left.min(x);
+        right = right.max(x);
+        top = top.min(y);
+        bottom = bottom.max(y);
+        for next in neighbours(index, canvas.width, canvas.height) {
+            if next == usize::MAX || canvas.removed[next] {
+                return false;
+            }
+        }
+    }
+    let (width, height) = (right - left + 1, bottom - top + 1);
+    let (short, long) = (width.min(height), width.max(height));
+    if short > 6 || long < 5 || long * 2 < short * 3 {
+        return false;
+    }
+    // 封闭背景要有足够厚的轮廓包住；贴着外边缘的白袖口、肩膀和高光继续保留。
+    for &index in block {
+        let (x, y) = ((index % canvas.width) as i32, (index / canvas.width) as i32);
+        for dy in -3..=3 {
+            for dx in -3..=3 {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx < 0
+                    || ny < 0
+                    || nx >= canvas.width as i32
+                    || ny >= canvas.height as i32
+                    || canvas.removed[ny as usize * canvas.width + nx as usize]
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    // 把一圈灰色抗锯齿也跨过去看，避免动画里白块变灰后认不出两侧的头发和皮肤。
+    let mut seen: HashSet<usize> = block.iter().copied().collect();
+    let mut queue: VecDeque<(usize, u8)> = block.iter().map(|&index| (index, 0)).collect();
+    let (mut boundary, mut coloured) = (0usize, 0usize);
+    while let Some((index, depth)) = queue.pop_front() {
+        if depth == 2 {
+            continue;
+        }
+        for next in neighbours(index, canvas.width, canvas.height) {
+            if next == usize::MAX || !seen.insert(next) {
+                continue;
+            }
+            queue.push_back((next, depth + 1));
+            if canvas.removed[next] {
+                continue;
+            }
+            boundary += 1;
+            let pixel = canvas.rgb[next];
+            if pixel.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+                - pixel.iter().copied().fold(f32::INFINITY, f32::min)
+                >= 24.0
+            {
+                coloured += 1;
+            }
+        }
+    }
+    boundary > 0 && coloured * 3 >= boundary
+}
+
+/// 已透明素材里只补抠通向透明区的狭缝（例如两腿之间），闭合的白眼睛和高光原样保留。
+/// 狭缝的大部分像素要在横向或纵向的两侧都能碰到人物，避免削掉外侧的白衣服。
+fn is_open_gap(block: &[usize], canvas: &Canvas, bg: [f32; 3]) -> bool {
+    let touches_clear = block.iter().any(|&index| {
+        neighbours(index, canvas.width, canvas.height)
+            .iter()
+            .any(|&neighbour| neighbour != usize::MAX && canvas.removed[neighbour])
+    });
+    if !touches_clear {
+        return false;
+    }
+    let figure_in_direction = |index: usize, dx: i32, dy: i32| {
+        let (x, y) = ((index % canvas.width) as i32, (index / canvas.width) as i32);
+        for step in 1..=3 {
+            let (nx, ny) = (x + dx * step, y + dy * step);
+            if nx < 0 || ny < 0 || nx >= canvas.width as i32 || ny >= canvas.height as i32 {
+                return false;
+            }
+            let next = ny as usize * canvas.width + nx as usize;
+            if canvas.removed[next] {
+                return false;
+            }
+            if !canvas.light_neutral(next) && canvas.diff(next, bg) >= MIN_CONTRAST {
+                return true;
+            }
+        }
+        false
+    };
+    let narrow = block
+        .iter()
+        .filter(|&&index| {
+            (figure_in_direction(index, -1, 0) && figure_in_direction(index, 1, 0))
+                || (figure_in_direction(index, 0, -1) && figure_in_direction(index, 0, 1))
+        })
+        .count();
+    narrow * 2 >= block.len()
 }
 
 /// 这一块四周三到五步（横竖走）能碰到的那一圈里白色的比例。圈上一个像素都没有算 0，
@@ -203,17 +365,62 @@ fn edge_bands(canvas: &Canvas) -> (Vec<bool>, Vec<bool>) {
     (band, inner)
 }
 
+/// 只有能沿白色像素连到透明区的白块才算白底残留。
+/// 靠近轮廓、但被人物颜色围住的白眼睛和高光不会被当作背景反解。
+fn connected_matte(canvas: &Canvas) -> Vec<bool> {
+    let white = |index: usize| {
+        canvas.neutral(index)
+            && canvas.rgb[index]
+                .iter()
+                .all(|&channel| channel >= WHITE_MIN_CHANNEL)
+    };
+    let mut connected = vec![false; canvas.rgb.len()];
+    let mut queue = VecDeque::new();
+    for index in 0..canvas.rgb.len() {
+        if canvas.removed[index] || !white(index) {
+            continue;
+        }
+        if neighbours(index, canvas.width, canvas.height)
+            .iter()
+            .any(|&next| next != usize::MAX && canvas.removed[next])
+        {
+            connected[index] = true;
+            queue.push_back(index);
+        }
+    }
+    while let Some(index) = queue.pop_front() {
+        for next in neighbours(index, canvas.width, canvas.height) {
+            if next != usize::MAX && !connected[next] && !canvas.removed[next] && white(next) {
+                connected[next] = true;
+                queue.push_back(next);
+            }
+        }
+    }
+    connected
+}
+
 /// 边缘像素和背景混在一起了：按最近的纯色像素反解出没混之前的颜色；解出来一半以上
 /// 还是背景的直接挖掉——GIF 的透明只有开和关，不这么做深色桌面上会留一圈浅边。
-fn unmix_edges(canvas: &mut Canvas, bg: [f32; 3]) {
+fn unmix_edges(canvas: &mut Canvas, bg: [f32; 3], focus: Option<&[bool]>) {
     let (band, inner) = edge_bands(canvas);
     if !inner.iter().any(|&inside| inside) {
         return;
     }
+    let white_matte = bg.iter().all(|&channel| channel >= 240.0);
+    let connected = white_matte.then(|| connected_matte(canvas));
     let mut spread = None;
     let mut updates = Vec::new();
     for (index, on_band) in band.iter().copied().enumerate() {
-        if !on_band {
+        if !on_band || focus.is_some_and(|focus| !focus[index]) {
+            continue;
+        }
+        if connected.as_ref().is_some_and(|connected| {
+            !connected[index]
+                && canvas.neutral(index)
+                && canvas.rgb[index]
+                    .iter()
+                    .all(|&channel| channel >= WHITE_MIN_CHANNEL)
+        }) {
             continue;
         }
         let source = match nearest_within(canvas, &inner, index, SEARCH_LIMIT) {
@@ -223,8 +430,15 @@ fn unmix_edges(canvas: &mut Canvas, bg: [f32; 3]) {
                 nearest[index]
             }
         };
+        if source == usize::MAX {
+            continue;
+        }
         let pixel = canvas.rgb[index];
         let solid = canvas.rgb[source];
+        // 白底素材的浅色衣服不能拿阴影当原色反解，否则袖口会被削掉。
+        if white_matte && solid.iter().all(|&channel| channel >= WHITE_MIN_CHANNEL) {
+            continue;
+        }
         let d = [0, 1, 2].map(|channel| solid[channel] - bg[channel]);
         let norm = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
         if norm.sqrt() < MIN_CONTRAST {
@@ -236,6 +450,18 @@ fn unmix_edges(canvas: &mut Canvas, bg: [f32; 3]) {
             .sum::<f32>()
             / norm)
             .clamp(0.0, 1.0);
+        let error = (0..3).fold(0.0_f32, |worst, channel| {
+            let mixed = alpha * solid[channel] + (1.0 - alpha) * bg[channel];
+            worst.max((pixel[channel] - mixed).abs())
+        });
+        let max_error = if canvas.neutral(index) && white_matte {
+            MAX_NEUTRAL_UNMIX_ERROR
+        } else {
+            MAX_UNMIX_ERROR
+        };
+        if error > max_error || alpha >= 1.0 {
+            continue;
+        }
         updates.push((
             index,
             if alpha < 0.5 {
@@ -272,7 +498,7 @@ fn nearest_within(canvas: &Canvas, inner: &[bool], index: usize, limit: i32) -> 
                     continue;
                 }
                 let candidate = ny as usize * canvas.width + nx as usize;
-                if !inner[candidate] {
+                if !inner[candidate] || !foreground_line(canvas, index, candidate) {
                     continue;
                 }
                 let squared = dx * dx + dy * dy;
@@ -288,6 +514,21 @@ fn nearest_within(canvas: &Canvas, inner: &[bool], index: usize, limit: i32) -> 
     best.map(|(_, index)| index)
 }
 
+/// 参考色和边缘之间不能跨过透明区，避免细小独立部件借到另一块人物/道具的颜色。
+fn foreground_line(canvas: &Canvas, from: usize, to: usize) -> bool {
+    let (x, y) = ((from % canvas.width) as i32, (from / canvas.width) as i32);
+    let (dx, dy) = (
+        (to % canvas.width) as i32 - x,
+        (to / canvas.width) as i32 - y,
+    );
+    let steps = dx.abs().max(dy.abs());
+    (1..=steps).all(|step| {
+        let nx = x + (dx as f32 * step as f32 / steps as f32).round() as i32;
+        let ny = y + (dy as f32 * step as f32 / steps as f32).round() as i32;
+        !canvas.removed[ny as usize * canvas.width + nx as usize]
+    })
+}
+
 /// 每个像素最近的人物本体像素，一层层从本体往外摊开（细胳膊细腿那种边缘找不到
 /// 本体才用得上，横竖摊开的结果够近）
 fn nearest_inner(canvas: &Canvas, inner: &[bool]) -> Vec<usize> {
@@ -301,7 +542,10 @@ fn nearest_inner(canvas: &Canvas, inner: &[bool]) -> Vec<usize> {
     }
     while let Some(index) = queue.pop_front() {
         for neighbour in neighbours(index, canvas.width, canvas.height) {
-            if neighbour != usize::MAX && source[neighbour] == usize::MAX {
+            if neighbour != usize::MAX
+                && !canvas.removed[neighbour]
+                && source[neighbour] == usize::MAX
+            {
                 source[neighbour] = source[index];
                 queue.push_back(neighbour);
             }
@@ -311,7 +555,7 @@ fn nearest_inner(canvas: &Canvas, inner: &[bool]) -> Vec<usize> {
 }
 
 /// 抠一帧：先挖边缘连通的背景，再处理圈在里面的，最后把边缘混合色反解回原色。
-fn key_frame(frame: &RgbaImage, bg: [f32; 3]) -> Canvas {
+fn key_frame(frame: &RgbaImage, bg: [f32; 3], solid_background: bool) -> Canvas {
     let (width, height) = (frame.width() as usize, frame.height() as usize);
     let mut canvas = Canvas {
         width,
@@ -320,20 +564,56 @@ fn key_frame(frame: &RgbaImage, bg: [f32; 3]) -> Canvas {
             .pixels()
             .map(|pixel| [pixel[0] as f32, pixel[1] as f32, pixel[2] as f32])
             .collect(),
-        removed: vec![false; width * height],
+        removed: frame.pixels().map(|pixel| pixel[3] == 0).collect(),
     };
-    fill_from_border(&mut canvas, bg);
-    enclosed_background(&mut canvas, bg);
-    unmix_edges(&mut canvas, bg);
+    // 已经透明的图沿用作者的轮廓，不重新按白色抠底（白衣服也可能直接贴着画布边缘）。
+    if solid_background {
+        fill_from_border(&mut canvas, bg);
+    }
+    let region = if solid_background {
+        BackgroundRegion::Solid
+    } else {
+        BackgroundRegion::OpenGap
+    };
+    enclosed_background(&mut canvas, bg, region);
+    unmix_edges(&mut canvas, bg, None);
     // 边缘反解掉以后，原本被浅色阴影围住的小块背景（鞋跟底下之类）会露出来，再来一轮
-    enclosed_background(&mut canvas, bg);
-    unmix_edges(&mut canvas, bg);
+    enclosed_background(&mut canvas, bg, region);
+    unmix_edges(&mut canvas, bg, None);
+    if !solid_background
+        && frame
+            .pixels()
+            .enumerate()
+            .filter(|(index, pixel)| pixel[3] != 0 && canvas.removed[*index])
+            .take(MIN_MATTE_PIXELS)
+            .count()
+            >= MIN_MATTE_PIXELS
+    {
+        let gaps = enclosed_background(&mut canvas, bg, BackgroundRegion::EnclosedGap);
+        if !gaps.is_empty() {
+            // 只修新挖出的缝周围，避免反复处理已经清理好的其他轮廓。
+            let mut focus = vec![false; width * height];
+            for &index in gaps.iter().flatten() {
+                let (x, y) = ((index % width) as i32, (index / width) as i32);
+                for dy in -BAND * 2..=BAND * 2 {
+                    for dx in -BAND * 2..=BAND * 2 {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if nx >= 0 && ny >= 0 && nx < width as i32 && ny < height as i32 {
+                            focus[ny as usize * width + nx as usize] = true;
+                        }
+                    }
+                }
+            }
+            unmix_edges(&mut canvas, bg, Some(&focus));
+            unmix_edges(&mut canvas, bg, Some(&focus));
+        }
+    }
     canvas
 }
 
 /// 把素材里画进去的纯色背景抠掉，编回一份带透明色的 GIF。
 ///
-/// 本来就是透明背景、或者一帧都没抠掉什么的时候返回 None，调用方照原样用。
+/// 透明素材也会清除轮廓混入的白色；一帧都没有变化时返回 None，调用方照原样用。
 pub(crate) fn key_out(bytes: &[u8]) -> Result<Option<Vec<u8>>, String> {
     let decoded = pet_walk::decode(bytes)?;
     if decoded.is_empty() {
@@ -341,46 +621,44 @@ pub(crate) fn key_out(bytes: &[u8]) -> Result<Option<Vec<u8>>, String> {
     }
     let delays: Vec<u16> = decoded.iter().map(|(_, delay)| *delay).collect();
     let frames: Vec<RgbaImage> = decoded.into_iter().map(|(image, _)| image).collect();
-    let bg = match pet_walk::Backdrop::of(&frames) {
-        pet_walk::Backdrop::Transparent => return Ok(None),
-        pet_walk::Backdrop::Solid(color) => color,
+    let (bg, solid_background) = match pet_walk::Backdrop::of(&frames) {
+        pet_walk::Backdrop::Transparent => ([255, 255, 255], false),
+        pet_walk::Backdrop::Solid(color) => (color, true),
     };
     let (width, height) = frames[0].dimensions();
     if width > u16::MAX as u32 || height > u16::MAX as u32 {
         return Err("画布大得 GIF 存不下".into());
     }
     let background = [bg[0] as f32, bg[1] as f32, bg[2] as f32];
-    let mut keyed = Vec::with_capacity(frames.len());
-    let mut removed_any = false;
-    for frame in &frames {
-        let canvas = key_frame(frame, background);
-        removed_any |= canvas.removed.iter().any(|&removed| removed);
-        keyed.push((frame, canvas));
-    }
-    if !removed_any {
-        return Ok(None);
-    }
-    encode(&keyed, width, height, &delays).map(Some)
+    encode(&frames, background, solid_background, &delays)
 }
 
-/// 编回 GIF：每帧自带一张调色板（颜色要一格不差，不能用有损的量化），
-/// 索引 255 留给透明。
+/// 逐帧处理并编回 GIF，只保留当前帧的浮点画布，避免把整段动画的中间结果全留在内存。
+/// 每帧自带一张调色板，索引 255 留给透明；没有变化时仍由调用方复用原文件。
 fn encode(
-    frames: &[(&RgbaImage, Canvas)],
-    width: u32,
-    height: u32,
+    frames: &[RgbaImage],
+    background: [f32; 3],
+    solid_background: bool,
     delays: &[u16],
-) -> Result<Vec<u8>, String> {
+) -> Result<Option<Vec<u8>>, String> {
+    let (width, height) = frames[0].dimensions();
     let (width, height) = (width as u16, height as u16);
     let mut bytes = Vec::new();
+    let mut changed = false;
     {
         let mut encoder =
             gif::Encoder::new(&mut bytes, width, height, &[]).map_err(|error| error.to_string())?;
         encoder
             .set_repeat(gif::Repeat::Infinite)
             .map_err(|error| error.to_string())?;
-        for (position, (original, canvas)) in frames.iter().enumerate() {
-            let (pixels, palette) = index_frame(original, canvas);
+        for (position, original) in frames.iter().enumerate() {
+            let canvas = key_frame(original, background, solid_background);
+            changed |= original.pixels().enumerate().any(|(index, pixel)| {
+                pixel[3] != 0
+                    && (canvas.removed[index]
+                        || rounded(&canvas.rgb[index]) != [pixel[0], pixel[1], pixel[2]])
+            });
+            let (pixels, palette) = index_frame(original, &canvas);
             let mut frame =
                 gif::Frame::from_palette_pixels(width, height, pixels, palette, Some(TRANSPARENT));
             frame.delay = delays.get(position).copied().unwrap_or(10);
@@ -391,7 +669,7 @@ fn encode(
                 .map_err(|error| error.to_string())?;
         }
     }
-    Ok(bytes)
+    Ok(changed.then_some(bytes))
 }
 
 /// 一帧编成「索引 + 调色板」：抠掉的地方走透明索引，其余按最近的颜色入索引。
@@ -564,6 +842,268 @@ mod tests {
     fn an_already_transparent_gif_is_left_alone() {
         let bytes = painted((60, 60), CLEAR, &[(INK, [20, 20, 40, 40])], 1);
         assert!(key_out(&bytes).expect("抠背景失败").is_none());
+    }
+
+    #[test]
+    fn detached_thin_pixel_art_details_do_not_borrow_another_objects_colour() {
+        let detail = Rgba([170, 170, 170, 255]);
+        let bytes = painted(
+            (60, 60),
+            CLEAR,
+            &[
+                (INK, [20, 20, 40, 40]),
+                (detail, [17, 20, 18, 40]),
+                (PAPER, [43, 20, 45, 28]),
+            ],
+            1,
+        );
+        assert!(
+            key_out(&bytes).expect("处理像素素材失败").is_none(),
+            "独立细线不能被附近的深色物体染色或抹掉"
+        );
+    }
+
+    #[test]
+    fn a_clean_grey_pixel_sprite_keeps_its_body_and_white_edge_highlights() {
+        let grey = Rgba([160, 160, 160, 255]);
+        let bytes = painted(
+            (32, 32),
+            CLEAR,
+            &[(grey, [6, 6, 26, 26]), (PAPER, [7, 10, 8, 11])],
+            1,
+        );
+        assert!(
+            key_out(&bytes).expect("处理灰色像素素材失败").is_none(),
+            "灰色人物和贴近轮廓的闭合白色高光都应当保留"
+        );
+    }
+
+    #[test]
+    fn a_white_matte_on_a_transparent_gif_is_removed_and_unmixed() {
+        let mixed = Rgba([86, 86, 94, 255]);
+        let bytes = painted(
+            (60, 60),
+            CLEAR,
+            &[
+                (Rgba([255, 255, 255, 255]), [15, 15, 45, 45]),
+                (mixed, [16, 16, 44, 44]),
+                (INK, [17, 17, 43, 43]),
+            ],
+            2,
+        );
+        for (image, delay) in keyed_frames(&bytes) {
+            assert_eq!(delay, 10);
+            assert_eq!(image.get_pixel(0, 0)[3], 0);
+            assert_eq!(image.get_pixel(15, 30)[3], 0, "外侧纯白毛边应当透明");
+            let edge = image.get_pixel(16, 30);
+            assert_eq!(edge[3], 255, "人物覆盖超过一半的边缘应当保留");
+            for channel in 0..3 {
+                assert!(
+                    edge[channel].abs_diff(INK[channel]) <= 2,
+                    "边缘应当恢复人物原色：{edge:?}"
+                );
+            }
+            assert_eq!(*image.get_pixel(30, 30), INK);
+        }
+    }
+
+    #[test]
+    fn transparent_white_clothing_and_a_coloured_outline_are_left_alone() {
+        let white = Rgba([245, 245, 245, 255]);
+        let shaded_white = Rgba([215, 215, 215, 255]);
+        let red = Rgba([220, 35, 40, 255]);
+        let blue = Rgba([25, 45, 160, 255]);
+        let bytes = painted(
+            (80, 60),
+            CLEAR,
+            &[
+                (white, [5, 10, 30, 50]),
+                (shaded_white, [7, 12, 28, 48]),
+                (red, [45, 10, 75, 50]),
+                (blue, [47, 12, 73, 48]),
+            ],
+            1,
+        );
+        assert!(
+            key_out(&bytes).expect("处理透明素材失败").is_none(),
+            "白衣和有意绘制的彩色轮廓不能被当成白边"
+        );
+    }
+
+    #[test]
+    fn open_matte_gaps_are_cut_out_but_closed_white_details_are_preserved() {
+        let white = Rgba([255, 255, 255, 255]);
+        let bytes = painted(
+            (70, 70),
+            CLEAR,
+            &[
+                (INK, [10, 10, 60, 60]),
+                (white, [33, 35, 35, 60]),
+                (Rgba([190, 190, 190, 255]), [33, 55, 35, 60]),
+                (white, [18, 18, 21, 21]),
+            ],
+            1,
+        );
+        let frames = keyed_frames(&bytes);
+        let image = &frames[0].0;
+        assert_eq!(
+            image.get_pixel(34, 40)[3],
+            0,
+            "连向透明区的腿间白底应当清除"
+        );
+        assert_eq!(
+            image.get_pixel(34, 57)[3],
+            0,
+            "狭缝出口的灰色过渡也应当清除"
+        );
+        assert_eq!(
+            *image.get_pixel(19, 19),
+            white,
+            "闭合的白眼睛和高光应当保留"
+        );
+        assert_eq!(*image.get_pixel(30, 30), INK);
+    }
+
+    #[test]
+    fn neutral_matte_on_coloured_hair_is_cleaned_without_washing_out_the_core() {
+        let hair = Rgba([102, 41, 38, 255]);
+        let fringe = Rgba([166, 167, 167, 255]);
+        let bytes = painted(
+            (60, 60),
+            CLEAR,
+            &[(fringe, [15, 15, 45, 45]), (hair, [16, 16, 44, 44])],
+            1,
+        );
+        let frames = keyed_frames(&bytes);
+        let image = &frames[0].0;
+        assert_eq!(
+            image.get_pixel(15, 30)[3],
+            0,
+            "灰白轮廓不能因轻微色相误差而漏掉"
+        );
+        assert_eq!(*image.get_pixel(30, 30), hair);
+    }
+
+    #[test]
+    fn closed_background_pockets_need_matte_evidence_and_keep_white_details() {
+        let hair = Rgba([102, 41, 38, 255]);
+        let grey = Rgba([160, 160, 160, 255]);
+        let white = Rgba([255, 255, 255, 255]);
+        let collar = Rgba([245, 245, 245, 255]);
+        let blocks = [
+            (hair, [11, 11, 59, 59]),
+            (white, [25, 25, 27, 32]),
+            (white, [35, 20, 38, 23]),
+            (grey, [40, 30, 55, 50]),
+            (white, [44, 35, 46, 42]),
+            (white, [13, 37, 15, 44]),
+            (collar, [30, 52, 55, 57]),
+        ];
+        let clean = painted((70, 70), CLEAR, &blocks, 1);
+        assert!(
+            key_out(&clean).expect("处理干净素材失败").is_none(),
+            "没有白底毛边的素材不应补抠封闭白块"
+        );
+        let matted: Vec<_> = std::iter::once((Rgba([166, 167, 167, 255]), [10, 10, 60, 60]))
+            .chain(blocks)
+            .collect();
+        let frames = keyed_frames(&painted((70, 70), CLEAR, &matted, 1));
+        let image = &frames[0].0;
+        assert_eq!(
+            image.get_pixel(25, 28)[3],
+            0,
+            "有色轮廓之间的狭长白底应当清除"
+        );
+        assert_eq!(*image.get_pixel(36, 21), white, "白眼睛应当保留");
+        assert_eq!(
+            *image.get_pixel(45, 38),
+            white,
+            "灰色物体上的狭长白色高光应当保留"
+        );
+        assert_eq!(*image.get_pixel(40, 54), collar, "白色衣领应当保留");
+        assert_eq!(
+            *image.get_pixel(13, 40),
+            white,
+            "贴近外轮廓的白色衣服和高光应当保留"
+        );
+        assert_eq!(
+            *image.get_pixel(11, 40),
+            hair,
+            "补抠封闭白块不能重复清理其他轮廓"
+        );
+    }
+
+    #[test]
+    fn makima_fringe_is_cleaned_while_shirt_and_animation_timing_are_preserved() {
+        let source = include_bytes!("../../docs/screenshots/makima/idle.gif");
+        let original = pet_walk::decode(source).expect("Makima 样本解码失败");
+        let frames = keyed_frames(source);
+        assert_eq!(frames.len(), original.len());
+        for ((image, delay), (before, before_delay)) in frames.iter().zip(&original) {
+            assert_eq!(image.dimensions(), before.dimensions());
+            assert_eq!(delay, before_delay);
+            for (after, before) in image.pixels().zip(before.pixels()) {
+                if before[3] == 0 {
+                    assert_eq!(after[3], 0, "不能把透明区域重新染实");
+                }
+            }
+        }
+        let first = &frames[0].0;
+        assert_eq!(first.get_pixel(95, 220)[3], 0, "裤腿外侧明显的白边应当清除");
+        assert_eq!(
+            first.get_pixel(114, 220)[3],
+            0,
+            "腿间残留的白底应当连同灰色出口清除"
+        );
+        assert_eq!(
+            *first.get_pixel(100, 80),
+            *original[0].0.get_pixel(100, 80),
+            "白衬衫应当保留"
+        );
+        assert_eq!(
+            first.get_pixel(104, 51)[3],
+            0,
+            "头发和脖子之间的封闭白底应当清除"
+        );
+        for (x, y) in [(110, 59), (109, 60)] {
+            assert_eq!(
+                *first.get_pixel(x, y),
+                *original[0].0.get_pixel(x, y),
+                "清除颈侧白底不能削掉衣领"
+            );
+        }
+        let neck = [
+            (104, 54),
+            (107, 50),
+            (107, 50),
+            (107, 53),
+            (107, 52),
+            (107, 51),
+            (107, 51),
+            (107, 51),
+            (107, 51),
+            (107, 52),
+            (107, 53),
+            (107, 51),
+        ];
+        for (position, &(x, y)) in neck.iter().enumerate() {
+            assert_eq!(original[position].0.get_pixel(x, y)[3], 255);
+            assert_eq!(
+                frames[position].0.get_pixel(x, y)[3],
+                0,
+                "待机第 {position} 帧的颈侧白底不应重新出现"
+            );
+        }
+    }
+
+    #[test]
+    fn cleaning_closed_matte_pockets_preserves_makimas_white_shoulder() {
+        let frames = keyed_frames(include_bytes!("../../docs/screenshots/makima/jump.gif"));
+        assert_eq!(
+            frames[11].0.get_pixel(136, 86)[3],
+            255,
+            "靠近辫子的白色肩膀不能被挖成透明"
+        );
     }
 
     #[test]

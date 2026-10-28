@@ -48,8 +48,9 @@ fn pets_dir(state: &AppState) -> &Path {
     &state.pets_dir
 }
 
-fn thumb_path(state: &AppState, id: &str) -> PathBuf {
-    pets_dir(state).join(format!("{id}.thumb2.png"))
+// 去底算法升级时，三个派生缓存一起换版本，现有形象也会重新生成。
+fn thumb_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.thumb4.png"))
 }
 
 /// 动作名里有斜杠和中文，拿它的哈希（FNV-1a）当文件名
@@ -60,32 +61,58 @@ fn fnv(entry: &str) -> u64 {
 }
 
 /// 走路动作处理后的缓存
-fn walk_cache_path(state: &AppState, id: &str, entry: &str) -> PathBuf {
-    pets_dir(state).join(format!("{id}.walk2-{:016x}.gif", fnv(entry)))
+fn walk_cache_path(dir: &Path, id: &str, entry: &str) -> PathBuf {
+    dir.join(format!("{id}.walk4-{:016x}.gif", fnv(entry)))
 }
 
 /// 抠掉背景以后的那份素材
-fn key_cache_path(state: &AppState, id: &str, entry: &str) -> PathBuf {
-    pets_dir(state).join(format!("{id}.keyed-{:016x}.gif", fnv(entry)))
+fn key_cache_path(dir: &Path, id: &str, entry: &str) -> PathBuf {
+    dir.join(format!("{id}.keyed3-{:016x}.gif", fnv(entry)))
+}
+
+fn is_derived_cache_name(name: &str, id: &str) -> bool {
+    let Some(suffix) = name
+        .strip_prefix(id)
+        .and_then(|name| name.strip_prefix('.'))
+    else {
+        return false;
+    };
+    if matches!(
+        suffix,
+        "thumb.png" | "thumb2.png" | "thumb3.png" | "thumb4.png"
+    ) {
+        return true;
+    }
+    let Some(animation) = [
+        "walk-", "walk2-", "walk3-", "walk4-", "keyed-", "keyed2-", "keyed3-",
+    ]
+    .iter()
+    .find_map(|prefix| suffix.strip_prefix(prefix)) else {
+        return false;
+    };
+    let Some((hash, extension)) = animation.split_once('.') else {
+        return false;
+    };
+    // 只认完整的缓存名和原子写入的临时文件，避免前缀相近的 id 被误删。
+    hash.len() == 16
+        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && (extension == "gif"
+            || extension.strip_prefix("partial").is_some_and(|sequence| {
+                !sequence.is_empty() && sequence.bytes().all(|byte| byte.is_ascii_digit())
+            }))
 }
 
 /// 形象删掉、或者重新导入时，把由它派生出来的缓存一起清掉：
 /// 缩略图、走路动作、抠过背景的素材
-fn remove_derived_cache(state: &AppState, id: &str) {
-    let prefixes = [
-        format!("{id}.thumb"),
-        format!("{id}.walk-"),
-        format!("{id}.walk2-"),
-        format!("{id}.keyed-"),
-    ];
-    let Ok(entries) = fs::read_dir(pets_dir(state)) else {
+fn remove_derived_cache(dir: &Path, id: &str) {
+    let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if prefixes
-            .iter()
-            .any(|prefix| name.to_string_lossy().starts_with(prefix.as_str()))
+        if name
+            .to_str()
+            .is_some_and(|name| is_derived_cache_name(name, id))
         {
             let _ = fs::remove_file(entry.path());
         }
@@ -226,7 +253,7 @@ fn register_imports(
         remove_owned_file(state, &path);
     }
     for id in updated_ids {
-        remove_derived_cache(state, &id);
+        remove_derived_cache(pets_dir(state), &id);
     }
     emit_settings(app, &next);
     drop(settings);
@@ -382,7 +409,7 @@ pub(crate) fn delete_pet_asset(
         .ok_or_else(|| "找不到这个形象".to_string())?;
     let removed = settings.pet_assets.remove(position);
     remove_owned_file(&state, &removed.path);
-    remove_derived_cache(&state, &removed.id);
+    remove_derived_cache(pets_dir(&state), &removed.id);
     if settings.selected_appearance_id == id {
         settings.selected_appearance_id = default_appearance_id();
     }
@@ -392,7 +419,7 @@ pub(crate) fn delete_pet_asset(
 /// 形象架上的静态缩略图：默认动作的第一帧。几十个 GIF 同时动起来既吵又费电，
 /// 架子上只放静态帧，只有当前那只会动。首次取用时生成并缓存。
 pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
-    let path = thumb_path(state, id);
+    let path = thumb_path(pets_dir(state), id);
     if let Ok(bytes) = fs::read(&path) {
         return Ok(bytes);
     }
@@ -422,7 +449,7 @@ pub(crate) fn read_animation(
     entry: Option<&str>,
 ) -> Result<Vec<u8>, String> {
     let (entry_name, raw) = read_raw_animation(state, id, entry)?;
-    let cache = key_cache_path(state, id, &entry_name);
+    let cache = key_cache_path(pets_dir(state), id, &entry_name);
     if let Ok(bytes) = fs::read(&cache) {
         return Ok(bytes);
     }
@@ -547,7 +574,7 @@ pub(crate) fn pet_animation_duration(
 /// 拖动桌宠时播的走路动作（媒体协议用）。横穿画布的改成原地走（见 pet_walk），
 /// 结果按动作缓存在素材目录里；本来就原地走、或者处理不了的照用原图，拖动时总有图可播。
 pub(crate) fn read_walk(state: &AppState, id: &str, entry: &str) -> Result<Vec<u8>, String> {
-    let cache = walk_cache_path(state, id, entry);
+    let cache = walk_cache_path(pets_dir(state), id, entry);
     if let Ok(bytes) = fs::read(&cache) {
         return Ok(bytes);
     }
@@ -630,6 +657,182 @@ fn is_pet_gif(path: &str) -> bool {
         .next()
         .map(|extension| extension.eq_ignore_ascii_case("gif"))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct CacheTestDir(PathBuf);
+
+    impl CacheTestDir {
+        fn new() -> Self {
+            static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "snapshot-pet-cache-test-{}-{}",
+                std::process::id(),
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&dir).expect("创建缓存测试目录失败");
+            Self(dir)
+        }
+    }
+
+    impl Drop for CacheTestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn derived_cache_paths_bypass_previous_algorithm_outputs() {
+        let temp = CacheTestDir::new();
+        let dir = &temp.0;
+        let id = "pet-7";
+        let entry = "动作/走路.gif";
+        let hash = fnv(entry);
+        let previous = [
+            dir.join(format!("{id}.thumb.png")),
+            dir.join(format!("{id}.thumb2.png")),
+            dir.join(format!("{id}.thumb3.png")),
+            dir.join(format!("{id}.walk-{hash:016x}.gif")),
+            dir.join(format!("{id}.walk2-{hash:016x}.gif")),
+            dir.join(format!("{id}.walk3-{hash:016x}.gif")),
+            dir.join(format!("{id}.keyed-{hash:016x}.gif")),
+            dir.join(format!("{id}.keyed2-{hash:016x}.gif")),
+        ];
+        for path in &previous {
+            fs::write(path, b"previous algorithm").unwrap();
+        }
+        let current = [
+            (thumb_path(dir, id), dir.join(format!("{id}.thumb4.png"))),
+            (
+                walk_cache_path(dir, id, entry),
+                dir.join(format!("{id}.walk4-{hash:016x}.gif")),
+            ),
+            (
+                key_cache_path(dir, id, entry),
+                dir.join(format!("{id}.keyed3-{hash:016x}.gif")),
+            ),
+        ];
+        for (path, expected) in current {
+            assert_eq!(path, expected);
+            assert_eq!(
+                fs::read(&path).unwrap_err().kind(),
+                std::io::ErrorKind::NotFound,
+                "旧缓存不应命中新算法的路径：{path:?}"
+            );
+            fs::write(&path, b"current algorithm").unwrap();
+            assert_eq!(fs::read(&path).unwrap(), b"current algorithm");
+        }
+        for path in previous {
+            assert_eq!(fs::read(path).unwrap(), b"previous algorithm");
+        }
+        assert_ne!(
+            walk_cache_path(dir, id, entry),
+            walk_cache_path(dir, id, "idle.gif")
+        );
+        assert_ne!(
+            key_cache_path(dir, id, entry),
+            key_cache_path(dir, id, "idle.gif")
+        );
+    }
+
+    #[test]
+    fn removing_derived_cache_cleans_all_versions_and_partial_files() {
+        let temp = CacheTestDir::new();
+        let dir = &temp.0;
+        let id = "pet-7";
+        let mut caches = vec![
+            dir.join(format!("{id}.thumb.png")),
+            dir.join(format!("{id}.thumb2.png")),
+            dir.join(format!("{id}.thumb3.png")),
+            dir.join(format!("{id}.thumb4.png")),
+        ];
+        for entry in ["idle.gif", "动作/走路.gif"] {
+            for version in [
+                "walk", "walk2", "walk3", "walk4", "keyed", "keyed2", "keyed3",
+            ] {
+                let path = dir.join(format!("{id}.{version}-{:016x}.gif", fnv(entry)));
+                caches.push(path.with_extension("partial0"));
+                caches.push(path.with_extension("partial42"));
+                caches.push(path);
+            }
+        }
+        for path in &caches {
+            fs::write(path, b"stale cache").unwrap();
+        }
+
+        remove_derived_cache(dir, id);
+
+        for path in caches {
+            assert!(!path.exists(), "应当清理新旧缓存及临时文件：{path:?}");
+        }
+        assert_eq!(fs::read_dir(dir).unwrap().count(), 0);
+        remove_derived_cache(dir, id);
+        remove_derived_cache(&dir.join("missing"), id);
+    }
+
+    #[test]
+    fn removing_derived_cache_preserves_similar_ids_and_non_cache_files() {
+        let temp = CacheTestDir::new();
+        let dir = &temp.0;
+        let id = "pet-7";
+        let hash = fnv("idle.gif");
+        let mut preserved = vec![
+            dir.join(format!("{id}.gif")),
+            dir.join(format!("{id}.zip")),
+            dir.join(format!("{id}.thumbnail.png")),
+            dir.join(format!("{id}.thumb4.png.bak")),
+            dir.join(format!("{id}.walk4-{hash:016x}.gif.bak")),
+            dir.join(format!("{id}.walk4-{hash:016x}.partial")),
+            dir.join(format!("{id}.walk4-{hash:016x}.partial-1")),
+            dir.join(format!("{id}.keyed3-{hash:016x}.partial42.bak")),
+            dir.join(format!("{id}.keyed3-0123456789abcde.gif")),
+            dir.join(format!("{id}.keyed3-0123456789abcdef0.gif")),
+            dir.join(format!("{id}.keyed3-0123456789abcdeg.gif")),
+        ];
+        for sibling in [
+            "pet-70",
+            "pet-7-extra",
+            "pet-7.thumb",
+            "pet-7.thumb2",
+            "pet-7.thumb3",
+            "pet-7.thumb4",
+            "pet-7.walk-sibling",
+            "pet-7.walk2-sibling",
+            "pet-7.walk3-sibling",
+            "pet-7.walk4-sibling",
+            "pet-7.keyed-sibling",
+            "pet-7.keyed2-sibling",
+            "pet-7.keyed3-sibling",
+        ] {
+            preserved.extend([
+                dir.join(format!("{sibling}.gif")),
+                dir.join(format!("{sibling}.zip")),
+                thumb_path(dir, sibling),
+                walk_cache_path(dir, sibling, "idle.gif"),
+                key_cache_path(dir, sibling, "idle.gif"),
+            ]);
+        }
+        for path in &preserved {
+            fs::write(path, b"keep this resource").unwrap();
+        }
+        let own_cache = thumb_path(dir, id);
+        fs::write(&own_cache, b"remove this cache").unwrap();
+
+        remove_derived_cache(dir, id);
+
+        assert!(!own_cache.exists());
+        for path in &preserved {
+            assert_eq!(
+                fs::read(path).unwrap_or_else(|error| panic!("不应误删 {path:?}：{error}")),
+                b"keep this resource"
+            );
+        }
+        assert_eq!(fs::read_dir(dir).unwrap().count(), preserved.len());
+    }
 }
 
 #[cfg(test)]
