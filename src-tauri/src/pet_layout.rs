@@ -1,6 +1,6 @@
-//! 压缩包根目录的可选 `pet.json`：每张 GIF 的脚底锚点，和整包共用的基准画布。
+//! 压缩包根目录的可选 `pet.json`：每个 GIF/WebM 动作的脚底锚点，和整包共用的基准画布。
 //!
-//! 没有这份文件的包跟以前一样，整张 GIF 缩进同一个方窗。格式见 README。
+//! 没有这份文件的包跟以前一样，整张媒体缩进同一个方窗。格式见 README。
 
 use super::*;
 use serde::Deserialize;
@@ -175,16 +175,23 @@ pub(crate) fn read_pet_layout(
         };
         let (anchor_x, anchor_y) =
             finite_anchor(animation.anchor).map_err(|error| format!("{entry} 的{error}"))?;
-        let mut header = [0u8; 10];
-        {
+        let webm = entry
+            .rsplit('.')
+            .next()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("webm"));
+        // WebM 尺寸不在这里解 EBML：pet.json 的 base 就是所有动作共用的逻辑画布，
+        // 作者可按该画布定锚点。GIF 仍读文件头，兼容旧素材。
+        let (width, height) = if webm {
+            (base_width, base_height)
+        } else {
+            let mut header = [0u8; 10];
             let mut gif = archive
                 .by_name(entry)
                 .map_err(|_| format!("压缩包里没有 {entry}"))?;
             gif.read_exact(&mut header)
                 .map_err(|_| format!("{entry} 不是有效的 GIF"))?;
-        }
-        let (width, height) =
-            gif_screen_size(&header).ok_or_else(|| format!("{entry} 不是有效的 GIF"))?;
+            gif_screen_size(&header).ok_or_else(|| format!("{entry} 不是有效的 GIF"))?
+        };
         frames.push(PetFrame {
             entry: entry.clone(),
             width,
@@ -349,6 +356,25 @@ mod tests {
                 },
             ]
         );
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn webm_manifest_uses_the_shared_base_canvas() {
+        let manifest = br#"{
+            "version": 1,
+            "base": { "width": 640, "height": 360, "anchor": [320, 350] },
+            "animations": {
+                "idle.webm": { "anchor": [320, 350] }
+            }
+        }"#;
+        let path = zip_with(&[("pet.json", manifest), ("idle.webm", b"fake-webm")]);
+        let parsed = read_pet_layout(&path, &["idle.webm".into()])
+            .expect("应当能读")
+            .expect("有 pet.json 就该有布局");
+        assert_eq!(parsed.layout.frames.len(), 1);
+        assert_eq!(parsed.layout.frames[0].width, 640);
+        assert_eq!(parsed.layout.frames[0].height, 360);
         let _ = fs::remove_file(&path);
     }
 

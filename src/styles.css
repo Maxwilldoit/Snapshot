@@ -266,25 +266,25 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .pet-window:active { cursor: grabbing; }
 /* 格子固定为外框大小：不固定时，竖长的 GIF 会按自身宽高比把格子撑高，下半身被 overflow 裁掉 */
 .pet-orb { display: grid; grid-template: 100% / 100%; width: var(--pet-icon-size, 56px); height: var(--pet-icon-size, 56px); place-items: center; overflow: hidden; color: var(--ink-2); background: transparent; }
-.pet-orb img { display: block; grid-area: 1 / 1; width: 100%; height: 100%; object-fit: contain; }
+.pet-orb img, .pet-orb video { display: block; grid-area: 1 / 1; width: 100%; height: 100%; object-fit: contain; background: transparent; pointer-events: none; }
 /* 旧画面和待切换动作叠在同一格：隐藏图继续加载解码，准备好再显示，不重复淡入缩放 */
-.pet-orb img[hidden] { visibility: hidden; }
-.pet-orb img.pet-flip { transform: scaleX(-1); }
+.pet-orb > [hidden] { display: block; visibility: hidden; }
+.pet-orb > .pet-flip { transform: scaleX(-1); }
 /* 有 pet.json 时图按锚点摆，不跟方窗一起被 contain 缩小。藏着的走路图照样解码 */
 .pet-frames { position: absolute; inset: 0; }
-.pet-frames > img.pet-framed {
+.pet-frames > .pet-framed {
   position: absolute;
   object-fit: fill;
   max-width: none;
 }
-.pet-frames > img[hidden] { display: block; visibility: hidden; }
-.pet-frames > img.pet-flip { transform: scaleX(-1); }
-.pet-orb img.pet-crossfade-out, .pet-frames > img.pet-crossfade-out {
+/* 新图始终不透明，由上层旧图淡出交接。两层同时变透明会露出桌面，产生闪烁。 */
+.pet-frames > [hidden] { display: block; visibility: hidden; }
+.pet-frames > .pet-flip { transform: scaleX(-1); }
+.pet-orb > .pet-crossfade-out, .pet-frames > .pet-crossfade-out {
   z-index: 2;
   animation: pet-crossfade-out 180ms ease-in both;
 }
-/* 新图始终不透明，由上层旧图淡出交接。两层同时变透明会露出桌面，产生闪烁。 */
-.pet-orb img.pet-current, .pet-frames > img.pet-current {
+.pet-orb > .pet-current, .pet-frames > .pet-current {
   z-index: 1;
   opacity: 1;
   animation: none;

@@ -29,7 +29,7 @@ export interface ShortcutBinding {
   accelerator: string | null;
 }
 
-/** 一张 GIF 的画布和脚底锚点。坐标是 GIF 像素，原点在左上，y 向下 */
+/** 一个桌宠动画的画布和脚底锚点。坐标是媒体像素，原点在左上，y 向下 */
 export interface PetLayoutFrame {
   entry: string;
   width: number;
@@ -40,7 +40,7 @@ export interface PetLayoutFrame {
 
 /**
  * 压缩包里的 pet.json 解析结果。基准画布对应平时那个方窗，
- * 每张 GIF 的脚底锚到基准锚点上。没有这份数据的形象跟以前一样。
+ * 每个 GIF/WebM 动作的脚底锚到基准锚点上。没有这份数据的形象跟以前一样。
  */
 export interface PetLayout {
   baseWidth: number;

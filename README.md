@@ -49,7 +49,7 @@ The Makima companion comes from the [Pets library](https://github.com/Maxwilldoi
 - **Unified history**: screenshots and prompt rewrites appear together in chronological order. Snapshot previews can be copied or annotated; prompt entries retain the original, result, rule, and time. Neither kind has an automatic item limit.
 - **Prompt rewriting**: use an OpenAI-compatible endpoint and custom rules. API keys are stored in the operating system credential store, never in the settings file.
 - **Prompt library**: save reusable prompts independently from rewriting rules and history. Open the library from the companion's quick menu or its global shortcut, then copy any saved prompt without closing the window.
-- **Desktop companion**: display the active application's icon or an animated GIF. It can roam the current display, play actions while idle, and drop back to the taskbar after dragging. Right-click for quick actions; double-click to open the launchpad. On Windows, the companion steps aside when another app covers the same display in fullscreen.
+- **Desktop companion**: display the active application's icon or an animated GIF/WebM. It can roam the current display, play actions while idle, and drop back to the taskbar after dragging. Right-click for quick actions; double-click to open the launchpad. On Windows, the companion steps aside when another app covers the same display in fullscreen.
 - **Launchpad**: application catalog caching, icon warming, search, folders, and multi-page navigation keep application launching responsive.
 - **Global shortcuts**: bind capture, recording, prompt rewriting, the Prompt library, and the quick menu. Pause every global shortcut without losing saved bindings; the paused state persists across restarts.
 - **Appearance**: four layout styles, light and dark themes, system-aware color, and reduced-motion support.
@@ -108,16 +108,17 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 
 **Prompt library.** Open it from the companion's quick menu or its global shortcut (default `Ctrl/Cmd+Shift+P`). Create and edit entries, search titles or content, and copy any prompt without closing the library. These saved prompts are separate from rewrite rules and rewrite history.
 
-**Companion and launchpad.** Import a ZIP of GIFs or a single GIF from the Companion page. Under **Preferences → Desktop companion**, enable **Free roam** or **Random actions** for autonomous behavior, and **Gravity** to make a dragged companion fall back to the work-area floor. Click once to play another action; double-click to open the launchpad. The launchpad supports search, folders, drag-and-drop organization, and paged navigation. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md).
+**Companion and launchpad.** Import a ZIP of GIF/WebM actions or a single GIF/WebM file from the Companion page. Under **Preferences → Desktop companion**, enable **Free roam** or **Random actions** for autonomous behavior, and **Gravity** to make a dragged companion fall back to the work-area floor. Click once to play another action; double-click to open the launchpad. The launchpad supports search, folders, drag-and-drop organization, and paged navigation. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md).
 
 **Language and appearance.** Choose **System**, **Simplified Chinese**, or **English** under **Preferences → Interface language**. The Themes page controls layout, color, and motion.
 
 ## Companion assets
 
-- Use one GIF per action. A file whose name contains `idle` becomes the default pose.
-- Files containing `walk`, `run`, or `move` become directional walking actions. Include `left` or `right` in the filename to select a direction; the other direction is mirrored when only one is available.
-- Painted backgrounds are removed on import while interior colors such as a white shirt are preserved.
-- Archives are limited to 100 MB; individual GIFs are limited to 50 MB.
+- Use one GIF or WebM per action. A file whose name contains `idle` or `待机` becomes the default pose.
+- Files containing `walk`, `run`, `move`, `走`, or `跑` become walking actions. Include `left`/`左` or `right`/`右` in the filename to select a direction; the other direction is mirrored when only one is available.
+- Painted backgrounds are removed from imported GIFs while interior colors such as a white shirt are preserved. WebM files should carry their own alpha channel.
+- Archives are limited to 100 MB; individual animation files are limited to 50 MB.
+- WebM should use VP9 with an alpha channel. It is played directly by the WebView; transparent playback support depends on the platform WebView.
 - Actions with a larger canvas can use a `pet.json` file for a shared base canvas and foot anchors. The [Pets authoring guide](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md#给素材作者按事件设计动作) documents the format.
 
 ## Build from source

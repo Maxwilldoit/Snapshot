@@ -2,7 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 /**
  * 后端 media:// 协议上的资源地址（见 src-tauri/src/media.rs）。
- * 图片、音频交给 WebView 按地址直接去取，不再经 IPC 传 base64 字符串。
+ * 图片、视频和音频交给 WebView 按地址直接去取，不再经 IPC 传 base64 字符串。
  * convertFileSrc 负责各平台的地址形式（Windows 上是 http://media.localhost/…）。
  */
 const media = (path: string) => convertFileSrc(path, "media");
@@ -15,6 +15,10 @@ export const thumbUrl = (id: string) => media(`thumb/${id}`);
 /** 不指定动作时由后端取该形象的默认动作 */
 export const petUrl = (assetId: string, entry?: string | null) =>
   media(entry ? `pet/${assetId}/${entry}` : `pet/${assetId}`);
+
+/** 桌宠动作格式；GIF 和 WebM 共用同一套动作目录。 */
+export const isWebmEntry = (entry: string | null | undefined) =>
+  /(?:^|[.])webm(?:$|[?#])/i.test(entry ?? "");
 
 /** 拖动桌宠时播的走路动作；横穿画布的由后端改成原地走 */
 export const petWalkUrl = (assetId: string, entry: string) => media(`pet-walk/${assetId}/${entry}`);

@@ -15,6 +15,7 @@ import {
 } from "../lib/backend";
 import { iconUrl } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
+import { PetMedia } from "../components/PetMedia";
 import { petImageFrame, usePetImages } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { placementForEntry, type PetPlacement } from "../lib/petFrame";
@@ -318,7 +319,7 @@ export function PetWindow() {
   const normalFrame = custom ? petImageFrame(appearanceId, normalEntry, false, false, actionPulse) : null;
   const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
   const targetFrame = shownWalk && shownChoice ? petImageFrame(appearanceId, shownChoice.entry, true, shownChoice.flip) : normalFrame;
-  const { frames, displayed, leaving, onLoad: onPetImageLoad } = usePetImages(targetFrame, [...(normalFrame ? [normalFrame] : []), ...walkFrames]);
+  const { frames, displayed, leaving, onReady: onPetImageReady } = usePetImages(targetFrame, [...(normalFrame ? [normalFrame] : []), ...walkFrames]);
   const visibleEntry = displayed?.entry ?? null;
   const visibleFlip = displayed?.flip ?? false;
   const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
@@ -710,7 +711,7 @@ export function PetWindow() {
             {frames.map((frame) => {
               const style = framedStyle(frame.entry ?? "", frame.flip);
               return (
-                <img
+                <PetMedia
                   key={frame.key}
                   className={[
                     frame.walk ? "pet-walk" : "pet-action",
@@ -720,10 +721,9 @@ export function PetWindow() {
                   ].filter(Boolean).join(" ")}
                   style={style}
                   src={frame.src}
-                  alt=""
-                  draggable={false}
+                  entry={frame.entry}
                   hidden={displayed?.key !== frame.key && leaving?.key !== frame.key}
-                  onLoad={(event) => void onPetImageLoad(frame, event.currentTarget)}
+                  onReady={(element) => void onPetImageReady(frame, element)}
                 />
               );
             })}

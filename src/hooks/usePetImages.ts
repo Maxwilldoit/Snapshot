@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { petUrl, petWalkUrl } from "../lib/media";
+import type { PetMediaElement } from "../components/PetMedia";
 
 /** 新画面准备好后，旧画面在上层短暂淡出，避免 GIF 从半途硬切回首帧。 */
 export const PET_IMAGE_FADE_MS = 180;
@@ -32,7 +33,7 @@ export function usePetImages(target: PetImageFrame | null, preload: PetImageFram
   const activeRef = useRef<PetImageFrame | null>(null);
   const fadeTimer = useRef<number | undefined>(undefined);
   latestTarget.current = target;
-  const ready = useRef(new Map<string, HTMLImageElement>());
+  const ready = useRef(new Map<string, PetMediaElement>());
   const displayed = active?.assetId === target?.assetId ? active : null;
   const leaving = previous && previous.assetId === target?.assetId && previous.key !== displayed?.key
     ? previous
@@ -75,18 +76,22 @@ export function usePetImages(target: PetImageFrame | null, preload: PetImageFram
     }
   });
 
-  async function onLoad(frame: PetImageFrame, image: HTMLImageElement) {
-    try {
-      await image.decode?.();
-    } catch {
-      // 某些 WebView 的 GIF decode 会拒绝，但 load 后已有可显示的首帧。
-      if (!image.complete || image.naturalWidth === 0) return;
+  async function onReady(frame: PetImageFrame, element: PetMediaElement) {
+    if (element instanceof HTMLImageElement) {
+      try {
+        await element.decode?.();
+      } catch {
+        // 某些 WebView 的 GIF decode 会拒绝，但 load 后已有可显示的首帧。
+        if (!element.complete || element.naturalWidth === 0) return;
+      }
+    } else if (element.readyState < 2) {
+      return;
     }
     // 快速切换后，旧请求即使晚到也不能把新动作顶掉。
-    if (!image.isConnected) return;
-    ready.current.set(frame.key, image);
+    if (!element.isConnected) return;
+    ready.current.set(frame.key, element);
     if (latestTarget.current?.key === frame.key) show(frame);
   }
 
-  return { frames, displayed, leaving, onLoad };
+  return { frames, displayed, leaving, onReady };
 }

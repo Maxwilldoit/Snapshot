@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CatShape } from "../components/ui/CatShape";
+import { PetMedia, PetThumb } from "../components/PetMedia";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { addPetAssets, deletePetAsset, renamePetAsset, selectPetAppearance, showPetCatalog } from "../lib/backend";
-import { petThumbUrl, petUrl } from "../lib/media";
+import { petUrl } from "../lib/media";
 import { fileNameOf, formatBytes } from "../lib/format";
 import { commonPrefix, entryLabel } from "../lib/petNames";
 import { flyImage, stagger, useFlip, useSlidingMark } from "../lib/motion";
@@ -11,7 +12,7 @@ import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { PetAsset } from "../types";
 
-const ACCEPTED = /\.(zip|gif)$/i;
+const ACCEPTED = /\.(zip|gif|webm)$/i;
 /** 舞台上的伴侣最高多少像素（和 .pet-stage-image 的 max-height 一致） */
 const STAGE_MAX_HEIGHT = 232;
 
@@ -30,7 +31,6 @@ function ShelfItem({
   index: number;
 }) {
   const { t } = useI18n();
-  const [failed, setFailed] = useState(false);
   const broken = Boolean(asset?.missing);
   const name = asset ? asset.name : t("前台应用图标");
   return (
@@ -51,10 +51,10 @@ function ShelfItem({
         <span className="shelf-figure">
           {!asset ? (
             <span className="app-glyph" aria-hidden="true"><span /></span>
-          ) : broken || failed ? (
+          ) : broken ? (
             <CatShape height={46} outline />
           ) : (
-            <img src={petThumbUrl(asset.id)} alt="" loading="lazy" draggable={false} onError={() => setFailed(true)} />
+            <PetThumb assetId={asset.id} entry={asset.entry} fallback={<CatShape height={46} outline />} />
           )}
         </span>
         <span className="shelf-name">{name}</span>
@@ -132,14 +132,14 @@ export function PetPage() {
     const accepted = paths.filter((path) => ACCEPTED.test(path));
     const skipped = paths.filter((path) => !ACCEPTED.test(path));
     if (!accepted.length) {
-      if (skipped.length) notify(t("只认 ZIP 或 GIF"), "error");
+      if (skipped.length) notify(t("只认 ZIP、GIF 或 WebM"), "error");
       return;
     }
     setImporting(true);
     try {
       const result = await addPetAssets(accepted);
       onSaved(result.settings);
-      setFailures([...result.failed, ...skipped.map((path) => ({ path, reason: t("不是 ZIP 或 GIF") }))]);
+      setFailures([...result.failed, ...skipped.map((path) => ({ path, reason: t("不是 ZIP、GIF 或 WebM") }))]);
       if (result.imported > 0) {
         notify(result.imported === 1
           ? t("导入了 1 只，已经换上")
@@ -155,7 +155,7 @@ export function PetPage() {
 
   async function pickFiles() {
     try {
-      const picked = await open({ multiple: true, directory: false, filters: [{ name: t("伴侣素材"), extensions: ["zip", "gif"] }] });
+      const picked = await open({ multiple: true, directory: false, filters: [{ name: t("伴侣素材"), extensions: ["zip", "gif", "webm"] }] });
       const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
       if (paths.length) await importPaths(paths);
     } catch {
@@ -163,7 +163,7 @@ export function PetPage() {
     }
   }
 
-  // 直接把 ZIP / GIF 拖进窗口
+  // 直接把 ZIP / GIF / WebM 拖进窗口
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     try {
@@ -215,7 +215,14 @@ export function PetPage() {
       <section className="pet-current" aria-label={t("当前伴侣")}>
         <div className="pet-stage" ref={stageRef}>
           {stageSrc ? (
-            <img key={stageSrc} className={`pet-stage-image ${landing === "flying" ? "is-landing" : landing === "landed" ? "is-landed" : ""}`} src={stageSrc} alt={selected?.name ?? ""} draggable={false} />
+            <PetMedia
+              key={stageSrc}
+              className={`pet-stage-image ${landing === "flying" ? "is-landing" : landing === "landed" ? "is-landed" : ""}`}
+              src={stageSrc}
+              entry={activeEntry}
+              alt={selected?.name ?? ""}
+              fallback={<CatShape height={150} outline />}
+            />
           ) : selected ? (
             <CatShape height={150} outline />
           ) : (

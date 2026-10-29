@@ -155,8 +155,8 @@
   display: flex; align-items: flex-end; justify-content: center; flex: 0 0 auto;
   height: 150px; padding: 0; border: 0; background: none;
 }
-.companion-cat img { display: block; max-height: 140px; max-width: 100%; object-fit: contain; }
-.companion-cat.is-hop img { animation: hop 420ms var(--ease-cat); }
+.companion-cat img, .companion-cat video { display: block; max-height: 140px; max-width: 100%; object-fit: contain; background: transparent; pointer-events: none; }
+.companion-cat.is-hop :is(img, video) { animation: hop 420ms var(--ease-cat); }
 @keyframes hop { 0% { transform: translateY(0); } 40% { transform: translateY(-8px); } 100% { transform: translateY(0); } }
 .companion-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-bottom: 8px; font-size: var(--text-small); color: var(--ink-3); }
 .companion-floor { flex: 0 0 auto; height: 2px; background: var(--ink-fill); }
@@ -417,7 +417,7 @@
 .layout-topbar .pet-page, .layout-timeline .pet-page { padding-left: 32px; }
 .pet-current { position: sticky; top: 10px; align-self: start; display: flex; flex-direction: column; min-width: 0; min-height: calc(100vh - var(--titlebar-h) - 32px); }
 .pet-stage { display: flex; align-items: flex-end; justify-content: center; height: 250px; flex: 0 0 auto; }
-.pet-stage-image { display: block; max-height: 232px; max-width: 100%; object-fit: contain; animation: fade-in var(--t-open) var(--ease-out); }
+.pet-stage-image { display: block; max-height: 232px; max-width: 100%; object-fit: contain; background: transparent; pointer-events: none; animation: fade-in var(--t-open) var(--ease-out); }
 /* 从架子上飞过来的替身还在路上时，真图先藏着，落地那一刻再露出来 */
 .pet-stage-image.is-landing { opacity: 0; animation: none; }
 .pet-stage-image.is-landed { animation: none; }
@@ -442,11 +442,11 @@
   border-bottom: 1px solid var(--rule-strong); margin-bottom: 1px;
   transition: border-color var(--t-fade) var(--ease-out);
 }
-.shelf-figure img { display: block; max-height: 66px; max-width: 86%; object-fit: contain; transition: transform var(--t-fade) var(--ease-out); }
+.shelf-figure img, .shelf-figure video { display: block; max-height: 66px; max-width: 86%; object-fit: contain; background: transparent; pointer-events: none; transition: transform var(--t-fade) var(--ease-out); }
 .shelf-figure .app-glyph { margin-bottom: 8px; }
 .shelf-figure .cat-shape { margin-bottom: 6px; }
 .pet-stage .cat-shape { margin-bottom: 14px; }
-.shelf-button:hover .shelf-figure img { transform: translateY(-3px); }
+.shelf-button:hover .shelf-figure :is(img, video) { transform: translateY(-3px); }
 .shelf-item.is-selected .shelf-figure { border-bottom: 2px solid var(--ink); margin-bottom: 0; }
 .shelf-name { margin-top: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: center; font-size: var(--text-small); line-height: 18px; color: var(--ink-2); padding: 0 4px; }
 .shelf-item.is-selected .shelf-name { color: var(--ink); font-weight: 600; }

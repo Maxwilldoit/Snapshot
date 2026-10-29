@@ -1,4 +1,4 @@
-//! 应用自己的媒体协议 `media://`：页面里的 `<img>` / `<audio>` 直接向后端要文件字节。
+//! 应用自己的媒体协议 `media://`：页面里的 `<img>` / `<video>` / `<audio>` 直接向后端要文件字节。
 //!
 //! 原先是把文件读出来转成 base64 字符串，再经 IPC 塞给页面：历史页一打开就把每张快照的
 //! 原图全转一遍（上限 200 张，全攥在页面内存里），桌宠每换一个动作就重新解一次压缩包、
@@ -90,18 +90,20 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
                 Some((id, entry)) => (id, Some(entry)),
                 None => (rest, None),
             };
+            let bytes = pet::read_animation(&state, id, entry)?;
             Ok(Media {
-                mime: "image/gif",
+                mime: pet::animation_mime(&bytes),
                 immutable: false,
-                bytes: pet::read_animation(&state, id, entry)?,
+                bytes,
             })
         }
         "pet-walk" => {
             let (id, entry) = rest.split_once('/').ok_or("走路动作路径不完整")?;
+            let bytes = pet::read_walk(&state, id, entry)?;
             Ok(Media {
-                mime: "image/gif",
+                mime: pet::animation_mime(&bytes),
                 immutable: false,
-                bytes: pet::read_walk(&state, id, entry)?,
+                bytes,
             })
         }
         "launch-icon" => {
@@ -202,5 +204,14 @@ mod tests {
             bytes: vec![1],
         }));
         assert_eq!(pet.headers()[header::CACHE_CONTROL], "no-cache");
+    }
+
+    #[test]
+    fn pet_media_type_comes_from_the_container_bytes() {
+        assert_eq!(pet::animation_mime(b"GIF89a"), "image/gif");
+        assert_eq!(
+            pet::animation_mime(&[0x1A, 0x45, 0xDF, 0xA3, 0x00]),
+            "video/webm"
+        );
     }
 }

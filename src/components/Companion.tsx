@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { CatShape } from "./ui/CatShape";
+import { PetMedia, PetThumb } from "./PetMedia";
 import { clearClipboardNow, keepClipboard, toggleRecording } from "../lib/backend";
-import { petThumbUrl, petUrl } from "../lib/media";
+import { petUrl } from "../lib/media";
 import { formatDuration } from "../lib/format";
 import { narrate } from "../lib/activity";
 import { motionReduced, usePresence } from "../lib/motion";
@@ -145,7 +146,7 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
 
   const animate = windowVisible && !motionReduced();
   // 默认跟着桌宠；点击这里只在应用内切动作，不广播，也不改变桌面上的宠物。
-  const catSrc = asset ? (animate || localEntry ? petUrl(asset.id, entry) : petThumbUrl(asset.id)) : null;
+  const animatePet = Boolean(asset && (animate || localEntry));
 
   return (
     <div className={`companion ${away ? "is-away" : ""} ${compact ? "is-compact" : ""}`}>
@@ -166,8 +167,12 @@ export function Companion({ away = false, compact = false }: { away?: boolean; c
         aria-label={asset ? t("{name}，切换动作", { name: asset.name }) : t("还没有伴侣，去导入一只")}
         onClick={() => asset ? switchCompanionAction() : navigate("pet")}
       >
-        {catSrc ? (
-          <img key={catSrc} src={catSrc} alt="" draggable={false} />
+        {asset ? (
+          animatePet ? (
+            <PetMedia key={`${asset.id}/${entry}`} src={petUrl(asset.id, entry)} entry={entry} playing={animatePet} />
+          ) : (
+            <PetThumb assetId={asset.id} entry={asset.entry} fallback={<CatShape height={64} outline />} />
+          )
         ) : (
           <span className="companion-empty">
             <CatShape height={64} outline />
