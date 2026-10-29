@@ -32,15 +32,25 @@ pub(crate) fn copy_image(
     let width = image.width() as usize;
     let height = image.height() as usize;
     let bytes = image.into_raw();
-    Clipboard::new()
-        .and_then(|mut clipboard| {
+    // arboard 自身会短暂重试打开剪贴板；Windows 剪贴板历史或其它应用可能在
+    // 一次完整的 16MB 图片写入后仍占着它。再给一次短退避，避免连续截图偶发失败。
+    fn set_image(width: usize, height: usize, bytes: &[u8]) -> Result<(), arboard::Error> {
+        Clipboard::new().and_then(|mut clipboard| {
             clipboard.set_image(ImageData {
                 width,
                 height,
-                bytes: Cow::Borrowed(&bytes),
+                bytes: Cow::Borrowed(bytes),
             })
         })
-        .map_err(|error| error.to_string())?;
+    }
+    match set_image(width, height, &bytes) {
+        Ok(()) => {}
+        Err(arboard::Error::ClipboardOccupied) => {
+            thread::sleep(Duration::from_millis(40));
+            set_image(width, height, &bytes).map_err(|error| error.to_string())?;
+        }
+        Err(error) => return Err(error.to_string()),
+    }
     // 到点前要确认剪贴板里还是这张图（用户可能已经复制了别的）。只留指纹不留原图：
     // 4K 截图一份约 33MB，没必要在内存里攥满整个清空时限。
     let fingerprint = image_fingerprint(width, height, &bytes);

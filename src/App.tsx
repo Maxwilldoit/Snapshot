@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getShortcutConflicts,
   loadSettings,
-  onCaptureFeedback,
+  onCaptureShot,
   onSettingsChanged,
   platformCapabilities,
 } from "./lib/backend";
-import { previewHintSound } from "./lib/sound";
+import { previewHintSound, primeHintSound } from "./lib/sound";
 import { shortcutKeys } from "./lib/format";
 import {
   applyTheme,
@@ -113,6 +113,8 @@ export function App() {
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [caps, setCaps] = useState<PlatformCapabilities | null>(null);
   const [flash, setFlash] = useState(false);
+  const flashTimer = useRef<number | null>(null);
+  const recentCaptureShots = useRef<string[]>([]);
   const [pendingPreviewId, setPendingPreviewId] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -162,10 +164,16 @@ export function App() {
   }, [notify]);
 
   useEffect(() => {
-    const pending = onCaptureFeedback((payload) => {
+    const pending = onCaptureShot((payload) => {
+      // Tauri 正常只投递一次；事件重放或 StrictMode 下重复挂载也不能响两声。
+      if (recentCaptureShots.current.includes(payload.shotId)) return;
+      recentCaptureShots.current = [...recentCaptureShots.current.slice(-15), payload.shotId];
+      const receivedEpoch = Date.now();
+      const receivedAt = performance.now();
       if (payload.flash) {
         setFlash(true);
-        window.setTimeout(() => setFlash(false), 220);
+        if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+        flashTimer.current = window.setTimeout(() => setFlash(false), 220);
       }
       if (payload.shutterSound !== "none") {
         previewHintSound(
@@ -174,9 +182,27 @@ export function App() {
           80,
         );
       }
+      if (payload.trace) {
+        console.debug(
+          `[snapshot] capture feedback shot=${payload.shotId} end_to_end_ms=${receivedEpoch - payload.startedAtMs} bridge_ms=${receivedEpoch - payload.sentAtMs} sound_schedule_ms=${(performance.now() - receivedAt).toFixed(2)}`,
+        );
+      }
     });
     return () => {
       void pending.then((unlisten) => unlisten());
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    // 提前创建共享的 Web Audio 上下文；真正恢复/播放仍发生在用户操作或截图事件里。
+    primeHintSound();
+    const unlock = () => primeHintSound();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
     };
   }, []);
 

@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { emit } from "@tauri-apps/api/event";
 import type { InvokeArgs } from "@tauri-apps/api/core";
 import type { PlatformCapabilities, Settings } from "./types";
 import { invokeArgs, setupTauriMock } from "./test/tauri";
@@ -91,5 +92,100 @@ describe("global shortcuts", () => {
 
     // 冲突由侧栏的猫说出来，按键写成人读的样子
     expect(await screen.findByText("Alt Shift 2 没能注册，可能被别的程序占用了")).toBeTruthy();
+  });
+});
+
+describe("capture feedback", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("plays the reaction for one shot ID only", async () => {
+    await renderApp((command) => {
+      if (command === "load_settings") return settings;
+      if (command === "platform_capabilities") return capabilities;
+      if (command === "get_shortcut_conflicts") return [];
+      return undefined;
+    });
+    await screen.findByRole("heading", { name: "全局快捷键" });
+    const timeout = vi.spyOn(window, "setTimeout");
+    const shot = {
+      shotId: "shot-1",
+      startedAtMs: Date.now(),
+      sentAtMs: Date.now(),
+      trace: false,
+      flash: true,
+      shutterSound: "crisp" as const,
+      customSoundPath: null,
+    };
+
+    await act(async () => {
+      await emit("capture-shot", shot);
+      await emit("capture-shot", shot);
+      // 最终事件保留给兼容消费者，不能再次触发快门闪光或第二遍声音。
+      await emit("capture-feedback", {
+        flash: true,
+        shutterSound: "crisp",
+        customSoundPath: null,
+      });
+    });
+
+    expect(Array.from(document.querySelectorAll(".shutter-flash"))).toHaveLength(1);
+    expect(timeout.mock.calls.filter((call) => call[1] === 220)).toHaveLength(1);
+  });
+
+  it("honors the sound setting and does not replay a capture-shot", async () => {
+    let starts = 0;
+    class CountingAudioContext {
+      state = "running";
+      currentTime = 0;
+      sampleRate = 48_000;
+      destination = {};
+      resume = vi.fn(async () => {});
+      createBuffer(_channels: number, length: number) {
+        return { getChannelData: () => new Float32Array(length) };
+      }
+      createBufferSource() {
+        starts += 1;
+        return {
+          buffer: null,
+          connect: (target: unknown) => target,
+          start: vi.fn(),
+          stop: vi.fn(),
+        };
+      }
+      createBiquadFilter() {
+        return { frequency: { value: 0 }, Q: { value: 0 }, connect: (target: unknown) => target };
+      }
+      createGain() {
+        return {
+          gain: { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+          connect: (target: unknown) => target,
+        };
+      }
+    }
+    vi.stubGlobal("AudioContext", CountingAudioContext);
+    await renderApp((command) => {
+      if (command === "load_settings") return settings;
+      if (command === "platform_capabilities") return capabilities;
+      if (command === "get_shortcut_conflicts") return [];
+      return undefined;
+    });
+    await screen.findByRole("heading", { name: "全局快捷键" });
+
+    const shot = {
+      shotId: "shot-a",
+      startedAtMs: Date.now(),
+      sentAtMs: Date.now(),
+      trace: false,
+      flash: false,
+      shutterSound: "crisp" as const,
+      customSoundPath: null,
+    };
+    await act(async () => {
+      await emit("capture-shot", shot);
+      await emit("capture-shot", shot);
+      await emit("capture-shot", { ...shot, shotId: "shot-b", shutterSound: "none" });
+    });
+
+    expect(starts).toBe(2);
   });
 });

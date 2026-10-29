@@ -1,4 +1,5 @@
 use super::*;
+use crate::capture_timing::CaptureTrace;
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -277,12 +278,18 @@ fn palette_position(
 
 #[tauri::command]
 pub(crate) fn hide_quick_menu(app: AppHandle) {
+    let _ = hide_quick_menu_window(&app);
+}
+
+fn hide_quick_menu_window(app: &AppHandle) -> Result<Option<tauri::WebviewWindow>, String> {
     if let Some(state) = app.try_state::<AppState>() {
         state.quick_menu_pending_show.store(false, Ordering::SeqCst);
     }
     if let Some(window) = app.get_webview_window("quick-menu") {
-        let _ = window.hide();
+        window.hide().map_err(|error| error.to_string())?;
+        return Ok(Some(window));
     }
+    Ok(None)
 }
 
 /// 输入框里执行一个会截屏的动作：先把自己藏起来再动手，否则会截进画面里。
@@ -293,16 +300,39 @@ pub(crate) async fn run_action(
     action: String,
     target_id: Option<u32>,
 ) -> Result<String, String> {
-    hide_quick_menu(app.clone());
-    // 等窗口真的从屏幕上消失（合成器要一两帧）
-    let _ =
-        tauri::async_runtime::spawn_blocking(|| thread::sleep(Duration::from_millis(160))).await;
-    let result = if action == "capture" {
-        let state = app.state::<AppState>();
-        capture::capture_window(app.clone(), state, target_id)
-    } else {
-        perform(&app, &action).await
+    let is_capture = capture_action(&action);
+    let trace = is_capture.then(CaptureTrace::start);
+    let menu = match hide_quick_menu_window(&app) {
+        Ok(menu) => menu,
+        Err(error) if is_capture => {
+            if let Some(trace) = &trace {
+                trace.finish("error");
+            }
+            activity::record_error(&app, action_failure_title(&action), &error);
+            emit_pet_failure(&app, &action);
+            return Err(error);
+        }
+        Err(_) => None,
     };
+    if let Some(trace) = &trace {
+        trace.mark("menu_hide");
+    }
+
+    // 只有会读取屏幕的动作才需要在菜单消失后等待。窗口选择和其它菜单动作
+    // 没必要承担这个固定开销。
+    if is_capture {
+        if let Some(menu) = menu {
+            settle_hidden_quick_menu(menu).await;
+        }
+        if let Some(trace) = &trace {
+            trace.mark("menu_settle");
+        }
+    }
+
+    let result = perform_with_trace(&app, &action, target_id, trace.as_ref()).await;
+    if let Some(trace) = &trace {
+        trace.finish(if result.is_ok() { "ok" } else { "error" });
+    }
     if let Err(error) = &result {
         activity::record_error(&app, action_failure_title(&action), error);
         if action != "polish" {
@@ -310,6 +340,30 @@ pub(crate) async fn run_action(
         }
     }
     result
+}
+
+fn capture_action(action: &str) -> bool {
+    matches!(action, "capture" | "snapshot" | "fullscreen" | "scrolling")
+}
+
+async fn settle_hidden_quick_menu(window: tauri::WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    {
+        let settled = tauri::async_runtime::spawn_blocking(move || os::wait_until_hidden(&window))
+            .await
+            .unwrap_or_else(|error| Err(error.to_string()));
+        if settled.is_ok() {
+            return;
+        }
+        // DwmFlush 不可用时宁可多等，也不能把菜单拍进截图。
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = window;
+
+    let _ = tauri::async_runtime::spawn_blocking(|| {
+        thread::sleep(Duration::from_millis(160));
+    })
+    .await;
 }
 
 pub(crate) fn action_failure_title(action: &str) -> &'static str {
@@ -355,9 +409,34 @@ pub(crate) fn show_main_window(app: AppHandle) {
 
 /// 执行一个全局快捷键动作（由 shortcuts.rs 的按键回调调用）。
 pub(crate) async fn perform(app: &AppHandle, action: &str) -> Result<String, String> {
+    let trace = capture_action(action).then(CaptureTrace::start);
+    let result = perform_with_trace(app, action, None, trace.as_ref()).await;
+    if let Some(trace) = &trace {
+        trace.finish(if result.is_ok() { "ok" } else { "error" });
+    }
+    result
+}
+
+async fn perform_with_trace(
+    app: &AppHandle,
+    action: &str,
+    target_id: Option<u32>,
+    trace: Option<&CaptureTrace>,
+) -> Result<String, String> {
     let state = app.state::<AppState>();
     match action {
-        "snapshot" => capture::capture_window(app.clone(), state, None),
+        "capture" | "snapshot" => {
+            let capture_app = app.clone();
+            let capture_trace = trace.cloned().unwrap_or_else(CaptureTrace::start);
+            // xcap/GDI、编码、缩略图和剪贴板都会阻塞，整段放到阻塞线程池，
+            // 避免占住 Tauri 的异步运行时。即时快门事件仍在原图返回时立即发送。
+            tauri::async_runtime::spawn_blocking(move || {
+                let state = capture_app.state::<AppState>();
+                capture::capture_window(capture_app.clone(), state, target_id, capture_trace)
+            })
+            .await
+            .map_err(|error| error.to_string())?
+        }
         "palette" => show_palette_centered(app).map(|_| String::new()),
         "prompts" => prompt_library::show_prompt_library(app.clone())
             .await
@@ -374,12 +453,23 @@ pub(crate) async fn perform(app: &AppHandle, action: &str) -> Result<String, Str
         "polish" => polish::polish_clipboard(app.clone(), state).await,
         "fullscreen" => {
             let include_cursor = state.settings.lock().include_cursor;
-            let (image, name, cursor_degraded) = tauri::async_runtime::spawn_blocking(move || {
-                capture::capture_fullscreen_image(include_cursor)
+            let capture_trace = trace.cloned().unwrap_or_else(CaptureTrace::start);
+            let capture_app = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let state = capture_app.state::<AppState>();
+                let (image, name, cursor_degraded) =
+                    capture::capture_fullscreen_image(include_cursor, &capture_trace)?;
+                capture::finalize_capture(
+                    &capture_app,
+                    &state,
+                    image,
+                    &name,
+                    cursor_degraded,
+                    capture_trace,
+                )
             })
             .await
-            .map_err(|error| error.to_string())??;
-            capture::finalize_capture(app, &state, image, &name, cursor_degraded)
+            .map_err(|error| error.to_string())?
         }
         // 滚动长截图只有 Linux/X11 有实现（其余平台的 SHORTCUT_ACTIONS 里也没有这一项）
         #[cfg(target_os = "linux")]
@@ -402,6 +492,7 @@ pub(crate) async fn perform(app: &AppHandle, action: &str) -> Result<String, Str
                 image,
                 ui_text("滚动长截图", "Scrolling capture"),
                 None,
+                trace.cloned().unwrap_or_else(CaptureTrace::start),
             )
         }
         _ => Err("未知快捷键动作".into()),

@@ -1,4 +1,5 @@
 use super::*;
+use crate::capture_timing::CaptureTrace;
 use image::buffer::ConvertBuffer;
 use serde::Deserialize;
 
@@ -149,6 +150,24 @@ pub(crate) fn store_snapshot(
     image: &RgbaImage,
     app_name: &str,
 ) -> Result<SnapshotRecord, String> {
+    store_snapshot_inner(state, image, app_name, None)
+}
+
+pub(crate) fn store_snapshot_traced(
+    state: &AppState,
+    image: &RgbaImage,
+    app_name: &str,
+    trace: &CaptureTrace,
+) -> Result<SnapshotRecord, String> {
+    store_snapshot_inner(state, image, app_name, Some(trace))
+}
+
+fn store_snapshot_inner(
+    state: &AppState,
+    image: &RgbaImage,
+    app_name: &str,
+    trace: Option<&CaptureTrace>,
+) -> Result<SnapshotRecord, String> {
     let dir = history_dir(state);
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     let format_setting = state.settings.lock().snapshot_format.clone();
@@ -161,7 +180,13 @@ pub(crate) fn store_snapshot(
     );
     let file_name = format!("{id}.{ext}");
     let path = dir.join(&file_name);
-    write_image(image, &path, format).map_err(|error| format!("保存快照失败：{error}"))?;
+    match trace.filter(|trace| trace.enabled()) {
+        Some(trace) => write_image_timed(image, &path, format, trace)
+            .map_err(|error| format!("保存快照失败：{error}"))?,
+        None => {
+            write_image(image, &path, format).map_err(|error| format!("保存快照失败：{error}"))?;
+        }
+    }
     let size_bytes = fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
     let record = SnapshotRecord {
         id,
@@ -173,13 +198,16 @@ pub(crate) fn store_snapshot(
         created_at,
     };
     // 缩略图失败不影响快照本身：列表里取不到时会按原图现做一张
-    let _ = write_thumbnail(state, &record.id, image);
+    let _ = write_thumbnail(state, &record.id, image, trace);
     let index_path = snapshot_index_path(state);
     {
         let _guard = state.snapshot_index_lock.lock();
         let mut records = read_snapshot_index(&index_path);
         records.insert(0, record.clone());
         write_snapshot_index(&index_path, &records)?;
+    }
+    if let Some(trace) = trace {
+        trace.mark("history_index");
     }
     Ok(record)
 }
@@ -190,13 +218,23 @@ fn thumbnail_path(state: &AppState, id: &str) -> PathBuf {
 
 /// 按原比例缩到固定高度（超宽的再按宽度封顶），存成 JPEG。
 /// 历史页一屏几十张，原图动辄几 MB，直接当缩略图用会让滚动发卡。
-fn write_thumbnail(state: &AppState, id: &str, image: &RgbaImage) -> Result<(), String> {
+fn write_thumbnail(
+    state: &AppState,
+    id: &str,
+    image: &RgbaImage,
+    trace: Option<&CaptureTrace>,
+) -> Result<(), String> {
     let (width, height) = thumbnail_size(image.width(), image.height());
     let small = image::imageops::thumbnail(image, width, height);
     let rgb: image::RgbImage = small.convert();
     fs::create_dir_all(&state.thumbs_dir).map_err(|error| error.to_string())?;
-    rgb.save_with_format(thumbnail_path(state, id), ImageFormat::Jpeg)
-        .map_err(|error| error.to_string())
+    let result = rgb
+        .save_with_format(thumbnail_path(state, id), ImageFormat::Jpeg)
+        .map_err(|error| error.to_string());
+    if let Some(trace) = trace {
+        trace.mark("thumbnail");
+    }
+    result
 }
 
 fn thumbnail_size(width: u32, height: u32) -> (u32, u32) {
@@ -231,6 +269,30 @@ pub(crate) fn write_image(
     } else {
         image.save_with_format(path, format)
     }
+}
+
+/// 截图历史路径专用：把编码和落盘拆开计时。仍使用 image crate 的原编码器，
+/// 输出格式不变；增加的临时缓冲在写完后立即释放。
+fn write_image_timed(
+    image: &RgbaImage,
+    path: &Path,
+    format: ImageFormat,
+    trace: &CaptureTrace,
+) -> Result<(), String> {
+    let mut bytes = Cursor::new(Vec::new());
+    if format == ImageFormat::Jpeg {
+        let rgb: image::RgbImage = image.convert();
+        rgb.write_to(&mut bytes, format)
+            .map_err(|error| error.to_string())?;
+    } else {
+        image
+            .write_to(&mut bytes, format)
+            .map_err(|error| error.to_string())?;
+    }
+    trace.mark("snapshot_encode");
+    fs::write(path, bytes.into_inner()).map_err(|error| error.to_string())?;
+    trace.mark("snapshot_write");
+    Ok(())
 }
 
 /// 展开 `~/…`；其它路径原样返回。
@@ -304,7 +366,7 @@ pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, Stri
     let image = image::open(history_dir(state).join(&record.file_name))
         .map_err(|_| "快照文件已被移动或删除".to_string())?
         .to_rgba8();
-    write_thumbnail(state, id, &image)?;
+    write_thumbnail(state, id, &image, None)?;
     fs::read(&path).map_err(|error| error.to_string())
 }
 
@@ -427,6 +489,23 @@ mod tests {
         ] {
             let path = std::env::temp_dir().join(format!("snapshot-write-image-test.{ext}"));
             write_image(&image, &path, format).expect("写盘失败");
+            let decoded = image::open(&path).expect("写出的文件应能读回");
+            assert_eq!((decoded.width(), decoded.height()), (3, 2), "{ext}");
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn timed_image_write_round_trips_every_supported_format() {
+        let image = RgbaImage::from_pixel(3, 2, image::Rgba([200, 100, 50, 128]));
+        let trace = CaptureTrace::start();
+        for (format, ext) in [
+            (ImageFormat::Png, "png"),
+            (ImageFormat::Jpeg, "jpg"),
+            (ImageFormat::WebP, "webp"),
+        ] {
+            let path = std::env::temp_dir().join(format!("snapshot-timed-image-test.{ext}"));
+            write_image_timed(&image, &path, format, &trace).expect("写盘失败");
             let decoded = image::open(&path).expect("写出的文件应能读回");
             assert_eq!((decoded.width(), decoded.height()), (3, 2), "{ext}");
             let _ = fs::remove_file(&path);

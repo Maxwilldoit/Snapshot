@@ -145,8 +145,25 @@ export type CaptureFeedback = {
   flash: boolean;
   shutterSound: Settings["shutterSound"];
   customSoundPath: string | null;
+  shotId?: string;
+  sentAtMs?: number;
+  ok?: boolean;
+  historySaveAttempted?: boolean;
+  historySaved?: boolean;
 };
 
+export type CaptureShot = CaptureFeedback & {
+  shotId: string;
+  startedAtMs: number;
+  sentAtMs: number;
+  trace: boolean;
+};
+
+/** 原图已经拿到；不等历史、缩略图或剪贴板完成。 */
+export const onCaptureShot = (callback: (payload: CaptureShot) => void) =>
+  listen<CaptureShot>("capture-shot", ({ payload }) => callback(payload));
+
+/** 兼容事件：保留原有名称和载荷，在整条截图后处理结束后发送。 */
 export const onCaptureFeedback = (callback: (payload: CaptureFeedback) => void) =>
   listen<CaptureFeedback>("capture-feedback", ({ payload }) => callback(payload));
 

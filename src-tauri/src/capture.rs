@@ -1,4 +1,5 @@
 use super::*;
+use crate::capture_timing::CaptureTrace;
 
 /// 把 RGBA 位图编码成 PNG 字节（标注窗口、应用图标用）。
 pub(crate) fn encode_png(image: &RgbaImage) -> Result<Vec<u8>, String> {
@@ -14,6 +15,7 @@ pub(crate) fn capture_window(
     app: AppHandle,
     state: State<'_, AppState>,
     id: Option<u32>,
+    trace: CaptureTrace,
 ) -> Result<String, String> {
     let target_id = id
         .or_else(|| {
@@ -25,13 +27,16 @@ pub(crate) fn capture_window(
                 .map(|window| window.id)
         })
         .ok_or_else(|| "还没有上一个应用可截取".to_string())?;
+    trace.mark("target_resolve");
     let window = Window::all()
         .map_err(|error| error.to_string())?
         .into_iter()
         .find(|window| window.id().ok() == Some(target_id))
         .ok_or_else(|| "目标窗口已经关闭".to_string())?;
+    trace.mark("window_enum");
     if window.is_minimized().unwrap_or(false) {
         os::restore_minimized(target_id)?;
+        trace.mark("window_restore");
     }
     let app_name = window.app_name().unwrap_or_else(|_| "应用".into());
     let include_cursor = state.settings.lock().include_cursor;
@@ -44,12 +49,13 @@ pub(crate) fn capture_window(
         }),
         _ => None,
     };
-    let (image, cursor_degraded) = capture_area(include_cursor, area, "窗口", || {
+    trace.mark("window_metadata");
+    let (image, cursor_degraded) = capture_area(include_cursor, area, "窗口", &trace, || {
         window
             .capture_image()
             .map_err(|error| format!("截取失败：{error}"))
     })?;
-    finalize_capture(&app, &state, image, &app_name, cursor_degraded)
+    finalize_capture(&app, &state, image, &app_name, cursor_degraded, trace)
 }
 
 /// 一块屏幕区域（窗口或显示器）在屏幕上的位置与逻辑尺寸
@@ -70,16 +76,22 @@ fn capture_area(
     include_cursor: bool,
     area: Option<Area>,
     what: &str,
+    trace: &CaptureTrace,
     capture: impl FnOnce() -> Result<RgbaImage, String>,
 ) -> Result<(RgbaImage, Option<String>), String> {
     if !include_cursor {
-        return Ok((capture()?, None));
+        let image = capture()?;
+        trace.mark("engine_capture");
+        return Ok((image, None));
     }
     let Some(area) = area else {
         let note = cursor_degrade_note(&format!("无法读取{what}几何，已回退无光标截图"));
-        return Ok((capture()?, Some(note)));
+        let image = capture()?;
+        trace.mark("engine_capture");
+        return Ok((image, Some(note)));
     };
     let (image, failure) = os::capture_with_cursor(&area, capture)?;
+    trace.mark("engine_capture_with_cursor");
     Ok((image, failure.map(|error| cursor_degrade_note(&error))))
 }
 
@@ -102,13 +114,35 @@ pub(crate) fn finalize_capture(
     image: RgbaImage,
     app_name: &str,
     cursor_degraded: Option<String>,
+    trace: CaptureTrace,
 ) -> Result<String, String> {
+    if image.width() == 0 || image.height() == 0 {
+        return Err("截取结果为空图像".into());
+    }
     let settings = state.settings.lock().clone();
     let (width, height) = (image.width(), image.height());
+
+    // 原图已经成功拿到，立即通知主窗口。这里不等待编码、历史或剪贴板；
+    // capture-feedback 仍保留在后处理末尾，表示整条截图流程已经结束。
+    let _ = app.emit_to(
+        "main",
+        "capture-shot",
+        json!({
+            "shotId": trace.shot_id(),
+            "startedAtMs": trace.started_at_ms(),
+            "sentAtMs": now_millis(),
+            "trace": trace.enabled(),
+            "flash": settings.flash_on_capture,
+            "shutterSound": settings.shutter_sound,
+            "customSoundPath": settings.custom_sound_path,
+        }),
+    );
+    trace.mark_capture_ready();
+
     // 「仅保存」必须进历史，否则用户选完既没有文件也没有剪贴板内容。
     let only_save = settings.after_capture == "saveas";
     let record = if settings.auto_save_local || only_save {
-        snapshots::store_snapshot(state, &image, app_name).ok()
+        snapshots::store_snapshot_traced(state, &image, app_name, &trace).ok()
     } else {
         None
     };
@@ -120,35 +154,47 @@ pub(crate) fn finalize_capture(
         let _ = app.emit("snapshots-changed", ());
     }
     let snapshot_id = record.map(|record| record.id);
-    activity::record(
-        app,
-        activity::Activity::new("capture", app_name)
-            .meta(format!("{width} × {height}"))
-            .snapshot(snapshot_id.clone()),
-    );
-    let _ = app.emit("pet-event", "capture.success");
 
     // after_capture：annotate 打开标注窗；saveas 仅保存到历史；默认剪贴板。
     let annotate = settings.after_capture == "annotate";
     if annotate {
         open_annotate_window(app, state, &image, app_name)?;
+        trace.mark("annotate_open");
     } else if !only_save {
         let title = if interface_is_english() {
             format!("{app_name} screenshot")
         } else {
             format!("{app_name} 截图")
         };
-        clipboard::copy_image(app, state, image, &title, snapshot_id)?;
+        clipboard::copy_image(app, state, image, &title, snapshot_id.clone())?;
+        trace.mark("clipboard");
     }
+
+    // 活动、宠物成功反馈和兼容的最终事件都放在必需后处理成功之后，
+    // 避免剪贴板/标注失败时先报一次成功。
+    activity::record(
+        app,
+        activity::Activity::new("capture", app_name)
+            .meta(format!("{width} × {height}"))
+            .snapshot(snapshot_id.clone()),
+    );
+    trace.mark("activity");
+    let _ = app.emit("pet-event", "capture.success");
 
     let _ = app.emit(
         "capture-feedback",
         json!({
+            "shotId": trace.shot_id(),
+            "sentAtMs": now_millis(),
+            "ok": true,
+            "historySaveAttempted": settings.auto_save_local || only_save,
+            "historySaved": archived,
             "flash": settings.flash_on_capture,
             "shutterSound": settings.shutter_sound,
             "customSoundPath": settings.custom_sound_path,
         }),
     );
+    trace.mark("feedback_event");
     if settings.hide_after_copy && !annotate && !only_save {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.hide();
@@ -452,6 +498,7 @@ fn primary_monitor() -> Result<Monitor, String> {
 
 pub(crate) fn capture_fullscreen_image(
     include_cursor: bool,
+    trace: &CaptureTrace,
 ) -> Result<(RgbaImage, String, Option<String>), String> {
     let monitor = primary_monitor()?;
     let name = monitor
@@ -466,7 +513,7 @@ pub(crate) fn capture_fullscreen_image(
         }),
         _ => None,
     };
-    let (image, note) = capture_area(include_cursor, area, "显示器", || {
+    let (image, note) = capture_area(include_cursor, area, "显示器", trace, || {
         monitor
             .capture_image()
             .map_err(|error| format!("全屏截取失败：{error} / fullscreen capture failed: {error}"))

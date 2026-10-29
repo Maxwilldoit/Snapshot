@@ -2,6 +2,7 @@ mod actions;
 mod activity;
 mod capabilities;
 mod capture;
+mod capture_timing;
 mod clipboard;
 mod launchpad;
 mod launchpad_cache;

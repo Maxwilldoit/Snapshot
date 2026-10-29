@@ -23,7 +23,7 @@ pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
 pub(crate) use autostart::apply as apply_autostart;
 pub(crate) use icon::app_icon_png;
 pub(crate) use pet_visibility::{refresh as refresh_pet_visibility, start as start_pet_visibility};
-pub(crate) use window::restore_minimized;
+pub(crate) use window::{restore_minimized, wait_until_hidden};
 
 /// 本平台支持的全局快捷键动作，顺序即设置页的显示顺序
 pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[
