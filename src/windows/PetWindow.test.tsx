@@ -156,6 +156,12 @@ async function endDrag() {
 }
 
 describe("桌宠：点击切换，平时停在待机", () => {
+  it("非方形宠物的可视底边贴住窗口底部，拖到任务栏时脚不会被透明留白悬空", async () => {
+    render(<style>{petStyles}</style>);
+    const { container } = await renderPet();
+    expect(getComputedStyle(shown(container).img).objectPosition).toBe("center bottom");
+  });
+
   it("不会自己换动作", async () => {
     const { container } = await renderPet();
     await elapse(8000);

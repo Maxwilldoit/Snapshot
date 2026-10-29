@@ -267,6 +267,8 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 /* 格子固定为外框大小：不固定时，竖长的 GIF 会按自身宽高比把格子撑高，下半身被 overflow 裁掉 */
 .pet-orb { display: grid; grid-template: 100% / 100%; width: var(--pet-icon-size, 56px); height: var(--pet-icon-size, 56px); place-items: center; overflow: hidden; color: var(--ink-2); background: transparent; }
 .pet-orb img, .pet-orb video { display: block; grid-area: 1 / 1; width: 100%; height: 100%; object-fit: contain; background: transparent; pointer-events: none; }
+/* 16:9 素材放进方窗时，contain 默认垂直居中；窗口贴到任务栏后宠物脚下仍会空一截。 */
+.pet-window.custom .pet-orb > :is(.pet-action, .pet-walk) { object-position: center bottom; }
 /* 旧画面和待切换动作叠在同一格：隐藏图继续加载解码，准备好再显示，不重复淡入缩放 */
 .pet-orb > [hidden] { display: block; visibility: hidden; }
 .pet-orb > .pet-flip { transform: scaleX(-1); }
