@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { petUrl, petWalkUrl } from "../lib/media";
 
-/** 动作回到待机时让两帧短暂叠化，避免 GIF 从半途硬切回首帧。 */
+/** 新画面准备好后，旧画面在上层短暂淡出，避免 GIF 从半途硬切回首帧。 */
 export const PET_IMAGE_FADE_MS = 180;
 
 export interface PetImageFrame {
@@ -38,10 +38,12 @@ export function usePetImages(target: PetImageFrame | null, preload: PetImageFram
     ? previous
     : null;
   // 只保留当前动作、左右走路和交接前的旧画面，不把整包 GIF 一直挂在内存里。
+  // 顺序不能随 displayed / leaving / preload 的角色变化：重插现有 img 会重启动画，
+  // 甚至让仍在等待下一张解码的旧图从透明首帧重新开始。用稳定的 key 顺序保留原节点。
   const frames = [...new Map(
     [...(leaving ? [leaving] : []), ...preload, ...(target ? [target] : []), ...(displayed ? [displayed] : [])]
       .map((frame) => [frame.key, frame] as const),
-  ).values()];
+  ).values()].sort((a, b) => a.key.localeCompare(b.key));
 
   useEffect(() => () => window.clearTimeout(fadeTimer.current), []);
 

@@ -716,7 +716,7 @@ export function PetWindow() {
                     frame.walk ? "pet-walk" : "pet-action",
                     frame.flip ? "pet-flip" : "",
                     style ? "pet-framed" : "",
-                    frame.key === displayed?.key ? "pet-crossfade-in" : frame.key === leaving?.key ? "pet-crossfade-out" : "",
+                    frame.key === displayed?.key ? "pet-current" : frame.key === leaving?.key ? "pet-crossfade-out" : "",
                   ].filter(Boolean).join(" ")}
                   style={style}
                   src={frame.src}

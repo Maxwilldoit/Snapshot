@@ -5,6 +5,7 @@ import type { PetAsset, PetLayout, Settings } from "../types";
 import { petPlacement } from "../lib/petFrame";
 import { petWindowSize } from "../lib/petSize";
 import { setupTauriMock } from "../test/tauri";
+import petStyles from "../styles.css?raw";
 
 const grok: PetAsset = {
   id: "pet-grok",
@@ -109,7 +110,7 @@ async function loadPetImages() {
 /** 桌宠上看得见的那张图：文件名（解码后）和是否镜像 */
 function shown(container: HTMLElement) {
   const visible = [...container.querySelectorAll<HTMLImageElement>(".pet-orb img")].filter((img) => !img.hidden);
-  const img = visible.find((item) => item.classList.contains("pet-crossfade-in")) ?? visible.at(-1);
+  const img = visible.find((item) => item.classList.contains("pet-current")) ?? visible.at(-1);
   if (!img) throw new Error("桌宠没有可见画面");
   return { file: decodeURIComponent(img.src).split("/").pop(), flipped: img.classList.contains("pet-flip"), img };
 }
@@ -445,6 +446,75 @@ describe("桌宠：拖动时走路", () => {
 });
 
 describe("桌宠：动作画面交接", () => {
+  it("等待解码和交接时不移动已挂载的 GIF 节点，避免 WebView 重置动画", async () => {
+    const { container, delay } = await renderPet();
+    const mounted = new Set(container.querySelectorAll("img"));
+    const removed: Node[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) removed.push(...record.removedNodes);
+    });
+    observer.observe(container, { childList: true, subtree: true });
+    try {
+      await act(async () => click(container));
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+      // 新动作尚未解码时，旧图和预加载的走路图都必须留在原来的 DOM 位置。
+      expect(removed.filter((node) => mounted.has(node as HTMLImageElement))).toEqual([]);
+
+      const next = container.querySelector<HTMLImageElement>("img.pet-action[hidden]")!;
+      removed.length = 0;
+      await loadPetImages();
+      expect(shown(container).img).toBe(next);
+      expect(removed).toEqual([]);
+    } finally {
+      observer.disconnect();
+    }
+  });
+
+  it("首帧和新动作始终不透明，只让覆盖在上层的旧画面淡出", async () => {
+    render(<style>{petStyles}</style>);
+    const { container, delay } = await renderPet();
+    const idle = shown(container).img;
+    expect(getComputedStyle(idle).animation).toBe("none");
+    expect(getComputedStyle(idle).opacity).toBe("1");
+
+    await act(async () => click(container));
+    await elapse(delay);
+    const next = shown(container).img;
+    expect(getComputedStyle(next).animation).toBe("none");
+    expect(getComputedStyle(next).opacity).toBe("1");
+    expect(Number(getComputedStyle(idle).zIndex)).toBeGreaterThan(Number(getComputedStyle(next).zIndex));
+    expect(getComputedStyle(idle).animation).toContain("pet-crossfade-out");
+  });
+
+  it("连续事件打断交接时保留不透明的新图，旧定时器不会提前结束下一次交接", async () => {
+    render(<style>{petStyles}</style>);
+    const asset = { ...grok, eventActions: {
+      "capture.success": "gifs/grok_jump.gif",
+      "capture.failure": "gifs/grok_wave.gif",
+    } } satisfies PetAsset;
+    const { container } = await renderPet(asset);
+    await act(async () => { await emit("pet-event", "capture.success"); });
+    await loadPetImages();
+    const first = shown(container).img;
+    await elapse(90);
+
+    await act(async () => { await emit("pet-event", "capture.failure"); });
+    expect(shown(container).img).toBe(first);
+    expect(getComputedStyle(first).opacity).toBe("1");
+    await loadPetImages();
+    const next = shown(container).img;
+    expect(shown(container).file).toBe("grok_wave.gif");
+    expect(getComputedStyle(next).opacity).toBe("1");
+    expect(getComputedStyle(next).animation).toBe("none");
+
+    await elapse(90);
+    expect(first.isConnected).toBe(true);
+    expect(first.classList.contains("pet-crossfade-out")).toBe(true);
+    await elapse(90);
+    expect(first.isConnected).toBe(false);
+    expect(shown(container).img).toBe(next);
+  });
+
   it("新动作解码前保留旧节点，准备好后直接显示已加载的节点，返回待机时也不留空白", async () => {
     const { container, delay } = await renderPet();
     const idle = shown(container).img;
@@ -463,7 +533,7 @@ describe("桌宠：动作画面交接", () => {
     expect(shown(container).img).toBe(next);
     expect(idle.isConnected).toBe(true);
     expect(idle.classList.contains("pet-crossfade-out")).toBe(true);
-    expect(next.classList.contains("pet-crossfade-in")).toBe(true);
+    expect(next.classList.contains("pet-current")).toBe(true);
     expect(container.querySelectorAll("img").length).toBeLessThanOrEqual(4);
 
     await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
@@ -581,6 +651,7 @@ describe("桌宠：应用图标和自定义宠物的大小", () => {
 
 describe("桌宠：超出基准画布时把窗口撑大", () => {
   it("平时仍是方窗，扣篮时窗口变大且脚留在原地，结束后缩回去", async () => {
+    render(<style>{petStyles}</style>);
     const shortEdge = 340;
     const side = petWindowSize(shortEdge, 100, "pet");
     const idle = { entry: "gifs/idle.gif", width: 100, height: 100, anchorX: 50, anchorY: 90 };
@@ -641,7 +712,7 @@ describe("桌宠：超出基准画布时把窗口撑大", () => {
 
     const visible = () => {
       const frames = [...container.querySelectorAll<HTMLImageElement>("img.pet-framed")].filter((img) => !img.hidden);
-      return frames.filter((img) => img.classList.contains("pet-crossfade-in"));
+      return frames.filter((img) => img.classList.contains("pet-current"));
     };
     const idleImage = visible()[0];
     expect(decodeURIComponent(idleImage.src)).toContain("idle.gif");
@@ -671,6 +742,9 @@ describe("桌宠：超出基准画布时把窗口撑大", () => {
     expect(dunkImage.style.top).toBe(`${grown.imageY - grown.shiftY}px`);
     expect(dunkImage.style.width).toBe(`${grown.imageWidth}px`);
     expect(dunkImage.style.height).toBe(`${grown.imageHeight}px`);
+    expect(getComputedStyle(dunkImage).opacity).toBe("1");
+    expect(getComputedStyle(dunkImage).animation).toBe("none");
+    expect(Number(getComputedStyle(idleImage).zIndex)).toBeGreaterThan(Number(getComputedStyle(dunkImage).zIndex));
     expect(sizes.at(-1)).toEqual({ width: grown.width, height: grown.height });
     expect(position).toEqual({ x: origin.x + grown.shiftX, y: origin.y + grown.shiftY });
     expect(shifts.at(-1)).toEqual({ x: grown.shiftX, y: grown.shiftY });

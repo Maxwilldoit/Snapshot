@@ -280,15 +280,16 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .pet-frames > img[hidden] { display: block; visibility: hidden; }
 .pet-frames > img.pet-flip { transform: scaleX(-1); }
 .pet-orb img.pet-crossfade-out, .pet-frames > img.pet-crossfade-out {
-  z-index: 1;
+  z-index: 2;
   animation: pet-crossfade-out 180ms ease-in both;
 }
-.pet-orb img.pet-crossfade-in, .pet-frames > img.pet-crossfade-in {
-  z-index: 2;
-  animation: pet-crossfade-in 180ms ease-out both;
+/* 新图始终不透明，由上层旧图淡出交接。两层同时变透明会露出桌面，产生闪烁。 */
+.pet-orb img.pet-current, .pet-frames > img.pet-current {
+  z-index: 1;
+  opacity: 1;
+  animation: none;
 }
 @keyframes pet-crossfade-out { to { opacity: 0; } }
-@keyframes pet-crossfade-in { from { opacity: 0; } }
 
 /* ---------- 截后标注窗口 ---------- */
 
