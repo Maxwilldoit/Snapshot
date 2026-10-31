@@ -376,7 +376,7 @@ fn connected_matte(canvas: &Canvas) -> Vec<bool> {
     };
     let mut connected = vec![false; canvas.rgb.len()];
     let mut queue = VecDeque::new();
-    for index in 0..canvas.rgb.len() {
+    for (index, is_connected) in connected.iter_mut().enumerate() {
         if canvas.removed[index] || !white(index) {
             continue;
         }
@@ -384,7 +384,7 @@ fn connected_matte(canvas: &Canvas) -> Vec<bool> {
             .iter()
             .any(|&next| next != usize::MAX && canvas.removed[next])
         {
-            connected[index] = true;
+            *is_connected = true;
             queue.push_back(index);
         }
     }
