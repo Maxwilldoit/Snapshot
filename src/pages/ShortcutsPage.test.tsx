@@ -114,7 +114,6 @@ describe("global shortcut editing", () => {
   });
 
   it("saves a cleared binding immediately and rolls back a rejected change", async () => {
-    localStorage.setItem("snapshot-layout", "ledger");
     const reject = vi.fn((_payload?: unknown) => Promise.reject(new Error("快捷键已被占用")));
     let rejectNext = false;
     const { user } = await renderApp((command, payload) => {
@@ -130,9 +129,8 @@ describe("global shortcut editing", () => {
     const recordRow = screen.getByRole("button", { name: "快捷键：窗口录制，当前按键：未设置" });
     await user.click(recordRow);
     await user.keyboard("{Alt>}{Shift>}3{/Shift}{/Alt}");
-    expect((await screen.findByRole("alert")).textContent).toContain("快捷键已被占用");
+    expect((await screen.findByText("快捷键已被占用")).closest('[role="alert"]')).toBeTruthy();
     expect(await screen.findByRole("button", { name: "快捷键：窗口录制，当前按键：未设置" })).toBeTruthy();
-    localStorage.removeItem("snapshot-layout");
   });
 
   it("keeps paused state while saving a new binding", async () => {
@@ -192,7 +190,6 @@ describe("manual global shortcut pause", () => {
   });
 
   it.each([false, true])("keeps paused=%s when the toggle fails", async (paused) => {
-    localStorage.setItem("snapshot-layout", "ledger");
     const setPaused = vi.fn((_args: Record<string, unknown>) => Promise.reject(new Error("无法切换快捷键")));
     const { user, toggle } = await renderApp((command, payload) => {
       if (command === "set_shortcuts_paused") return setPaused(invokeArgs(payload));
@@ -200,11 +197,10 @@ describe("manual global shortcut pause", () => {
     }, { ...base, shortcutsPaused: paused }, ["Alt+Shift+2"]);
 
     await user.click(toggle);
-    expect((await screen.findByRole("alert")).textContent).toContain("无法切换快捷键");
+    expect((await screen.findByText("无法切换快捷键")).closest('[role="alert"]')).toBeTruthy();
     expect(setPaused).toHaveBeenCalledExactlyOnceWith({ paused: !paused });
     expect(toggle.getAttribute("aria-checked")).toBe(String(paused));
     expect(screen.getByText(paused ? PAUSED : ACTIVE)).toBeTruthy();
-    localStorage.removeItem("snapshot-layout");
   });
 
   it("follows external settings changes without an unsaved local draft", async () => {

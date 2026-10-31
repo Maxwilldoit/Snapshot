@@ -1,6 +1,4 @@
 import type { ReactNode } from "react";
-import { formatClock } from "../lib/format";
-import { shortLabel } from "../lib/activity";
 import { usePresence } from "../lib/motion";
 import { useApp } from "./context";
 import { WindowTitleBar } from "../components/WindowTitleBar";
@@ -33,7 +31,6 @@ function useNavItems(): { work: NavItem[]; settings: NavItem[] } {
     ],
     settings: [
       { page: "prefs", label: t("偏好设置") },
-      { page: "themes", label: t("主题库") },
     ],
   };
 }
@@ -66,85 +63,6 @@ export function SideNav() {
       <div className="nav-group">{work.map(item)}</div>
       <div className="nav-group">{settings.map(item)}</div>
     </nav>
-  );
-}
-
-/** 「不要侧栏」：入口放进标题栏 */
-export function TopNav() {
-  const { page, navigate } = useApp();
-  const { t } = useI18n();
-  const { work, settings } = useNavItems();
-  return (
-    <>
-      <span className="titlebar-name strong" data-tauri-drag-region>{t("应用快照")}</span>
-      <nav className="top-nav" aria-label={t("主导航")}>
-        {work.map((entry) => (
-          <button
-            key={entry.page}
-            type="button"
-            className={`top-item ${page === entry.page ? "is-on" : ""}`}
-            aria-current={page === entry.page ? "page" : undefined}
-            onClick={() => navigate(entry.page)}
-          >
-            {entry.label}
-            {entry.trailing}
-            {page === entry.page && <NavMark />}
-          </button>
-        ))}
-      </nav>
-      <span className="titlebar-fill" data-tauri-drag-region />
-      <nav className="top-nav top-nav-right" aria-label={t("设置导航")}>
-        {settings.map((entry) => (
-          <button
-            key={entry.page}
-            type="button"
-            className={`top-item small ${page === entry.page ? "is-on" : ""}`}
-            aria-current={page === entry.page ? "page" : undefined}
-            onClick={() => navigate(entry.page)}
-          >
-            {entry.label}
-            {page === entry.page && <NavMark />}
-          </button>
-        ))}
-      </nav>
-    </>
-  );
-}
-
-/** 「今日流水」：侧栏下半截列出今天的每一步，点截图直接放大 */
-export function LedgerList() {
-  const { activity, navigate } = useApp();
-  const { t } = useI18n();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const entries = activity.filter((entry) => entry.at >= today.getTime());
-  return (
-    <section className="ledger" aria-label={t("今天做过的事")}>
-      <h2 className="ledger-title">{t("今天")}</h2>
-      {entries.length === 0 ? (
-        <p className="small quiet ledger-empty">{t("今天还没截过、录过、润色过。")}</p>
-      ) : (
-        <ol className="ledger-list">
-          {entries.map((entry) => (
-            <li key={entry.id}>
-              <button
-                type="button"
-                className={`ledger-item ${entry.kind === "error" ? "is-error" : ""}`}
-                onClick={() => {
-                  if (entry.kind === "capture" && entry.snapshotId) navigate("history", { previewId: entry.snapshotId });
-                  else if (entry.kind === "polish") navigate("history");
-                else if (entry.kind === "error" && (entry.title.includes("快捷键") || entry.title.includes("Shortcut"))) navigate("shortcuts");
-                }}
-                title={entry.detail ?? entry.title}
-              >
-                <span className="mono quiet">{formatClock(entry.at)}</span>
-                <span className="ledger-text">{shortLabel(entry)}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
   );
 }
 

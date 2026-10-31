@@ -9,17 +9,19 @@ import {
   onPreviousAppChanged,
   onRecordingChanged,
   onSettingsChanged,
+  setPetHitbox,
   setPetFrameShift,
   showLaunchpad,
   showQuickMenu,
 } from "../lib/backend";
 import { iconUrl } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
-import { PetMedia } from "../components/PetMedia";
+import { PetMedia, type PetMediaElement } from "../components/PetMedia";
 import { petImageFrame, usePetImages } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { placementForEntry, type PetPlacement } from "../lib/petFrame";
-import { PET_SCALE, petWindowSize } from "../lib/petSize";
+import { PET_SCALE, containedMediaBounds, petWindowSize } from "../lib/petSize";
+import { ensurePetAutoScale, readPetBaseScale, watchPetBaseScales } from "../lib/petScale";
 import { nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
 import { clickableAnimations, ordinaryAnimations } from "../lib/petActions";
 import { useI18n, useWindowTitle } from "../lib/i18n";
@@ -144,6 +146,7 @@ export function PetWindow() {
   const [petSize, setPetSize] = useState(80);
   // 读到设置前不定大小，免得先按默认缩放一次再跳到用户设的大小
   const [petScale, setPetScale] = useState<number | null>(null);
+  const [baseScale, setBaseScale] = useState<number>(PET_SCALE.default);
   const [petWander, setPetWander] = useState(false);
   const [petRandomActions, setPetRandomActions] = useState(false);
   const [petGravity, setPetGravity] = useState(true);
@@ -168,6 +171,7 @@ export function PetWindow() {
   const finishDrag = useRef<() => void>(() => {});
   const gravityToken = useRef(0);
   const gravityFrame = useRef(0);
+  const petRootRef = useRef<HTMLDivElement>(null);
 
   // 点击切换只在常规动作里转，走路动作留给拖动
   const regularAnimations = ordinaryAnimations({ animations, eventActions, stateActions });
@@ -211,6 +215,7 @@ export function PetWindow() {
     const applyAppearance = (settings: Settings) => {
       const id = settings.selectedAppearanceId;
       const asset = settings.petAssets.find((item) => item.id === id);
+      latestAsset.current = asset ?? null;
       const key = JSON.stringify([id, asset?.path, asset?.entry, asset?.animations, asset?.layout, asset?.eventActions, asset?.stateActions]);
       if (appearanceKey.current !== key) {
         appearanceKey.current = key;
@@ -230,7 +235,6 @@ export function PetWindow() {
         setLayout(asset?.layout ?? null);
         setEventActions(asset?.eventActions ?? {});
         setStateActions(asset?.stateActions ?? {});
-        latestAsset.current = asset ?? null;
         setRestingEntry(nextResting);
         targetEntry.current = nextResting;
         setShownEntry(nextResting);
@@ -238,6 +242,8 @@ export function PetWindow() {
         setShortcutsPaused(Boolean(settings.shortcutsPaused));
       }
       setPetScale(settings.petScale ?? PET_SCALE.default);
+      setBaseScale(readPetBaseScale(asset));
+      if (asset) void ensurePetAutoScale(asset);
       setPetWander(Boolean(settings.petWander));
       setPetRandomActions(Boolean(settings.petRandomActions));
       setPetGravity(settings.petGravity ?? true);
@@ -251,6 +257,8 @@ export function PetWindow() {
       void settingsListener.then((unlisten) => unlisten());
     };
   }, []);
+
+  useEffect(() => watchPetBaseScales(() => setBaseScale(readPetBaseScale(latestAsset.current))), []);
 
   // 状态先订阅再查询快照：持续录制状态即使在桌宠窗口没挂监听时改变也能恢复。
   useEffect(() => {
@@ -323,7 +331,7 @@ export function PetWindow() {
   const visibleEntry = displayed?.entry ?? null;
   const visibleFlip = displayed?.flip ?? false;
   const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
-  const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale, custom ? "pet" : "app-icon");
+  const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale, custom ? "pet" : "app-icon", baseScale);
   const visiblePlacement = fittedSize === null ? null : placementForEntry(fittedSize, layout, visibleEntry, visibleFlip);
   const fittedKey = fittedSize === null ? "pending" : windowKey(fittedSize, visiblePlacement);
 
@@ -426,7 +434,7 @@ export function PetWindow() {
     if (petScale === null) return;
     cancelGravity();
     if (petGravity) void dropToFloor().catch(() => {});
-  }, [petGravity, petScale]);
+  }, [petGravity, petScale, baseScale]);
 
   useEffect(
     () => () => {
@@ -439,8 +447,8 @@ export function PetWindow() {
   // 物理像素。放大时窗口左上角相对方窗的偏移，存位置要减掉
   const frameShift = useRef({ x: 0, y: 0 });
   const appliedKey = useRef("");
-  const frameModel = useRef({ petScale, custom, layout, visibleEntry, visibleFlip });
-  frameModel.current = { petScale, custom, layout, visibleEntry, visibleFlip };
+  const frameModel = useRef({ petScale, baseScale, custom, layout, visibleEntry, visibleFlip });
+  frameModel.current = { petScale, baseScale, custom, layout, visibleEntry, visibleFlip };
 
   useLayoutEffect(() => {
     if (fittedSize === null || petScale === null) return;
@@ -461,7 +469,7 @@ export function PetWindow() {
           const model = frameModel.current;
           if (model.petScale === null) return;
           const shortEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
-          const side = petWindowSize(shortEdge, model.petScale, model.custom ? "pet" : "app-icon");
+          const side = petWindowSize(shortEdge, model.petScale, model.custom ? "pet" : "app-icon", model.baseScale);
           if (active) setPetSize(side);
           const place = placementForEntry(side, model.layout, model.visibleEntry, model.visibleFlip);
           const key = windowKey(side, place);
@@ -689,6 +697,147 @@ export function PetWindow() {
   };
   const framed = visiblePlacement != null;
 
+  // 原生方窗只负责承载透明 WebView；输入命中区收紧到当前媒体真正画出的矩形。
+  useLayoutEffect(() => {
+    const root = petRootRef.current;
+    if (!root) return;
+    let animationFrame = 0;
+    let videoFrame = 0;
+    let observer: ResizeObserver | null = null;
+    let alphaBounds: { left: number; top: number; right: number; bottom: number } | null = null;
+    let lastHitbox = "";
+    let lastScan = 0;
+    let scanCanvas: HTMLCanvasElement | null = null;
+    let scanContext: CanvasRenderingContext2D | null = null;
+    let alphaScanUnavailable = false;
+
+    const send = (bounds: { left: number; top: number; width: number; height: number }) => {
+      const key = [bounds.left, bounds.top, bounds.width, bounds.height].map(Math.round).join("/");
+      if (key === lastHitbox) return;
+      lastHitbox = key;
+      void setPetHitbox(bounds.left, bounds.top, bounds.width, bounds.height).catch(() => {});
+    };
+
+    const scanAlpha = (media: PetMediaElement, content: { left: number; top: number; width: number; height: number }) => {
+      if (alphaScanUnavailable || !(media instanceof HTMLVideoElement) || media.readyState < 2) return null;
+      if (!scanCanvas) {
+        scanCanvas = document.createElement("canvas");
+        scanContext = scanCanvas.getContext("2d", { willReadFrequently: true });
+      }
+      const canvas = scanCanvas;
+      const context = scanContext;
+      if (!canvas || !context) return null;
+      const sourceWidth = media.videoWidth;
+      const sourceHeight = media.videoHeight;
+      if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null;
+      const width = Math.min(96, sourceWidth);
+      const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      try {
+        context.clearRect(0, 0, width, height);
+        context.drawImage(media, 0, 0, width, height);
+        const pixels = context.getImageData(0, 0, width, height).data;
+        let left = width;
+        let top = height;
+        let right = -1;
+        let bottom = -1;
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            if (pixels[(y * width + x) * 4 + 3] <= 8) continue;
+            left = Math.min(left, x);
+            top = Math.min(top, y);
+            right = Math.max(right, x);
+            bottom = Math.max(bottom, y);
+          }
+        }
+        if (right < left || bottom < top) return null;
+        alphaBounds = {
+          left: Math.min(alphaBounds?.left ?? 1, left / width),
+          top: Math.min(alphaBounds?.top ?? 1, top / height),
+          right: Math.max(alphaBounds?.right ?? 0, (right + 1) / width),
+          bottom: Math.max(alphaBounds?.bottom ?? 0, (bottom + 1) / height),
+        };
+        return {
+          left: content.left + alphaBounds.left * content.width,
+          top: content.top + alphaBounds.top * content.height,
+          width: (alphaBounds.right - alphaBounds.left) * content.width,
+          height: (alphaBounds.bottom - alphaBounds.top) * content.height,
+        };
+      } catch {
+        // 老 WebView 或跨域限制读不到像素时，退回整块媒体矩形。
+        alphaScanUnavailable = true;
+        return null;
+      }
+    };
+
+    const report = () => {
+      if (!custom) {
+        lastHitbox = "";
+        void setPetHitbox(0, 0, 0, 0).catch(() => {});
+        return;
+      }
+      const media = root.querySelector<PetMediaElement>(".pet-current");
+      if (!media) {
+        lastHitbox = "";
+        void setPetHitbox(0, 0, 0, 0).catch(() => {});
+        return;
+      }
+      const box = media.getBoundingClientRect();
+      const naturalWidth = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
+      const naturalHeight = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
+      const content = framed
+        ? { left: box.left, top: box.top, width: box.width, height: box.height }
+        : containedMediaBounds(box, naturalWidth, naturalHeight);
+      if (!content) {
+        lastHitbox = "";
+        void setPetHitbox(0, 0, 0, 0).catch(() => {});
+        return;
+      }
+      const tight = framed ? content : scanAlpha(media, content) ?? content;
+      send(tight);
+    };
+
+    const schedule = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(report);
+    };
+
+    schedule();
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(schedule);
+      observer.observe(root);
+      const media = root.querySelector<PetMediaElement>(".pet-current");
+      if (media) observer.observe(media);
+    }
+    const media = root.querySelector<PetMediaElement>(".pet-current");
+    if (media instanceof HTMLVideoElement && typeof media.requestVideoFrameCallback === "function") {
+      const scanFrame = (now: number) => {
+        if (now - lastScan >= 100) {
+          lastScan = now;
+          report();
+        }
+        videoFrame = media.requestVideoFrameCallback(scanFrame);
+      };
+      videoFrame = media.requestVideoFrameCallback(scanFrame);
+    }
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      if (media instanceof HTMLVideoElement && typeof media.cancelVideoFrameCallback === "function") {
+        media.cancelVideoFrameCallback(videoFrame);
+      }
+      observer?.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+  }, [custom, displayed?.key, fittedKey, framed]);
+
+  useEffect(() => () => {
+    void setPetHitbox(0, 0, 0, 0).catch(() => {});
+  }, []);
+
   function onContextMenu(event: React.MouseEvent) {
     event.preventDefault();
     autonomy.cancel();
@@ -699,6 +848,7 @@ export function PetWindow() {
 
   return (
     <div
+      ref={petRootRef}
       className={`pet-window ${custom ? "custom" : "app-icon"}`}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}

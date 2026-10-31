@@ -1,6 +1,4 @@
 import { createContext, useContext } from "react";
-import type { LayoutTheme, MotionPreference } from "../lib/prefs";
-import type { ThemePreference } from "../lib/theme";
 import type {
   ActivityEntry,
   ClipboardState,
@@ -18,7 +16,7 @@ export type Notice = { id: number; text: string; kind: NoticeKind; at: number };
 export type AppContextValue = {
   settings: Settings;
   onSaved: (settings: Settings) => void;
-  /** 一句话提示。伴侣侧栏布局里由猫说出来，其它布局在左下角浮一行 */
+  /** 一句话提示。由侧栏伴侣说出来，伴侣页里浮在左下角 */
   notify: (text: string, kind?: NoticeKind) => void;
   notice: Notice | null;
   dismissNotice: () => void;
@@ -29,15 +27,9 @@ export type AppContextValue = {
   activity: ActivityEntry[];
   clipboard: ClipboardState | null;
   recording: RecordingStatus;
-  layout: LayoutTheme;
-  setLayout: (layout: LayoutTheme) => void;
-  themePreference: ThemePreference;
-  setThemePreference: (preference: ThemePreference) => void;
-  motionPreference: MotionPreference;
-  setMotionPreference: (preference: MotionPreference) => void;
   page: NavPage;
   navigate: (page: NavPage, options?: { previewId?: string }) => void;
-  /** navigate 顺带的参数：从时间线点一张截图，进历史页直接放大它 */
+  /** navigate 顺带的参数：进历史页直接放大指定截图 */
   pendingPreviewId: string | null;
   consumePreviewId: () => void;
 };

@@ -7,6 +7,8 @@ import { petWindowSize } from "../lib/petSize";
 import { setupTauriMock } from "../test/tauri";
 import petStyles from "../styles.css?raw";
 
+vi.mock("../lib/petAutoScale", () => ({ measurePetScale: vi.fn().mockResolvedValue(null) }));
+
 const grok: PetAsset = {
   id: "pet-grok",
   name: "grok_pixel",
@@ -596,7 +598,42 @@ describe("桌宠：动作画面交接", () => {
 });
 
 describe("桌宠：应用图标和自定义宠物的大小", () => {
+  it("普通素材首次测量后自动放大，切换和切回沿用各自缓存，不跟随动作反复测量", async () => {
+    vi.spyOn(window.screen, "availWidth", "get").mockReturnValue(1000);
+    vi.spyOn(window.screen, "availHeight", "get").mockReturnValue(1200);
+    const small = { ...grok, id: "auto-small", name: "任意名字" };
+    const normal = { ...grok, id: "auto-normal", name: "任意名字" };
+    const { measurePetScale } = await import("../lib/petAutoScale");
+    const measured = vi.mocked(measurePetScale).mockImplementation(async (asset) => asset.id === small.id ? 200 : 100);
+    measured.mockClear();
+    const saved = { ...settingsWith(small), petAssets: [small, normal] };
+    const { container, delay } = await renderPet(small, saved);
+    const size = () => container.querySelector<HTMLElement>(".pet-window")!.style.getPropertyValue("--pet-icon-size");
+    expect(size()).toBe("376px");
+    await act(async () => click(container));
+    await elapse(delay);
+    expect(size()).toBe("376px");
+    expect(measured).toHaveBeenCalledTimes(1);
+    await act(async () => { await emit("settings-changed", { ...saved, selectedAppearanceId: normal.id }); });
+    await elapse(0);
+    expect(size()).toBe("186px");
+    await act(async () => { await emit("settings-changed", saved); });
+    await elapse(0);
+    expect(size()).toBe("376px");
+    expect(measured).toHaveBeenCalledTimes(2);
+    // 同一 id/路径更新素材元数据时重新适配，事件读取的也必须是新素材。
+    measured.mockResolvedValue(160);
+    await act(async () => {
+      await emit("settings-changed", { ...saved, petAssets: [{ ...small, sizeBytes: 42 }, normal] });
+    });
+    await elapse(0);
+    expect(size()).toBe("300px");
+    expect(measured).toHaveBeenCalledTimes(3);
+    measured.mockResolvedValue(null);
+  });
+
   it("同一缩放下切换宠物会放大，移动和换屏缩放保留当前外观，切回图标恢复原大小", async () => {
+    localStorage.setItem("snapshot-pet-base-scales", JSON.stringify({ "pet-enlarged": 200 }));
     const screenWidth = vi.spyOn(window.screen, "availWidth", "get").mockReturnValue(1000);
     vi.spyOn(window.screen, "availHeight", "get").mockReturnValue(1200);
     const iconSettings = { ...settingsWith(grok), selectedAppearanceId: "app-icon", petScale: 150 };
@@ -637,14 +674,32 @@ describe("桌宠：应用图标和自定义宠物的大小", () => {
     expect(shown(container).file).toBe("grok_idle.gif");
     expectSize(285);
 
+    const enlarged = { ...grok, id: "pet-enlarged" };
+    const enlargedSettings = { ...iconSettings, selectedAppearanceId: enlarged.id, petAssets: [grok, enlarged] };
+    await act(async () => { await emit("settings-changed", enlargedSettings); });
+    await loadPetImages();
+    expectSize(570);
+
     screenWidth.mockReturnValue(800);
     await moveTo([100, 100]);
-    expectSize(228);
+    expectSize(456);
 
     screenWidth.mockReturnValue(1000);
     await act(async () => {
       await emit("tauri://scale-change", { scaleFactor: 2, size: { width: 480, height: 480 } });
     });
+    expectSize(570);
+
+    // 同一形象收到基准偏好事件时立即缩放；换回同名的普通形象恢复自己的基准。
+    const { persistPetBaseScale } = await import("../lib/petScale");
+    await act(async () => {
+      persistPetBaseScale(enlarged.id, 150);
+    });
+    expectSize(428);
+    await act(async () => {
+      await emit("settings-changed", { ...enlargedSettings, selectedAppearanceId: grok.id });
+    });
+    await loadPetImages();
     expectSize(285);
 
     await act(async () => {

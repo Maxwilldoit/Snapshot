@@ -8,26 +8,30 @@ import { AnnotateWindow } from "./windows/AnnotateWindow";
 import { LaunchpadWindow } from "./windows/LaunchpadWindow";
 import { PetCatalogWindow } from "./windows/PetCatalogWindow";
 import { PromptLibraryWindow } from "./windows/PromptLibraryWindow";
-import { applyTheme, listenThemeChanges, readTheme } from "./lib/theme";
-import { applyMotion, listenMotionChanges, readMotionPreference, resolveMotion } from "./lib/prefs";
+import { applyTheme, readTheme, watchSystemTheme } from "./lib/theme";
+import { applyMotion } from "./lib/prefs";
+import { viewTransition } from "./lib/motion";
 import { applyDocumentLanguage, I18nProvider, readLanguagePreference, resolveLanguage } from "./lib/i18n";
 import "./styles/variables.css";
 import "./styles.css";
 import "./styles/app.css";
-
-// 各个 WebView 独立，每个都要在首帧前套上主题与动效档位，避免浅色闪一下
-applyDocumentLanguage(resolveLanguage(readLanguagePreference()));
-applyTheme(readTheme());
-applyMotion(resolveMotion(readMotionPreference()));
-// 主窗口改了之后，其余窗口靠广播当场跟上，不必重开
-listenThemeChanges(applyTheme);
-listenMotionChanges(applyMotion);
 
 function mount() {
   const label = getCurrentWindow().label;
   const usesTransparentSurface = label === "pet" || label === "quick-menu" || label === "launchpad";
   document.documentElement.classList.toggle("transparent-window", usesTransparentSurface);
   document.body.classList.toggle("transparent-window", usesTransparentSurface);
+
+  // 每个 WebView 都在首帧前应用系统颜色和完整动效，不读取旧外观偏好。
+  applyDocumentLanguage(resolveLanguage(readLanguagePreference()));
+  applyTheme(readTheme());
+  applyMotion("full");
+
+  const unwatchTheme = watchSystemTheme((mode) => {
+    if (label === "main") viewTransition("theme", () => applyTheme(mode));
+    else applyTheme(mode);
+  });
+  import.meta.hot?.dispose(unwatchTheme);
 
   const CurrentWindow =
     label === "pet" ? PetWindow

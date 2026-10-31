@@ -26,7 +26,7 @@ type ViewTransitionDocument = Document & {
 };
 
 /** 过渡的种类决定 CSS 里走哪套动画（见 app.css「过渡」一节） */
-export type TransitionKind = "page" | "layout" | "theme";
+export type TransitionKind = "page" | "theme";
 export type TransitionDirection = "up" | "down" | "left" | "right";
 
 // 记住最近一次按下的位置：换颜色时从这里铺开

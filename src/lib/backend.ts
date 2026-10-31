@@ -69,6 +69,10 @@ export const deletePetAsset = (id: string) => invoke<Settings>("delete_pet_asset
  */
 export const setPetFrameShift = (x: number, y: number) => invoke<void>("set_pet_frame_shift", { x, y });
 
+/** 桌宠当前画面在窗口中的实际矩形；窗口外的透明区域交给下面的应用处理。 */
+export const setPetHitbox = (x: number, y: number, width: number, height: number) =>
+  invoke<void>("set_pet_hitbox", { x, y, width, height });
+
 /** 一轮 GIF 的时长（毫秒），用于在动作完整播放一次后回到待机 */
 export const petAnimationDuration = (id: string, entry: string) =>
   invoke<number>("pet_animation_duration", { id, entry });

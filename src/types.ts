@@ -1,12 +1,9 @@
-/** 主窗口里的页面。home / settings 只在「时间线」布局里出现 */
+/** 主窗口侧栏里的页面 */
 export type NavPage =
   | "shortcuts"
   | "history"
   | "pet"
-  | "prefs"
-  | "themes"
-  | "home"
-  | "settings";
+  | "prefs";
 
 export type ShortcutAction =
   | "snapshot"
@@ -106,7 +103,7 @@ export interface Settings {
   activeTemplateId: string;
   selectedAppearanceId: string;
   petAssets: PetAsset[];
-  /** 悬浮大小：基准大小的百分比，100 时应用图标为屏幕短边的 8%、宠物为 19%（见 lib/petSize.ts） */
+  /** 悬浮大小：当前形象基准大小的百分比（见 lib/petScale.ts 和 lib/petSize.ts）。 */
   petScale: number;
   /** 空闲时沿当前屏幕底部走动 */
   petWander?: boolean;

@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { InvokeArgs } from "@tauri-apps/api/core";
 import type { PlatformCapabilities, Settings } from "../types";
 import { setupTauriMock, type IPCHandler } from "../test/tauri";
+
+vi.mock("../lib/petAutoScale", () => ({ measurePetScale: vi.fn().mockResolvedValue(null) }));
 
 /**
  * B2 拆页后的回归网：逐个导航到从 App.tsx 搬出的页面，确认它们在新位置
@@ -117,7 +119,6 @@ describe("B2 拆页后逐页渲染", () => {
     [/^历史记录/, "还没有历史记录"],
     [/^桌面伴侣/, "全部形象"],
     [/^偏好设置/, "截屏与行为"],
-    [/^主题库/, "布局"],
   ])("导航到「%s」能渲染出该页独有内容", async (navLabel, marker) => {
     await renderApp();
     const user = userEvent.setup();
@@ -186,6 +187,49 @@ describe("B2 拆页后逐页渲染", () => {
     );
   });
 
+  it("形象基准按 id 单独保存，换同名形象和保存失败都不会改变全局大小", async () => {
+    let saved: Settings = {
+      ...settings,
+      selectedAppearanceId: "whale",
+      petAssets: [
+        { id: "makima", name: "同名", path: "m.gif", entry: "idle.gif", animations: ["idle.gif"] },
+        { id: "whale", name: "同名", path: "w.webm", entry: "idle.webm", animations: ["idle.webm"] },
+      ],
+    };
+    localStorage.setItem("snapshot-pet-base-scales", JSON.stringify({ whale: 200 }));
+    const preferences = vi.fn();
+    await renderApp((command, payload) => {
+      if (command === "load_settings") return saved;
+      if (command === "save_preferences") preferences(payload);
+      return handler(command);
+    });
+    await userEvent.setup().click(screen.getByRole("button", { name: "偏好设置" }));
+    const baseline = screen.getByRole("slider", { name: "100% 基准大小" });
+    expect(baseline).toHaveProperty("value", "200");
+    fireEvent.change(baseline, { target: { value: "160" } });
+    await waitFor(() => expect(baseline).toHaveProperty("value", "160"));
+    expect(JSON.parse(localStorage.getItem("snapshot-pet-base-scales")!)).toEqual({ whale: 160 });
+    expect(preferences).not.toHaveBeenCalled();
+    expect(saved.petScale).toBe(100);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "自动适配" }));
+    expect(baseline).toHaveProperty("value", "100");
+    expect(JSON.parse(localStorage.getItem("snapshot-pet-base-scales")!)).toEqual({});
+    fireEvent.change(baseline, { target: { value: "160" } });
+
+    saved = { ...saved, selectedAppearanceId: "makima" };
+    const { emit } = await import("@tauri-apps/api/event");
+    await act(async () => { await emit("settings-changed", saved); });
+    expect(baseline).toHaveProperty("value", "100");
+    expect(screen.getByRole("slider", { name: "大小" })).toHaveProperty("value", "100");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("保存基准失败"); });
+    fireEvent.change(baseline, { target: { value: "150" } });
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("保存基准失败"));
+    expect(baseline).toHaveProperty("value", "100");
+    expect(JSON.parse(localStorage.getItem("snapshot-pet-base-scales")!)).toEqual({ whale: 160 });
+    expect(saved.petScale).toBe(100);
+  });
+
   it("桌面宠物的自由走动、随机动作和重力分别保存", async () => {
     const calls: Array<{ command: string; payload?: InvokeArgs }> = [];
     await renderApp((command, payload) => {
@@ -245,25 +289,22 @@ describe("B2 拆页后逐页渲染", () => {
     expect(screen.queryByRole("radio", { name: /另存为/ })).toBeNull();
   });
 
-  it("主题库里换成「时间线」：侧栏消失，标题栏出现「今天」", async () => {
+  it.each(["companion", "timeline", "ledger", "topbar"])("旧布局 %s 固定为简洁侧栏，不再显示伴侣和主题库", async (layout) => {
+    localStorage.setItem("snapshot-layout", layout);
     await renderApp();
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^主题库/ }));
-    await user.click(await screen.findByRole("radio", { name: /时间线/ }));
-    expect(await screen.findByRole("button", { name: "今天" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "快捷操作" })).toBeNull();
-    await waitFor(() => expect(window.localStorage.getItem("snapshot-layout")).toBe("timeline"));
-    window.localStorage.removeItem("snapshot-layout");
-  });
+    const nav = screen.getByRole("navigation", { name: "主导航" });
+    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "快捷操作", "历史记录", "桌面伴侣", "偏好设置",
+    ]);
+    expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();
+    expect(document.querySelector(".companion")).toBeNull();
 
-  it("「时间线」的设置页里也能调桌宠大小", async () => {
-    await renderApp();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^主题库/ }));
-    await user.click(await screen.findByRole("radio", { name: /时间线/ }));
-    await user.click(await screen.findByRole("button", { name: "设置" }));
+    await user.click(within(nav).getByRole("button", { name: "偏好设置" }));
     expect(await screen.findByRole("slider", { name: "大小" })).toBeTruthy();
-    window.localStorage.removeItem("snapshot-layout");
+    expect(screen.queryByRole("radiogroup", { name: "布局主题" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "颜色" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "动效" })).toBeNull();
   });
 });
 // jsdom 未实现 Element.prototype.scrollTo；App 换页后会调用它回到顶部。

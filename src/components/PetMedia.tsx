@@ -54,6 +54,7 @@ export function PetMedia({
         className={className}
         style={style}
         src={src}
+        crossOrigin="anonymous"
         muted
         loop
         playsInline

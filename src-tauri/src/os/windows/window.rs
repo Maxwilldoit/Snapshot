@@ -8,6 +8,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::HWND,
     Graphics::Dwm::DwmFlush,
+    Graphics::Gdi::{CreateRectRgn, DeleteObject, SetWindowRgn},
     UI::WindowsAndMessaging::{IsIconic, IsWindowVisible, ShowWindow, SW_RESTORE},
 };
 
@@ -53,4 +54,36 @@ pub(crate) fn wait_until_hidden(window: &tauri::WebviewWindow) -> Result<(), Str
     }
 
     Err("快捷菜单仍被 Windows 标记为可见".into())
+}
+
+/// 原生矩形窗口仍可透明；把窗口区域收成桌宠画面实际占用的一块，
+/// 区域外的点击会直接落到下面的应用。全零表示恢复完整窗口。
+pub(crate) fn set_window_region(
+    hwnd: isize,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
+    let handle: HWND = hwnd as usize as *mut _;
+    if width <= 0 || height <= 0 {
+        let ok = unsafe { SetWindowRgn(handle, std::ptr::null_mut(), 1) };
+        return if ok != 0 {
+            Ok(())
+        } else {
+            Err("恢复桌宠窗口区域失败".into())
+        };
+    }
+
+    let region = unsafe { CreateRectRgn(x, y, x.saturating_add(width), y.saturating_add(height)) };
+    if region.is_null() {
+        return Err("创建桌宠点击区域失败".into());
+    }
+    let ok = unsafe { SetWindowRgn(handle, region, 1) };
+    if ok == 0 {
+        // SetWindowRgn 成功时由系统接管区域；失败时仍由调用方释放。
+        unsafe { DeleteObject(region) };
+        return Err("设置桌宠点击区域失败".into());
+    }
+    Ok(())
 }

@@ -7,10 +7,11 @@ import { addPetAssets, deletePetAsset, renamePetAsset, selectPetAppearance, show
 import { petUrl } from "../lib/media";
 import { fileNameOf, formatBytes } from "../lib/format";
 import { commonPrefix, entryLabel } from "../lib/petNames";
-import { flyImage, stagger, useFlip, useSlidingMark } from "../lib/motion";
+import { flyImage, stagger, useSlidingMark } from "../lib/motion";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { PetAsset } from "../types";
+import { ensurePetAutoScale } from "../lib/petScale";
 
 const ACCEPTED = /\.(zip|gif|webm)$/i;
 /** 舞台上的伴侣最高多少像素（和 .pet-stage-image 的 max-height 一致） */
@@ -82,7 +83,6 @@ export function PetPage() {
   const importRef = useRef<(paths: string[]) => Promise<void>>(async () => {});
   const shelfRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const flip = useFlip(shelfRef);
   // 换伴侣时替身在飞：flying 真图藏着，landed 真图直接露出来（不再自己淡入，免得和替身一起半透明）
   const [landing, setLanding] = useState<"idle" | "flying" | "landed">("idle");
 
@@ -92,22 +92,34 @@ export function PetPage() {
   const actionsRef = useSlidingMark<HTMLDivElement>(`${selectedId}-${activeEntry}`);
 
   useEffect(() => {
+    let active = true;
+    void (async () => {
+      // 每次只解码一份待机素材；导入多只或升级旧素材时不同时启动大量视频。
+      for (const asset of settings.petAssets) {
+        if (!active) break;
+        await ensurePetAutoScale(asset);
+      }
+    })();
+    return () => { active = false; };
+  }, [settings.petAssets]);
+
+  useEffect(() => {
     setActiveEntry(selected?.entry || selected?.animations[0] || null);
     setRenaming(null);
     setArmedRemove(false);
   }, [selectedId, selected?.entry, selected?.animations]);
 
-  // 最近用过的在前；从没用过的按导入先后
+  // 较晚导入的在前；导入时间相同则保留原顺序，切换伴侣不改变位置
   const shelf = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return [...settings.petAssets]
-      .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) || (b.importedAt ?? 0) - (a.importedAt ?? 0))
+      .sort((a, b) => (b.importedAt ?? 0) - (a.importedAt ?? 0))
       .filter((item) => !needle || item.name.toLowerCase().includes(needle));
   }, [settings.petAssets, filter]);
 
   async function choose(id: string) {
     if (id === selectedId) return;
-    // 换上的那只从架子上飞到舞台；架子按最近使用重排，其余的滑到新位置
+    // 换上的那只从架子上飞到舞台，架子上的位置保持不变
     const figure = shelfRef.current?.querySelector<HTMLImageElement>(`[data-flip-key="${id}"] img`);
     const stage = stageRef.current;
     if (figure && stage && figure.complete && figure.naturalHeight) {
@@ -120,7 +132,6 @@ export function PetPage() {
       setLanding("flying");
       void flyImage(figure.src, figure.getBoundingClientRect(), to, { onLand: () => setLanding("landed") });
     }
-    flip.capture();
     try {
       onSaved(await selectPetAppearance(id));
     } catch (error) {

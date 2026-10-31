@@ -570,6 +570,7 @@ pub fn run() {
             settings::default_prompt,
             pet::select_pet_appearance,
             pet::set_pet_frame_shift,
+            pet::set_pet_hitbox,
             pet::pet_animation_duration,
             pet::add_pet_assets,
             pet_catalog::fetch_pet_catalog,

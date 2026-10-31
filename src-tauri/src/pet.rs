@@ -24,7 +24,7 @@ pub(crate) struct PetAsset {
     pub(crate) size_bytes: u64,
     #[serde(default)]
     pub(crate) imported_at: u64,
-    /// 最近一次被选为伴侣的时间，形象架按它排序
+    /// 最近一次被选为伴侣的时间。
     #[serde(default)]
     pub(crate) last_used_at: u64,
     /// 素材文件找不到了（旧版按原路径读取，原文件被移走就会这样）。每次读盘重算
@@ -369,6 +369,75 @@ fn remove_owned_file(state: &AppState, path: &str) {
 #[tauri::command]
 pub(crate) fn set_pet_frame_shift(state: State<'_, AppState>, x: i32, y: i32) {
     *state.pet_frame_shift.lock() = (x, y);
+}
+
+/// 桌宠窗口里的媒体矩形（WebView 的逻辑像素）。Windows 将透明外圈裁出原生窗口区域，
+/// 这样点到透明处会穿过桌宠；其它平台保留普通窗口行为。
+#[cfg(target_os = "windows")]
+fn pet_hitbox_region(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    factor: f64,
+    client_width: u32,
+    client_height: u32,
+) -> Option<(i32, i32, i32, i32)> {
+    let finite = [x, y, width, height].into_iter().all(f64::is_finite);
+    if client_width == 0
+        || client_height == 0
+        || !finite
+        || factor <= 0.0
+        || width <= 0.0
+        || height <= 0.0
+    {
+        return None;
+    }
+    let width_limit = client_width as i32;
+    let height_limit = client_height as i32;
+    let content_left = (x * factor).floor() as i32;
+    let content_top = (y * factor).floor() as i32;
+    let content_right = ((x + width) * factor).ceil() as i32;
+    let content_bottom = ((y + height) * factor).ceil() as i32;
+    if content_right <= 0
+        || content_bottom <= 0
+        || content_left >= width_limit
+        || content_top >= height_limit
+    {
+        return None;
+    }
+    let left = (content_left - 1).clamp(0, width_limit - 1);
+    let top = (content_top - 1).clamp(0, height_limit - 1);
+    let right = (content_right + 1).clamp(1, width_limit);
+    let bottom = (content_bottom + 1).clamp(1, height_limit);
+    (right > left && bottom > top).then_some((left, top, right - left, bottom - top))
+}
+
+#[tauri::command]
+pub(crate) fn set_pet_hitbox(
+    window: tauri::WebviewWindow,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let handle = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+        let factor = window.scale_factor().map_err(|error| error.to_string())?;
+        let client = window.inner_size().map_err(|error| error.to_string())?;
+        match pet_hitbox_region(x, y, width, height, factor, client.width, client.height) {
+            Some((left, top, region_width, region_height)) => {
+                crate::os::set_window_region(handle, left, top, region_width, region_height)
+            }
+            None => crate::os::set_window_region(handle, 0, 0, 0, 0),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, x, y, width, height);
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -1030,5 +1099,22 @@ mod tests {
             encoder.write_frame(&frame).unwrap();
         }
         assert_eq!(gif_duration_ms(&bytes), Ok(1000));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn pet_hitbox_is_clamped_to_the_current_client_area() {
+        assert_eq!(
+            pet_hitbox_region(10.0, 20.0, 30.0, 40.0, 2.0, 100, 100),
+            Some((19, 39, 62, 61))
+        );
+        assert_eq!(
+            pet_hitbox_region(50.0, 50.0, 100.0, 100.0, 1.0, 100, 100),
+            Some((49, 49, 51, 51))
+        );
+        assert_eq!(
+            pet_hitbox_region(100.0, 100.0, 20.0, 20.0, 1.0, 100, 100),
+            None
+        );
     }
 }

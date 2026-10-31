@@ -8,93 +8,36 @@ import {
 } from "./lib/backend";
 import { previewHintSound, primeHintSound } from "./lib/sound";
 import { shortcutKeys } from "./lib/format";
-import {
-  applyTheme,
-  broadcastTheme,
-  persistThemePreference,
-  readThemePreference,
-  resolveTheme,
-  watchSystemTheme,
-  type ThemePreference,
-} from "./lib/theme";
-import {
-  applyMotion,
-  broadcastMotion,
-  persistLayout,
-  persistMotionPreference,
-  readLayout,
-  readMotionPreference,
-  resolveMotion,
-  watchSystemMotion,
-  type LayoutTheme,
-  type MotionPreference,
-} from "./lib/prefs";
 import { canViewTransition, viewTransition, type TransitionDirection } from "./lib/motion";
-import { AppContext, errorText, useApp, type AppContextValue, type Notice, type NoticeKind } from "./app/context";
-import { LedgerList, NavMark, NoticeLine, SideNav, TitleBar, TopNav } from "./app/Shell";
-import { Companion } from "./components/Companion";
+import { AppContext, errorText, type AppContextValue, type Notice, type NoticeKind } from "./app/context";
+import { NoticeLine, SideNav, TitleBar } from "./app/Shell";
 import { LoadingState } from "./components/LoadingState";
 import { useActivityLog, useClipboardState, useRecordingStatus } from "./hooks/useLive";
 import { ShortcutsPage } from "./pages/ShortcutsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { PetPage } from "./pages/PetPage";
 import { PreferencesPage } from "./pages/PreferencesPage";
-import { ThemesPage } from "./pages/ThemesPage";
-import { TimelineHome } from "./pages/TimelineHome";
-import { SettingsDoc } from "./pages/SettingsDoc";
 import type { NavPage, PlatformCapabilities, Settings } from "./types";
 import { useI18n, useWindowTitle } from "./lib/i18n";
 
-/** 每种布局能到的页面，以及打开时落在哪一页 */
-const LAYOUT_PAGES: Record<LayoutTheme, { home: NavPage; pages: NavPage[] }> = {
-  companion: { home: "shortcuts", pages: ["shortcuts", "history", "pet", "prefs", "themes"] },
-  ledger: { home: "shortcuts", pages: ["shortcuts", "history", "pet", "prefs", "themes"] },
-  topbar: { home: "shortcuts", pages: ["shortcuts", "history", "pet", "prefs", "themes"] },
-  timeline: { home: "home", pages: ["home", "history", "pet", "settings"] },
-};
+/** 侧栏的先后顺序决定换页时上下滑入的方向 */
+const NAV_ORDER: NavPage[] = ["shortcuts", "history", "pet", "prefs"];
 
-/** 两种布局之间换页时，对应到最接近的那一页 */
-function mapPage(page: NavPage, layout: LayoutTheme): NavPage {
-  const { home, pages } = LAYOUT_PAGES[layout];
-  if (pages.includes(page)) return page;
-  if (layout === "timeline") return ["shortcuts", "prefs", "themes"].includes(page) ? "settings" : home;
-  if (page === "settings") return "themes";
-  return home;
+function directionFor(from: NavPage, to: NavPage): TransitionDirection {
+  return NAV_ORDER.indexOf(to) >= NAV_ORDER.indexOf(from) ? "down" : "up";
 }
 
-/** 导航里的先后顺序：往后走新页从下面（或右边）来，往回走从上面（或左边）来 */
-const NAV_ORDER: Record<LayoutTheme, NavPage[]> = {
-  companion: ["shortcuts", "history", "pet", "prefs", "themes"],
-  ledger: ["shortcuts", "history", "pet", "prefs", "themes"],
-  topbar: ["shortcuts", "history", "pet", "prefs", "themes"],
-  timeline: ["home", "history", "pet", "settings"],
-};
-
-function directionFor(layout: LayoutTheme, from: NavPage, to: NavPage): TransitionDirection {
-  const order = NAV_ORDER[layout];
-  const forward = order.indexOf(to) >= order.indexOf(from);
-  // 侧栏是竖排，换页上下走；标题栏里的导航是横排，换页左右走
-  const vertical = layout === "companion" || layout === "ledger";
-  return vertical ? (forward ? "down" : "up") : forward ? "right" : "left";
-}
-
-/** 普通提示自己消失，出错的多留一会儿（伴侣布局里由猫说，别处浮在左下角） */
+/** 普通提示自己消失，出错的多留一会儿 */
 const NOTICE_MS: Record<NoticeKind, number> = { info: 3200, error: 9000 };
 
 function PageView({ page }: { page: NavPage }) {
   switch (page) {
-    case "home":
-      return <TimelineHome />;
     case "history":
       return <HistoryPage />;
     case "pet":
       return <PetPage />;
     case "prefs":
       return <PreferencesPage />;
-    case "themes":
-      return <ThemesPage />;
-    case "settings":
-      return <SettingsDoc />;
     default:
       return <ShortcutsPage />;
   }
@@ -105,10 +48,7 @@ export function App() {
   useWindowTitle(t("应用快照"));
   // 默认值只在后端有一份；拿到之前显示加载态，不在前端再抄一份默认设置
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [layout, setLayoutState] = useState<LayoutTheme>(() => readLayout());
-  const [page, setPage] = useState<NavPage>(() => LAYOUT_PAGES[readLayout()].home);
-  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => readThemePreference());
-  const [motionPreference, setMotionPreferenceState] = useState<MotionPreference>(() => readMotionPreference());
+  const [page, setPage] = useState<NavPage>("shortcuts");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [caps, setCaps] = useState<PlatformCapabilities | null>(null);
@@ -206,57 +146,10 @@ export function App() {
     };
   }, []);
 
-  // 颜色：跟随系统时，系统外观变了要当场跟上
-  const setThemePreference = useCallback((next: ThemePreference) => {
-    setThemePreferenceState(next);
-    persistThemePreference(next);
-    const mode = resolveTheme(next);
-    // 从点的那个选项铺开新颜色
-    if (document.documentElement.dataset.theme !== mode) viewTransition("theme", () => applyTheme(mode));
-    broadcastTheme(mode);
-  }, []);
-
-  useEffect(() => {
-    if (themePreference !== "system") return;
-    return watchSystemTheme((mode) => {
-      viewTransition("theme", () => applyTheme(mode));
-      broadcastTheme(mode);
-    });
-  }, [themePreference]);
-
-  const setMotionPreference = useCallback((next: MotionPreference) => {
-    setMotionPreferenceState(next);
-    persistMotionPreference(next);
-    const mode = resolveMotion(next);
-    applyMotion(mode);
-    broadcastMotion(mode);
-  }, []);
-
-  useEffect(() => {
-    if (motionPreference !== "system") return;
-    return watchSystemMotion((mode) => {
-      applyMotion(mode);
-      broadcastMotion(mode);
-    });
-  }, [motionPreference]);
-
-  // 新页挂载时要不要自己淡入：走 View Transitions 的换页/换布局不要（过渡已经管了），其余情况要
+  // 走 View Transitions 的换页不再单独淡入，避免过渡结束后重复播放
   const pageEnters = useRef(true);
   const pageRef = useRef(page);
-  const layoutRef = useRef(layout);
   pageRef.current = page;
-  layoutRef.current = layout;
-
-  // 换布局：结构变了就当翻一页，新布局整体淡入、轻轻落定，不让零件各自飞
-  const setLayout = useCallback((next: LayoutTheme) => {
-    if (next === layoutRef.current) return;
-    pageEnters.current = !canViewTransition();
-    viewTransition("layout", () => {
-      setLayoutState(next);
-      setPage((current) => mapPage(current, next));
-    });
-    persistLayout(next);
-  }, []);
 
   // 换页：旧页往反方向退半步淡掉，新页从导航的方向滑进来；导航下的墨线跟着滑过去
   const navigate = useCallback<AppContextValue["navigate"]>((next, options) => {
@@ -270,7 +163,7 @@ export function App() {
         setPage(next);
         mainRef.current?.scrollTo?.({ top: 0 });
       },
-      { direction: directionFor(layoutRef.current, from, next) },
+      { direction: directionFor(from, next) },
     );
   }, []);
 
@@ -288,12 +181,6 @@ export function App() {
         activity,
         clipboard,
         recording,
-        layout,
-        setLayout,
-        themePreference,
-        setThemePreference,
-        motionPreference,
-        setMotionPreference,
         page,
         navigate,
         pendingPreviewId,
@@ -301,7 +188,6 @@ export function App() {
       },
     [
       settings, notify, notice, dismissNotice, conflicts, caps, activity, clipboard, recording,
-      layout, setLayout, themePreference, setThemePreference, motionPreference, setMotionPreference,
       page, navigate, pendingPreviewId,
     ],
   );
@@ -318,41 +204,24 @@ export function App() {
 
   const content = (
     <main className="main" ref={mainRef}>
-      <div key={`${layout}-${page}`} className={`page-view page-${page} ${pageEnters.current ? "is-entering" : ""}`}>
+      <div key={page} className={`page-view page-${page} ${pageEnters.current ? "is-entering" : ""}`}>
         <PageView page={page} />
       </div>
     </main>
   );
 
-  // 猫在不在眼前：不在的地方，提示才浮到左下角
-  const catVisible = (layout === "companion" && page !== "pet") || (layout === "timeline" && page === "home");
-
   return (
     <AppContext.Provider value={value}>
-      <div className={`window layout-${layout}`}>
-        {layout === "topbar" ? (
-          <TitleBar tall>
-            <TopNav />
-          </TitleBar>
-        ) : layout === "timeline" ? (
-          <TitleBar right={<TimelineLinks />} />
-        ) : (
-          <TitleBar />
-        )}
+      <div className="window layout-companion">
+        <TitleBar />
+        <div className="shell">
+          <aside className="sidebar">
+            <SideNav />
+          </aside>
+          {content}
+        </div>
 
-        {layout === "companion" || layout === "ledger" ? (
-          <div className="shell">
-            <aside className="sidebar">
-              <SideNav />
-              {layout === "companion" ? <Companion away={page === "pet"} /> : <LedgerList />}
-            </aside>
-            {content}
-          </div>
-        ) : (
-          <div className="shell shell-full">{content}</div>
-        )}
-
-        {!catVisible && <NoticeLine />}
+        <NoticeLine />
         {flash && <div className="shutter-flash" aria-hidden="true" />}
       </div>
     </AppContext.Provider>
@@ -366,33 +235,5 @@ function BareTitleBar() {
     <header className="titlebar" data-tauri-drag-region>
       <span className="titlebar-name">{t("应用快照")}</span>
     </header>
-  );
-}
-
-/** 「时间线」布局的标题栏右侧：回到今天、全部历史、形象、设置 */
-function TimelineLinks() {
-  const { page, navigate } = useApp();
-  const { t } = useI18n();
-  const links: Array<{ page: NavPage; label: string }> = [
-    { page: "home", label: t("今天") },
-    { page: "history", label: t("历史记录") },
-    { page: "pet", label: t("形象") },
-    { page: "settings", label: t("设置") },
-  ];
-  return (
-    <nav className="top-nav top-nav-right" aria-label={t("主导航")}>
-      {links.map((link) => (
-        <button
-          key={link.page}
-          type="button"
-          className={`top-item small ${page === link.page ? "is-on" : ""}`}
-          aria-current={page === link.page ? "page" : undefined}
-          onClick={() => navigate(link.page)}
-        >
-          {link.label}
-          {page === link.page && <NavMark />}
-        </button>
-      ))}
-    </nav>
   );
 }

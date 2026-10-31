@@ -8,7 +8,6 @@ import {
   onRecordingChanged,
 } from "../lib/backend";
 import type { ActivityEntry, ClipboardState, RecordingStatus } from "../types";
-import { askPetAnimation, onPetAnimation, type PetAnimation } from "../lib/petSync";
 
 /** 订阅一个 Tauri 事件；卸载时取消 */
 function useTauriListener(subscribe: () => Promise<() => void>) {
@@ -69,28 +68,5 @@ export function useNow(enabled: boolean, intervalMs = 1000) {
     return () => window.clearInterval(timer);
   }, [enabled, intervalMs]);
   return now;
-}
-
-/** 窗口在不在前台：不在前台时猫停在静态帧，省电也不打扰 */
-/** 主窗口是否在屏幕上（没最小化、没藏起来）；失去焦点也算在 */
-export function useWindowVisible() {
-  const [visible, setVisible] = useState(() => (typeof document === "undefined" ? true : !document.hidden));
-  useEffect(() => {
-    const update = () => setVisible(!document.hidden);
-    document.addEventListener("visibilitychange", update);
-    return () => document.removeEventListener("visibilitychange", update);
-  }, []);
-  return visible;
-}
-
-/** 桌宠此刻在播的动作（桌宠窗口广播，这里跟着）；还没收到时是 null */
-export function usePetAnimation() {
-  const [value, setValue] = useState<PetAnimation | null>(null);
-  useEffect(() => {
-    const stop = onPetAnimation(setValue);
-    askPetAnimation();
-    return stop;
-  }, []);
-  return value;
 }
 

@@ -46,6 +46,8 @@ fn into_response(result: Result<Media, String>) -> Response<Vec<u8>> {
     let built = match result {
         Ok(media) => builder
             .header(header::CONTENT_TYPE, media.mime)
+            // 透明 WebM 只用于桌宠命中区计算；允许本机页面读取像素，同时不改动缓存语义。
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .header(
                 header::CACHE_CONTROL,
                 if media.immutable {
@@ -198,6 +200,7 @@ mod tests {
             snapshot.headers()[header::CACHE_CONTROL],
             "max-age=31536000, immutable"
         );
+        assert_eq!(snapshot.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
         let pet = into_response(Ok(Media {
             mime: "image/gif",
             immutable: false,
