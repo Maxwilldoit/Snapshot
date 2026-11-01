@@ -98,4 +98,4 @@ strip = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11-dl = "2"
-zbus = "5"
+zbus = "6"
