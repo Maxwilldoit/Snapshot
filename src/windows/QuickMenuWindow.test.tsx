@@ -40,6 +40,27 @@ async function renderPalette(handle: (command: string, payload?: InvokeArgs) => 
   return { calls, user: userEvent.setup() };
 }
 
+describe("快捷菜单：截取自身主窗口", () => {
+  it.each([
+    ["快照", "run_action", { action: "capture", targetId: 75 }],
+    ["录制", "toggle_recording", { targetId: 75 }],
+  ] as const)("选择应用快照进行%s时使用它的明确窗口 id", async (label, commandName, payload) => {
+    const ownMain = { id: 75, pid: 4244, appName: "snapshot", title: "应用快照", minimized: false };
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "list_capturable_windows") return [...windowList, ownMain];
+      if (command === "run_action") return "已复制 snapshot";
+      if (command === "toggle_recording") return { active: true, target: "snapshot", startedAt: 123 };
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: label }));
+    await user.click(await screen.findByRole("option", { name: /snapshot.*应用快照/i }));
+    await waitFor(() => {
+      expect(calls.find((call) => call.command === commandName)?.payload).toEqual(payload);
+    });
+  });
+});
+
 describe("快捷菜单：录制", () => {
   it("选「录制」先列窗口，点哪个就录哪个", async () => {
     const { calls, user } = await renderPalette((command) => {

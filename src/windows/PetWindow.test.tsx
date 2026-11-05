@@ -60,6 +60,12 @@ async function renderPet(
   initialPosition = { x: 100, y: 100 },
   monitor: Record<string, unknown> | null = null,
   durations: Record<string, number> = {},
+  geometry: {
+    scale?: number;
+    size?: { width: number; height: number };
+    monitors?: Array<Record<string, unknown>>;
+    readMonitor?: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
+  } = {},
 ) {
   vi.useFakeTimers();
   const calls: string[] = [];
@@ -70,9 +76,10 @@ async function renderPet(
       if (command === "load_settings") return { ...settingsWith(asset), ...overrides };
       if (command === "get_previous_app") return { id: null, pid: null, name: "", title: "" };
       if (command === "plugin:window|outer_position") return { ...position };
-      if (command === "plugin:window|outer_size") return { width: 160, height: 160 };
-      if (command === "plugin:window|scale_factor") return 1;
-      if (command === "plugin:window|current_monitor") return monitor;
+      if (command === "plugin:window|outer_size") return geometry.size ?? { width: 160, height: 160 };
+      if (command === "plugin:window|scale_factor") return geometry.scale ?? 1;
+      if (command === "plugin:window|current_monitor") return geometry.readMonitor ? geometry.readMonitor() : monitor;
+      if (command === "plugin:window|available_monitors") return geometry.monitors ?? (monitor ? [monitor] : []);
       if (command === "pet_animation_duration") {
         const args = payload as { entry: string };
         return durations[args.entry] ?? 3000;
@@ -361,6 +368,164 @@ describe("桌宠：重力", () => {
 
     await endDrag();
     expect(position.y).toBe(580);
+  });
+});
+
+describe("桌宠：左右屏幕边界", () => {
+  const monitor = {
+    name: "test", scaleFactor: 1,
+    position: { x: 0, y: 0 }, size: { width: 1000, height: 900 },
+    workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 840 } },
+  };
+
+  function mediaBox() {
+    vi.spyOn(window.screen, "availWidth", "get").mockReturnValue(1000);
+    vi.spyOn(window.screen, "availHeight", "get").mockReturnValue(840);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 160, 160));
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(80);
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(160);
+  }
+
+  it.each([false, true])("可见内容在拖动时贴齐左右边缘，松手不再按透明方窗回弹（重力 %s）", async (petGravity) => {
+    mediaBox();
+    const { container, position } = await renderPet(grok, { petGravity }, { x: 100, y: 680 }, monitor);
+    await elapse(32);
+    await startDrag(container);
+    await dragTo(-1000, 100);
+    expect(position.x).toBe(-40);
+    await endDrag();
+    await elapse(1000);
+    expect(position).toEqual({ x: -40, y: 680 });
+
+    await startDrag(container);
+    await dragTo(2000, 100);
+    expect(position.x).toBe(880);
+    await endDrag();
+    await elapse(1000);
+    expect(position).toEqual({ x: 880, y: 680 });
+  });
+
+  it("200% DPI 下使用物理边界，负原点屏幕的透明留白可以越界", async () => {
+    mediaBox();
+    const left = {
+      ...monitor, scaleFactor: 2,
+      position: { x: -2000, y: 0 }, size: { width: 2000, height: 1800 },
+      workArea: { position: { x: -2000, y: 0 }, size: { width: 2000, height: 1680 } },
+    };
+    const { container, position } = await renderPet(grok, {}, { x: -1000, y: 200 }, left, {}, {
+      scale: 2, size: { width: 320, height: 320 },
+    });
+    await elapse(32);
+    await startDrag(container);
+    await dragTo(-2000, 100);
+    expect(position.x).toBe(-2080);
+    await endDrag();
+    expect(position.x).toBe(-2080);
+    await startDrag(container);
+    await dragTo(2000, 100);
+    expect(position.x).toBe(-240);
+    await endDrag();
+    expect(position.x).toBe(-240);
+  });
+
+  it("恢复屏幕外旧坐标后，下落不会继续写入校准前的横坐标", async () => {
+    mediaBox();
+    const { position } = await renderPet(grok, { petGravity: true }, { x: -200, y: 100 }, monitor);
+    await elapse(1000);
+    expect(position).toEqual({ x: -40, y: 680 });
+  });
+
+  it("上一轮松手的边界查询晚到时，不会打断新一轮拖拽", async () => {
+    mediaBox();
+    let delayed: Promise<typeof monitor> | undefined;
+    let release!: (value: typeof monitor) => void;
+    const { container, position } = await renderPet(grok, {}, { x: 100, y: 100 }, monitor, {}, {
+      readMonitor: () => {
+        const result = delayed ?? monitor;
+        delayed = undefined;
+        return result;
+      },
+    });
+    await elapse(32);
+    await startDrag(container);
+    await dragTo(150, 100);
+    delayed = new Promise((resolve) => { release = resolve; });
+    await endDrag();
+
+    await startDrag(container);
+    await dragTo(100, -100);
+    expect(position.y).toBe(-100);
+    await act(async () => { release(monitor); });
+    expect(position.y).toBe(-100);
+    await endDrag();
+    expect(position.y).toBe(0);
+  });
+
+  it("相邻显示器接缝允许跨过，直到整个桌面的右侧边缘才停止", async () => {
+    mediaBox();
+    const right = { ...monitor, position: { x: 1000, y: 0 },
+      workArea: { ...monitor.workArea, position: { x: 1000, y: 0 } } };
+    const { container, position } = await renderPet(grok, {}, { x: 800, y: 100 }, monitor, {}, { monitors: [monitor, right] });
+    await elapse(32);
+    await startDrag(container);
+    await dragTo(400, 100);
+    expect(position.x).toBe(1100);
+    await endDrag();
+    expect(position.x).toBe(1100);
+    await startDrag(container);
+    await dragTo(3000, 100);
+    expect(position.x).toBe(1880);
+    await endDrag();
+    expect(position.x).toBe(1880);
+  });
+
+  it("靠边后切换尺寸不同的锚点动作，返回待机时仍保留角色的横向基准", async () => {
+    mediaBox();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return new DOMRect(parseFloat(this.style.left), parseFloat(this.style.top), parseFloat(this.style.width), parseFloat(this.style.height));
+    });
+    const asset = { ...grok, layout: { baseWidth: 100, baseHeight: 200, anchorX: 50, anchorY: 190,
+      frames: [
+        { entry: grok.entry, width: 100, height: 200, anchorX: 50, anchorY: 190 },
+        { entry: grok.animations[1], width: 200, height: 360, anchorX: 60, anchorY: 350 },
+      ] } };
+    const { container, position, delay } = await renderPet(asset, {}, { x: 0, y: 100 }, monitor);
+    await elapse(32);
+    await startDrag(container);
+    await dragTo(-1000, 100);
+    await endDrag();
+    const edgeX = position.x;
+    expect(edgeX).toBeLessThan(0);
+    await act(async () => click(container));
+    await elapse(delay);
+    await elapse(3000);
+    expect(position.x).toBe(edgeX);
+  });
+
+  it("带 pet.json 的透明 WebM 也按 alpha 可见范围贴边", async () => {
+    mediaBox();
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(96);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(96);
+    vi.spyOn(HTMLVideoElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const data = new Uint8ClampedArray(96 * 96 * 4);
+    for (let y = 0; y < 96; y += 1) {
+      for (let x = 24; x < 72; x += 1) data[(y * 96 + x) * 4 + 3] = 255;
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(), drawImage: vi.fn(), getImageData: () => ({ data }),
+    } as unknown as CanvasRenderingContext2D);
+    const asset = { ...grok, entry: "idle.webm", animations: ["idle.webm"],
+      layout: { baseWidth: 96, baseHeight: 96, anchorX: 48, anchorY: 96,
+        frames: [{ entry: "idle.webm", width: 96, height: 96, anchorX: 48, anchorY: 96 }] } };
+    const { container, position } = await renderPet(asset, {}, { x: 100, y: 100 }, monitor);
+    await act(async () => { fireEvent.loadedData(container.querySelector("video")!); });
+    await elapse(32);
+    await startDrag(container);
+    await dragTo(-1000, 100);
+    expect(position.x).toBe(-40);
+    await endDrag();
+    expect(position.x).toBe(-40);
   });
 });
 
@@ -820,5 +985,280 @@ describe("桌宠：超出基准画布时把窗口撑大", () => {
     expect(sizes.at(-1)).toEqual({ width: side, height: side });
     expect(position).toEqual(origin);
     expect(shifts.at(-1)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+// DSH clip names are adapted from the upstream configuration; see THIRD_PARTY_NOTICES.md.
+const whale: PetAsset = {
+  id: "renamed-companion", name: "任意显示名称", path: "local.zip", entry: "pack/待机呼吸休闲.webm",
+  animations: [
+    "待机呼吸休闲", "被鼠标拖拽悬空反馈", "点击回应-开心跃动", "点击回应-害羞惊讶",
+    "东张西望", "螃蟹走路", "原地漂浮踏步", "原地左转奔跑", "悠闲哼歌", "原地专心玩魔方",
+    "工作状态-忙碌点按", "工作状态-原地踱步张望", "工作状态-雀跃庆祝", "工作状态-垂头叹气冒汗",
+    "余额-分文不剩", "碎碎念-发呆碎碎念",
+  ].map((name) => `pack/${name}.webm`),
+};
+const loadedVideos = new WeakSet<HTMLVideoElement>();
+
+async function loadPetVideos() {
+  await act(async () => {
+    for (const video of document.querySelectorAll<HTMLVideoElement>(".pet-window video")) {
+      if (loadedVideos.has(video)) continue;
+      loadedVideos.add(video);
+      fireEvent.loadedData(video);
+    }
+  });
+}
+
+function shownVideo(container: HTMLElement) {
+  const media = container.querySelector<HTMLVideoElement>("video.pet-current");
+  if (!media) throw new Error("桌宠没有可见视频");
+  return { media, file: decodeURIComponent(media.src).split("/").pop() };
+}
+
+async function renderWhale(overrides: Partial<Settings> = {}) {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+  vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(10);
+  vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+  vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(360);
+  const view = await renderPet(whale, overrides);
+  await loadPetVideos();
+  return view;
+}
+
+describe("桌宠：DSH 动作交互", () => {
+  it("单击立即选点击回应，首帧就位后 Q 弹，并等真实 ended 才回待机", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const { container, calls } = await renderWhale();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    await act(async () => click(container));
+    const incoming = [...container.querySelectorAll<HTMLVideoElement>("video")]
+      .find((media) => decodeURIComponent(media.src).endsWith("点击回应-开心跃动.webm"))!;
+    expect(incoming).toBeTruthy();
+    const cancel = vi.fn();
+    const animate = vi.fn(() => ({ cancel } as unknown as Animation));
+    Object.defineProperty(incoming, "animate", { value: animate });
+    expect(animate).not.toHaveBeenCalled();
+    await loadPetVideos();
+    expect(shownVideo(container).media).toBe(incoming);
+    expect(incoming.loop).toBe(false);
+    expect(animate).toHaveBeenCalledTimes(1);
+    await elapse(3500);
+    expect(shownVideo(container).media).toBe(incoming);
+    await act(async () => { fireEvent.ended(incoming); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    expect(calls).not.toContain("show_launchpad");
+  });
+
+  it("拖动使用已预加载的悬空动作，松手回待机，不触发点击回应", async () => {
+    const { container } = await renderWhale();
+    const held = [...container.querySelectorAll<HTMLVideoElement>("video")]
+      .find((media) => decodeURIComponent(media.src).endsWith("被鼠标拖拽悬空反馈.webm"))!;
+    expect(held.hidden).toBe(true);
+    await startDrag(container);
+    expect(shownVideo(container).media).toBe(held);
+    expect(held.loop).toBe(true);
+    await dragTo(160, 100);
+    await elapse(12_000);
+    expect(shownVideo(container).media).toBe(held);
+    await endDrag();
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    expect(container.querySelectorAll('video[src*="%E7%82%B9%E5%87%BB"]')).toHaveLength(0);
+  });
+
+  it("连续点击能重播且避免连抽，上一段迟到的 ended 不会掐断新动作", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const { container, delay } = await renderWhale();
+    await act(async () => click(container));
+    await loadPetVideos();
+    const first = shownVideo(container).media;
+    await elapse(delay);
+    await act(async () => click(container));
+    await loadPetVideos();
+    const second = shownVideo(container).media;
+    expect(shownVideo(container).file).toBe("点击回应-害羞惊讶.webm");
+    await act(async () => { fireEvent.ended(first); });
+    expect(shownVideo(container).media).toBe(second);
+    await act(async () => { fireEvent.ended(second); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+  });
+
+  it("工作状态可被点击暂时打断，播完和拖拽松手后都恢复当前状态", async () => {
+    const { container } = await renderWhale();
+    await act(async () => { await emit("recording-changed", { active: true }); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("工作状态-忙碌点按.webm");
+    expect(shownVideo(container).media.loop).toBe(true);
+    await act(async () => click(container));
+    await loadPetVideos();
+    const clicked = shownVideo(container);
+    expect(clicked.file).toMatch(/^点击回应-/);
+    await act(async () => { fireEvent.ended(clicked.media); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("工作状态-忙碌点按.webm");
+    await startDrag(container);
+    expect(shownVideo(container).file).toBe("被鼠标拖拽悬空反馈.webm");
+    await endDrag();
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("工作状态-忙碌点按.webm");
+  });
+
+  it("成功/失败反馈播完恢复持续状态，专用动作不会混入普通点击", async () => {
+    const { container } = await renderWhale({ shortcutsPaused: true });
+    expect(shownVideo(container).file).toBe("工作状态-原地踱步张望.webm");
+    for (const [event, expected] of [
+      ["capture.success", "工作状态-雀跃庆祝.webm"],
+      ["capture.failure", "工作状态-垂头叹气冒汗.webm"],
+    ]) {
+      await act(async () => { await emit("pet-event", event); });
+      await loadPetVideos();
+      expect(shownVideo(container).file).toBe(expected);
+      expect(shownVideo(container).media.loop).toBe(false);
+      await act(async () => { fireEvent.ended(shownVideo(container).media); });
+      await loadPetVideos();
+      expect(shownVideo(container).file).toBe("工作状态-原地踱步张望.webm");
+    }
+  });
+
+  it("新动作加载失败能回到待机，切到其它角色后忽略旧视频的回调", async () => {
+    const { container } = await renderWhale();
+    await act(async () => click(container));
+    const broken = [...container.querySelectorAll<HTMLVideoElement>("video")]
+      .find((media) => decodeURIComponent(media.src).includes("点击回应-"))!;
+    await act(async () => { fireEvent.error(broken); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    await act(async () => { await emit("settings-changed", settingsWith(grok)); });
+    await loadPetImages();
+    await act(async () => { fireEvent.ended(broken); });
+    expect(shown(container).file).toBe("grok_idle.gif");
+    await elapse(8000);
+    expect(shown(container).file).toBe("grok_idle.gif");
+  });
+
+  it("保留双击打开启动台，取消第一下正在播放的回应", async () => {
+    const { container, calls } = await renderWhale();
+    await act(async () => click(container));
+    await loadPetVideos();
+    await elapse(100);
+    await act(async () => click(container));
+    await loadPetVideos();
+    expect(calls.filter((command) => command === "show_launchpad")).toHaveLength(1);
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+  });
+
+  it("随机动作只从分类池抽取，播完接下一段，关闭开关后恢复待机", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { container } = await renderWhale({ petRandomActions: true });
+    expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
+    const first = shownVideo(container).media;
+    await elapse(3500);
+    expect(shownVideo(container).media).toBe(first);
+    await act(async () => { fireEvent.ended(first); });
+    await loadPetVideos();
+    expect(shownVideo(container).media).not.toBe(first);
+    expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
+
+    await act(async () => { await emit("settings-changed", { ...settingsWith(whale), petRandomActions: false }); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    const idle = shownVideo(container).media;
+    await elapse(30_000);
+    expect(shownVideo(container).media).toBe(idle);
+    expect(idle.loop).toBe(true);
+  });
+
+  it("转身片完整播完才翻转朝向，点击和拖拽沿用新的朝向", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.11);
+    const { container } = await renderWhale({ petRandomActions: true });
+    expect(shownVideo(container).file).toBe("东张西望.webm");
+    expect(shownVideo(container).media.classList.contains("pet-flip")).toBe(false);
+    await elapse(3500);
+    expect(shownVideo(container).media.classList.contains("pet-flip")).toBe(false);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await loadPetVideos();
+    expect(shownVideo(container).media.classList.contains("pet-flip")).toBe(true);
+    await act(async () => click(container));
+    await loadPetVideos();
+    expect(shownVideo(container).file).toMatch(/^点击回应-/);
+    expect(shownVideo(container).media.classList.contains("pet-flip")).toBe(true);
+    await startDrag(container);
+    expect(shownVideo(container).file).toBe("被鼠标拖拽悬空反馈.webm");
+    expect(shownVideo(container).media.classList.contains("pet-flip")).toBe(true);
+    await endDrag();
+  });
+
+  it("右键只打开快捷菜单，保留当前自动动作及进度，播完后动作链继续", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { container, calls } = await renderWhale({ petRandomActions: true });
+    expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
+    const current = shownVideo(container).media;
+    current.currentTime = 4.25;
+    await act(async () => {
+      fireEvent.pointerDown(container.querySelector(".pet-window")!, { button: 2 });
+      fireEvent.contextMenu(container.querySelector(".pet-window")!, { screenX: 300, screenY: 400 });
+    });
+    await loadPetVideos();
+    expect(calls.filter((command) => command === "show_quick_menu")).toHaveLength(1);
+    expect(shownVideo(container).media).toBe(current);
+    expect(current.currentTime).toBe(4.25);
+    expect(current.loop).toBe(false);
+    await act(async () => { fireEvent.ended(current); });
+    await elapse(20);
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
+    expect(shownVideo(container).media).not.toBe(current);
+  });
+
+  it("右键不打断正在播放的点击回应，回应完成后照常回待机", async () => {
+    const { container } = await renderWhale();
+    await act(async () => click(container));
+    await loadPetVideos();
+    const current = shownVideo(container).media;
+    current.currentTime = 3;
+    await act(async () => { fireEvent.contextMenu(container.querySelector(".pet-window")!); });
+    await loadPetVideos();
+    expect(shownVideo(container).media).toBe(current);
+    expect(current.currentTime).toBe(3);
+    expect(current.loop).toBe(false);
+    await act(async () => { fireEvent.ended(current); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+  });
+
+  it("右键不清除一次性反馈，反馈结束后仍恢复持续状态", async () => {
+    const { container } = await renderWhale({ shortcutsPaused: true });
+    await act(async () => { await emit("pet-event", "capture.success"); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("工作状态-雀跃庆祝.webm");
+    const current = shownVideo(container).media;
+    current.currentTime = 6;
+    await act(async () => { fireEvent.contextMenu(container.querySelector(".pet-window")!); });
+    await loadPetVideos();
+    expect(shownVideo(container).media).toBe(current);
+    expect(current.currentTime).toBe(6);
+    await act(async () => { fireEvent.ended(current); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("工作状态-原地踱步张望.webm");
+  });
+
+  it("普通 GIF 角色右键时也保留当前随机动作的节点和正常收尾", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { container, calls } = await renderPet(grok, { petRandomActions: true });
+    await elapse(6600);
+    expect(shown(container).file).toBe("grok_wave.gif");
+    const current = shown(container).img;
+    await act(async () => { fireEvent.contextMenu(container.querySelector(".pet-window")!); });
+    await loadPetImages();
+    expect(calls).toContain("show_quick_menu");
+    expect(shown(container).img).toBe(current);
+    await elapse(3000);
+    expect(shown(container).file).toBe("grok_idle.gif");
   });
 });

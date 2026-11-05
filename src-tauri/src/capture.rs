@@ -28,6 +28,29 @@ pub(crate) fn capture_window(
         })
         .ok_or_else(|| "还没有上一个应用可截取".to_string())?;
     trace.mark("target_resolve");
+    #[cfg(target_os = "windows")]
+    if let Some(main) = tracker::own_main_window(&app, target_id) {
+        trace.mark("window_enum");
+        if main.is_minimized().map_err(|error| error.to_string())? {
+            os::restore_minimized(target_id)?;
+            trace.mark("window_restore");
+        }
+        let hwnd = target_id as isize;
+        let (x, y, width, height) = os::capture_own_window_bounds(hwnd)?;
+        let area = Some(Area {
+            x,
+            y,
+            width,
+            height,
+        });
+        trace.mark("window_metadata");
+        let include_cursor = state.settings.lock().include_cursor;
+        let (image, cursor_degraded) =
+            capture_area(include_cursor, area, "窗口", &trace, || {
+                os::capture_own_window(hwnd)
+            })?;
+        return finalize_capture(&app, &state, image, "snapshot", cursor_degraded, trace);
+    }
     let window = Window::all()
         .map_err(|error| error.to_string())?
         .into_iter()

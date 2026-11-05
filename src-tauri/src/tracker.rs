@@ -78,26 +78,106 @@ fn capturable_window_area_from(area: Option<u64>, minimized: bool) -> Option<u64
     }
 }
 
+struct MainCaptureWindow {
+    id: Option<u32>,
+    pid: u32,
+    title: String,
+}
+
+impl MainCaptureWindow {
+    fn matches(&self, id: u32, pid: u32, title: &str) -> bool {
+        match self.id {
+            Some(main_id) => id == main_id,
+            None => pid == self.pid && title == self.title,
+        }
+    }
+}
+
+fn main_capture_window(app: &AppHandle) -> Option<MainCaptureWindow> {
+    let main = app.get_webview_window("main")?;
+    // Windows 用原生 HWND 精确匹配，主窗口改名或 WebView2 子进程都不影响识别。
+    #[cfg(target_os = "windows")]
+    let id = Some(main.hwnd().ok()?.0 as usize as u32);
+    #[cfg(not(target_os = "windows"))]
+    let id = None;
+    Some(MainCaptureWindow {
+        id,
+        pid: std::process::id(),
+        title: main.title().unwrap_or_default(),
+    })
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn own_main_window(app: &AppHandle, id: u32) -> Option<tauri::WebviewWindow> {
+    let main = app.get_webview_window("main")?;
+    let main_id = main.hwnd().ok()?.0 as usize as u32;
+    (main_id == id).then_some(main)
+}
+
+#[cfg(target_os = "windows")]
+fn native_main_capture_window(app: &AppHandle) -> Option<(u64, CapturableWindow)> {
+    let main = app.get_webview_window("main")?;
+    if !main.is_visible().ok()? {
+        return None;
+    }
+    let id = main.hwnd().ok()?.0 as usize as u32;
+    let size = main.outer_size().ok()?;
+    let minimized = main.is_minimized().ok()?;
+    let area = capturable_window_area_from(
+        content_window_area_from_size(size.width, size.height),
+        minimized,
+    )?;
+    Some((
+        area,
+        CapturableWindow {
+            id,
+            pid: std::process::id(),
+            app_name: "snapshot".into(),
+            title: main.title().ok()?,
+            minimized,
+        },
+    ))
+}
+
 #[tauri::command]
-pub(crate) fn list_capturable_windows() -> Result<Vec<CapturableWindow>, String> {
+pub(crate) async fn list_capturable_windows(
+    app: AppHandle,
+) -> Result<Vec<CapturableWindow>, String> {
+    // 自有窗口的元数据查询可能需要主线程处理消息，不能从同步 IPC 阻塞窗口消息循环。
+    tauri::async_runtime::spawn_blocking(move || enumerate_capturable_windows(&app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>, String> {
+    let main = main_capture_window(app);
     let mut result = Window::all()
         .map_err(|error| error.to_string())?
         .into_iter()
-        .filter(|window| !is_own_window(window))
         .filter_map(|window| {
+            let id = window.id().ok()?;
+            let pid = window.pid().ok()?;
+            let title = window.title().ok()?;
+            // 显式选择截图/录制目标时允许主窗口；自动“上一个应用”追踪仍跳过自身。
+            if is_own_window(&window)
+                && !main
+                    .as_ref()
+                    .is_some_and(|main| main.matches(id, pid, &title))
+            {
+                return None;
+            }
             let area = capturable_window_area_from(
                 content_window_area(&window),
                 window.is_minimized().unwrap_or(false),
             )?;
-            let title = window.title().ok()?;
             if title.trim().is_empty() {
                 return None;
             }
             Some((
                 area,
                 CapturableWindow {
-                    id: window.id().ok()?,
-                    pid: window.pid().ok()?,
+                    id,
+                    pid,
                     app_name: window.app_name().unwrap_or_else(|_| "应用".into()),
                     title,
                     minimized: window.is_minimized().unwrap_or(false),
@@ -105,6 +185,13 @@ pub(crate) fn list_capturable_windows() -> Result<Vec<CapturableWindow>, String>
             ))
         })
         .collect::<Vec<_>>();
+    // xcap 0.9.8 的 Windows 枚举在底层排除了整个当前进程；只补上可见的 main。
+    #[cfg(target_os = "windows")]
+    if let Some(main) = native_main_capture_window(app) {
+        if !result.iter().any(|(_, window)| window.id == main.1.id) {
+            result.push(main);
+        }
+    }
     result.sort_by(|(left_area, left), (right_area, right)| {
         left.app_name
             .cmp(&right.app_name)
@@ -116,7 +203,7 @@ pub(crate) fn list_capturable_windows() -> Result<Vec<CapturableWindow>, String>
 }
 
 /// 判断某个窗口是不是本应用自己的窗口（桌宠、快捷菜单、主窗口）。
-/// 追踪"上一个应用"和录制目标时都必须跳过它们，否则点击桌宠托盘
+/// 追踪"上一个应用"时必须跳过它们，否则点击桌宠托盘
 /// 后桌宠自己会被记成"上一个应用"，图标随后变成终端一类的业务应用。
 fn is_own_window(window: &Window) -> bool {
     if let Ok(pid) = window.pid() {
@@ -189,6 +276,32 @@ pub(crate) fn start_tracker(app: AppHandle, tracker: Arc<Mutex<TrackerState>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn main_window_capture_uses_its_handle_instead_of_a_shared_process_or_title() {
+        let main = MainCaptureWindow {
+            id: Some(42),
+            pid: 100,
+            title: "应用快照".into(),
+        };
+        assert!(main.matches(42, 100, "应用快照"));
+        assert!(main.matches(42, 200, "Snapshot"));
+        for title in ["桌宠", "快速操作", "启动台", "标注截图", "应用快照"] {
+            assert!(!main.matches(43, 100, title));
+        }
+    }
+
+    #[test]
+    fn main_window_title_fallback_also_requires_the_owning_process() {
+        let main = MainCaptureWindow {
+            id: None,
+            pid: 100,
+            title: "应用快照".into(),
+        };
+        assert!(main.matches(42, 100, "应用快照"));
+        assert!(!main.matches(42, 200, "应用快照"));
+        assert!(!main.matches(43, 100, "桌宠"));
+    }
 
     #[test]
     fn menu_bar_items_are_not_treated_as_content_windows() {

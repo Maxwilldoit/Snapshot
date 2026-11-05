@@ -1,5 +1,5 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { isWebmEntry } from "../lib/media";
 import { PetMedia } from "./PetMedia";
 
@@ -32,5 +32,18 @@ describe("PetMedia", () => {
     expect(video?.muted).toBe(true);
     expect(video?.loop).toBe(true);
     expect(video?.preload).toBe("metadata");
+  });
+
+  it("forwards a one-shot video's actual completion and decoding failure", () => {
+    const ended = vi.fn();
+    const failed = vi.fn();
+    const { container } = render(<PetMedia src="clip.webm" entry="clip.webm" playing={false} loop={false} onEnded={ended} onError={failed} />);
+    const video = container.querySelector("video")!;
+    expect(video.loop).toBe(false);
+    fireEvent.ended(video);
+    expect(ended).toHaveBeenCalledExactlyOnceWith(video);
+    fireEvent.error(video);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("video")).toBeNull();
   });
 });

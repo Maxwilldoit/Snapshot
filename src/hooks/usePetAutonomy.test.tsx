@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { setupTauriMock } from "../test/tauri";
+import type { PetWorkArea } from "../lib/petBounds";
 import { usePetAutonomy } from "./usePetAutonomy";
 
 const monitor = {
@@ -11,15 +12,26 @@ const monitor = {
   workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 740 } },
 };
 
-async function setup(options: Partial<Parameters<typeof usePetAutonomy>[0]> = {}) {
+async function setup(
+  options: Partial<Parameters<typeof usePetAutonomy>[0]> = {},
+  environment: {
+    initialPosition?: { x: number; y: number };
+    areas?: PetWorkArea[] | Error;
+    scale?: number;
+  } = {},
+) {
   vi.useFakeTimers();
-  const position = { x: 100, y: 100 };
+  const position = { ...(environment.initialPosition ?? { x: 100, y: 100 }) };
   const placements: Array<{ x: number; y: number }> = [];
   setupTauriMock((command, payload) => {
     if (command === "plugin:window|current_monitor") return monitor;
+    if (command === "plugin:window|available_monitors") {
+      if (environment.areas instanceof Error) return Promise.reject(environment.areas);
+      return environment.areas?.map((workArea) => ({ ...monitor, workArea }));
+    }
     if (command === "plugin:window|outer_position") return position;
     if (command === "plugin:window|outer_size") return { width: 160, height: 160 };
-    if (command === "plugin:window|scale_factor") return 1;
+    if (command === "plugin:window|scale_factor") return environment.scale ?? 1;
     if (command === "plugin:window|set_position") {
       const args = payload as { value: { position: { x: number; y: number } } };
       position.x = args.value.position.x;
@@ -59,6 +71,110 @@ describe("桌宠空闲行为", () => {
     expect(position.x).toBeGreaterThan(100);
     expect(position.y).toBe(100);
     expect(setWalking).toHaveBeenCalledWith("right");
+  });
+
+  it("可见内容贴左边时保留负窗口 x，不先拉回零", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { position, placements, setWalking } = await setup({
+      wander: true,
+      contentBounds: () => ({ left: 40, top: 20, width: 80, height: 120 }),
+    }, { initialPosition: { x: -40, y: 100 } });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(6632); });
+
+    expect(placements.length).toBeGreaterThan(0);
+    expect(placements[0].x).toBeGreaterThanOrEqual(-40);
+    expect(placements[0].x).toBeLessThan(-35);
+    expect(position.x).toBeLessThan(0);
+    expect(placements.every(({ x, y }) => x + 40 >= 0 && y === 100)).toBe(true);
+    expect(setWalking).toHaveBeenCalledWith("right");
+  });
+
+  it("走到右边时按可见内容贴齐，允许窗口右侧透明留白越界", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { placements, setWalking } = await setup({
+      wander: true,
+      contentBounds: () => ({ left: 40, top: 20, width: 80, height: 120 }),
+    }, { initialPosition: { x: 700, y: 100 } });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(9800); });
+
+    expect(placements.some(({ x }) => x === 880)).toBe(true);
+    expect(placements.every(({ x, y }) => x + 120 <= 1000 && y === 100)).toBe(true);
+    expect(setWalking.mock.calls.filter(([direction]) => direction !== null))
+      .toEqual([["right"], ["left"]]);
+  });
+
+  it("跨相邻显示器接缝继续行走，不在当前屏幕边缘折返或跳跃", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { position, placements, setWalking } = await setup({
+      wander: true,
+      contentBounds: () => ({ left: 40, top: 20, width: 80, height: 120 }),
+    }, {
+      initialPosition: { x: 800, y: 100 },
+      areas: [monitor.workArea, { position: { x: 1000, y: 0 }, size: { width: 1000, height: 740 } }],
+    });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_200); });
+
+    expect(position.x).toBeGreaterThan(1000);
+    expect(placements.some(({ x }) => x < 1000)).toBe(true);
+    expect(placements.every(({ x, y }, index) => {
+      const previousX = index === 0 ? 800 : placements[index - 1].x;
+      return x >= previousX && x - previousX <= 2 && y === 100;
+    })).toBe(true);
+    expect(setWalking.mock.calls).toEqual([["right"]]);
+  });
+
+  it("2x DPI 下只缩放逻辑媒体范围，保持物理窗口位置和原有 y 限制", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { placements } = await setup({
+      wander: true,
+      contentBounds: () => ({ left: 20, top: 10, width: 40, height: 60 }),
+    }, { initialPosition: { x: -40, y: 700 }, scale: 2 });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(6632); });
+
+    expect(placements.length).toBeGreaterThan(0);
+    expect(placements[0].x).toBeGreaterThan(-40);
+    expect(placements[0].x).toBeLessThan(-35);
+    // 原有 floor = 当前屏幕工作区底边 740 - 物理窗口高度 160。
+    expect(placements.every(({ x, y }) => x + 40 >= 0 && y === 580)).toBe(true);
+  });
+
+  it.each([
+    { name: "空列表", areas: [] },
+    { name: "未返回列表", areas: undefined },
+    { name: "查询失败", areas: new Error("monitors unavailable") },
+  ])("显示器$name时回退到当前显示器工作区", async ({ areas }) => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { placements } = await setup({ wander: true }, {
+      initialPosition: { x: 840, y: 100 }, areas,
+    });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(6632); });
+
+    expect(placements.length).toBeGreaterThan(0);
+    expect(placements[0].x).toBeLessThan(840);
+    expect(placements[0].x).toBeGreaterThan(835);
+    expect(placements.every(({ x, y }) => x >= 0 && x <= 840 && y === 100)).toBe(true);
+  });
+
+  it.each([
+    { name: "恰好容纳可见内容", width: 80 },
+    { name: "比可见内容更窄", width: 60 },
+    { name: "无效工作区", width: NaN },
+  ])("$name时跳过行走，不反复换向", async ({ width }) => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { placements, setWalking } = await setup({
+      wander: true,
+      contentBounds: () => ({ left: 40, top: 20, width: 80, height: 120 }),
+    }, { areas: [{ position: { x: 0, y: 0 }, size: { width, height: 740 } }] });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+
+    expect(placements).toEqual([]);
+    expect(setWalking).not.toHaveBeenCalled();
   });
 
   it("开启随机动作后会播放普通动作并及时回到待机", async () => {

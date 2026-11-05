@@ -118,7 +118,18 @@ pub(crate) fn get_recording_status(app: AppHandle, state: State<'_, AppState>) -
 
 /// 按窗口 id 取一份录制目标。窗口在点选之后、开录之前被关掉是常事，
 /// 所以这里要报「已关闭」而不是沉默地退回「上一个应用」。
-fn list_tracked_window(id: u32) -> Result<tracker::TrackedWindow, String> {
+fn list_tracked_window(app: &AppHandle, id: u32) -> Result<tracker::TrackedWindow, String> {
+    #[cfg(target_os = "windows")]
+    if let Some(main) = tracker::own_main_window(app, id) {
+        return Ok(tracker::TrackedWindow {
+            id,
+            pid: std::process::id(),
+            app_name: "snapshot".into(),
+            title: main.title().map_err(|error| error.to_string())?,
+        });
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
     let window = Window::all()
         .map_err(|error| error.to_string())?
         .into_iter()
@@ -227,7 +238,7 @@ pub(crate) fn toggle_recording(
 
     // 指定了窗口就录它；没指定才回到「上一个应用」，与窗口快照的口径一致
     let target = match target_id {
-        Some(id) => list_tracked_window(id)?,
+        Some(id) => list_tracked_window(&app, id)?,
         None => state
             .tracker
             .lock()

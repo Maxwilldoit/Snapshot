@@ -8,6 +8,7 @@ mod apps;
 mod autostart;
 mod cursor;
 mod icon;
+mod own_capture;
 mod pet_visibility;
 mod recorder;
 mod window;
@@ -22,6 +23,7 @@ use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWN
 pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
 pub(crate) use autostart::apply as apply_autostart;
 pub(crate) use icon::app_icon_png;
+pub(crate) use own_capture::{capture_own_window, capture_own_window_bounds};
 pub(crate) use pet_visibility::{refresh as refresh_pet_visibility, start as start_pet_visibility};
 pub(crate) use window::{restore_minimized, set_window_region, wait_until_hidden};
 
