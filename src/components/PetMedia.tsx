@@ -12,8 +12,12 @@ type PetMediaProps = {
   hidden?: boolean;
   /** WebM 受这里控制；静态待机预览传 false，不会启动解码播放。 */
   playing?: boolean;
+  /** Floating companions can play an interaction once; library previews keep looping by default. */
+  loop?: boolean;
   fallback?: ReactNode;
   onReady?: (element: PetMediaElement) => void;
+  onEnded?: (element: HTMLVideoElement) => void;
+  onError?: () => void;
 };
 
 /** PetWindow、伴侣舞台和侧栏共用：GIF 走 img，WebM 走静音透明 video。 */
@@ -25,12 +29,17 @@ export function PetMedia({
   alt = "",
   hidden,
   playing = true,
+  loop = true,
   fallback = null,
   onReady,
+  onEnded,
+  onError,
 }: PetMediaProps) {
   const [failed, setFailed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const video = isWebmEntry(entry);
+  const errorRef = useRef(onError);
+  errorRef.current = onError;
 
   useEffect(() => setFailed(false), [src]);
 
@@ -42,8 +51,8 @@ export function PetMedia({
       return;
     }
     const started = element.play();
-    if (started) void started.catch(() => {});
-  }, [entry, hidden, playing, src]);
+    if (started) void started.catch(() => errorRef.current?.());
+  }, [entry, hidden, playing, loop, src]);
 
   if (!src || failed) return <>{fallback}</>;
 
@@ -56,7 +65,7 @@ export function PetMedia({
         src={src}
         crossOrigin="anonymous"
         muted
-        loop
+        loop={loop}
         playsInline
         preload={playing ? "auto" : "metadata"}
         disablePictureInPicture
@@ -74,7 +83,8 @@ export function PetMedia({
           }
           onReady?.(element);
         }}
-        onError={() => setFailed(true)}
+        onEnded={(event) => onEnded?.(event.currentTarget)}
+        onError={() => { setFailed(true); onError?.(); }}
       />
     );
   }
@@ -88,7 +98,7 @@ export function PetMedia({
       hidden={hidden}
       draggable={false}
       onLoad={(event) => onReady?.(event.currentTarget)}
-      onError={() => setFailed(true)}
+      onError={() => { setFailed(true); onError?.(); }}
     />
   );
 }

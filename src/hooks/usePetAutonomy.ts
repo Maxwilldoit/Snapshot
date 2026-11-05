@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { availableMonitors, currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { clampPetX, petHorizontalLimits } from "../lib/petBounds";
+import type { MediaBounds } from "../lib/petSize";
 import type { WalkDirection } from "../lib/petWalk";
 
 export const PET_AUTONOMY = {
@@ -18,6 +20,7 @@ type AutonomyOptions = {
   setWalking: (direction: WalkDirection | null) => void;
   onAction: (entry: string | null) => void;
   actionDuration: (entry: string) => Promise<number>;
+  contentBounds?: () => MediaBounds | null;
 };
 
 function randomBetween([min, max]: readonly [number, number]) {
@@ -68,19 +71,26 @@ export function usePetAutonomy(options: AutonomyOptions) {
     });
 
     async function walk() {
-      const [monitor, position, size, scale] = await Promise.all([
+      const [monitor, position, size, scale, monitors] = await Promise.all([
         currentMonitor(),
         petWindow.outerPosition(),
         petWindow.outerSize(),
         petWindow.scaleFactor(),
+        availableMonitors().catch(() => []),
       ]);
       if (!alive() || !monitor || !(scale > 0)) return;
       const { position: origin, size: area } = monitor.workArea;
-      const minX = origin.x;
-      const maxX = origin.x + area.width - size.width;
+      const limits = petHorizontalLimits(
+        monitors?.length ? monitors.map((item) => item.workArea) : [monitor.workArea],
+        position,
+        size,
+        latest.current.contentBounds?.() ?? null,
+        scale,
+      );
+      if (!limits || limits.minX >= limits.maxX) return;
+      const { minX, maxX } = limits;
       const floor = origin.y + area.height - size.height;
-      if (minX > maxX) return;
-      let x = Math.max(minX, Math.min(maxX, position.x));
+      let x = clampPetX(position.x, limits);
       const y = Math.max(origin.y, Math.min(floor, position.y));
       const margin = Math.min(120 * scale, (maxX - minX) / 4);
       let direction: WalkDirection = Math.random() < 0.5 ? "left" : "right";
@@ -100,7 +110,7 @@ export function usePetAutonomy(options: AutonomyOptions) {
           }
           const dt = Math.min(0.05, Math.max(0, (now - previous) / 1000));
           previous = now;
-          x += (direction === "left" ? -1 : 1) * PET_AUTONOMY.walkSpeed * scale * dt;
+          x = clampPetX(x + (direction === "left" ? -1 : 1) * PET_AUTONOMY.walkSpeed * scale * dt, limits);
           if (x <= minX) {
             x = minX;
             direction = "right";

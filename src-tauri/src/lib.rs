@@ -61,7 +61,7 @@ use std::{
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WindowEvent,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State, WindowEvent,
 };
 use xcap::{Monitor, Window};
 
@@ -125,6 +125,35 @@ pub(crate) fn ui_text(zh: &'static str, en: &'static str) -> &'static str {
 /// 桌宠窗口左上角的 y 上限：窗口底边最多贴到工作区底边，也就是任务栏上沿。
 fn pet_top_limit(work_area_bottom: i32, window_height: i32) -> i32 {
     work_area_bottom - window_height.max(0)
+}
+
+/// 前端按显示器短边缩放；每个素材的 baseScale 只在 localStorage 中，取其上限 200%。
+/// 输入和结果均为物理像素，不再乘显示器的 DPI 缩放系数。
+fn max_pet_side(monitor_size: PhysicalSize<u32>, pet_scale: u32) -> i64 {
+    (f64::from(monitor_size.width.min(monitor_size.height))
+        * 0.19
+        * (f64::from(pet_scale) / 100.0)
+        * 2.0)
+        .ceil() as i64
+}
+
+fn can_restore_pet_position(
+    saved: &settings::PetPosition,
+    monitor_origin: PhysicalPosition<i32>,
+    monitor_size: PhysicalSize<u32>,
+    window_height: i32,
+    pet_scale: u32,
+) -> bool {
+    // 横向只要求保守最大方窗与屏幕相交，允许可见 body 贴边时透明外圈在屏幕外。
+    // 纵向仍要求初始窗口完全在屏幕内；宽整数也避免旧配置的极端坐标相加溢出。
+    let x = i64::from(saved.x);
+    let y = i64::from(saved.y);
+    let left = i64::from(monitor_origin.x);
+    let top = i64::from(monitor_origin.y);
+    x < left + i64::from(monitor_size.width)
+        && x + max_pet_side(monitor_size, pet_scale) > left
+        && y >= top
+        && y + i64::from(window_height) <= top + i64::from(monitor_size.height)
 }
 
 fn should_show_main_window(started_at_login: bool, tray_available: bool) -> bool {
@@ -331,19 +360,17 @@ pub fn run() {
                     monitors.iter().find_map(|monitor| {
                         let origin = monitor.position();
                         let size = monitor.size();
-                        let width = window_size
-                            .as_ref()
-                            .map(|value| value.width as i32)
-                            .unwrap_or(60);
                         let height = window_size
                             .as_ref()
                             .map(|value| value.height as i32)
                             .unwrap_or(60);
-                        let inside = saved.x >= origin.x
-                            && saved.y >= origin.y
-                            && saved.x + width <= origin.x + size.width as i32
-                            && saved.y + height <= origin.y + size.height as i32;
-                        if !inside {
+                        if !can_restore_pet_position(
+                            &saved,
+                            *origin,
+                            *size,
+                            height,
+                            settings.pet_scale,
+                        ) {
                             return None;
                         }
                         // 旧配置允许存到任务栏下面；启动时先把底边收回到工作区内。
@@ -759,6 +786,95 @@ mod pet_asset_tests {
         assert_eq!(pet_top_limit(-80, 200), -280);
         // 桌宠本身比工作区还高时，也优先守住底边，不让脚落到任务栏下面。
         assert_eq!(pet_top_limit(600, 900), -300);
+    }
+
+    #[test]
+    fn restores_negative_pet_x_when_maximum_side_overlaps_monitor() {
+        let size = PhysicalSize::new(1920, 1080);
+        assert_eq!(max_pet_side(size, 100), 411);
+        // 初始 80px 方窗完全在屏幕左侧，最终方窗仍可让可见 body 贴住左边。
+        assert!(can_restore_pet_position(
+            &settings::PetPosition { x: -300, y: 400 },
+            PhysicalPosition::new(0, 0),
+            size,
+            80,
+            100,
+        ));
+    }
+
+    #[test]
+    fn restores_pet_x_when_transparent_right_edge_is_offscreen() {
+        // x 保持 1900，初始 80px 窗口的右侧超出屏幕也允许恢复。
+        assert!(can_restore_pet_position(
+            &settings::PetPosition { x: 1900, y: 400 },
+            PhysicalPosition::new(0, 0),
+            PhysicalSize::new(1920, 1080),
+            80,
+            100,
+        ));
+    }
+
+    #[test]
+    fn rejects_pet_positions_far_from_every_monitor() {
+        let monitors = [
+            (PhysicalPosition::new(0, 0), PhysicalSize::new(1920, 1080)),
+            (
+                PhysicalPosition::new(-2560, 0),
+                PhysicalSize::new(2560, 1440),
+            ),
+        ];
+        for (x, y) in [
+            (-10000, 400),
+            (10000, 400),
+            (400, -10000),
+            (400, 10000),
+            (i32::MIN, 400),
+            (i32::MAX, i32::MAX),
+        ] {
+            let saved = settings::PetPosition { x, y };
+            assert!(!monitors.iter().any(|(origin, size)| {
+                can_restore_pet_position(&saved, *origin, *size, 80, 100)
+            }));
+        }
+    }
+
+    #[test]
+    fn restores_pet_on_negative_origin_high_dpi_monitor_in_physical_pixels() {
+        // 200% DPI 的 4K 屏仍使用 3840×2160 物理尺寸，不除以或再乘 DPI。
+        let size = PhysicalSize::new(3840, 2160);
+        assert_eq!(max_pet_side(size, 100), 821);
+        assert_eq!(max_pet_side(size, 150), 1232);
+        assert!(can_restore_pet_position(
+            &settings::PetPosition { x: -4800, y: -2000 },
+            PhysicalPosition::new(-3840, -2160),
+            size,
+            160,
+            150,
+        ));
+    }
+
+    #[test]
+    fn pet_restore_requires_horizontal_overlap_and_keeps_vertical_safety() {
+        for (x, y, expected) in [
+            (-411, 400, false),
+            (-410, 400, true),
+            (1920, 400, false),
+            (400, -1, false),
+            (400, 1000, true),
+            (400, 1001, false),
+        ] {
+            assert_eq!(
+                can_restore_pet_position(
+                    &settings::PetPosition { x, y },
+                    PhysicalPosition::new(0, 0),
+                    PhysicalSize::new(1920, 1080),
+                    80,
+                    100,
+                ),
+                expected,
+                "position ({x}, {y})",
+            );
+        }
     }
 
     #[test]
