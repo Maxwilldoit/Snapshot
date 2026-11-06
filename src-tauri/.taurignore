@@ -1,0 +1,6 @@
+# Swift sidecars are built by prepare:sidecars before tauri dev starts.
+# Ignore the package directory itself as well as its caches: macOS may report
+# directory metadata changes while build files are being written or synced.
+# After editing the Swift sources, restart tauri dev to rebuild the sidecar.
+snapshot-recorder
+snapshot-recorder-*-apple-darwin

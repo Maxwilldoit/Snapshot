@@ -8,6 +8,7 @@ mod launchpad;
 mod launchpad_cache;
 mod media;
 mod pet;
+mod pet_alpha;
 mod pet_catalog;
 mod pet_key;
 mod pet_layout;

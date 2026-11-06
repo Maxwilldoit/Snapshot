@@ -333,7 +333,7 @@
 
 .pet-page { display: grid; grid-template-columns: 236px minmax(0, 1fr); column-gap: 40px; min-height: calc(100vh - var(--titlebar-h)); padding: 10px 32px 22px 20px; }
 .pet-current { position: sticky; top: 10px; align-self: start; display: flex; flex-direction: column; min-width: 0; min-height: calc(100vh - var(--titlebar-h) - 32px); }
-.pet-stage { display: flex; align-items: flex-end; justify-content: center; height: 250px; flex: 0 0 auto; }
+.pet-stage { position: relative; display: flex; align-items: flex-end; justify-content: center; height: 250px; flex: 0 0 auto; }
 .pet-stage-image { display: block; max-height: 232px; max-width: 100%; object-fit: contain; background: transparent; pointer-events: none; animation: fade-in var(--t-open) var(--ease-out); }
 /* 从架子上飞过来的替身还在路上时，真图先藏着，落地那一刻再露出来 */
 .pet-stage-image.is-landing { opacity: 0; animation: none; }
@@ -355,15 +355,16 @@
 .shelf-item { display: flex; flex-direction: column; min-width: 0; animation: rise-in var(--t-open) var(--ease-enter) both; animation-delay: calc(var(--i, 0) * var(--stagger)); }
 .shelf-button { display: flex; flex-direction: column; align-items: stretch; min-width: 0; padding: 0; border: 0; background: none; }
 .shelf-figure {
-  display: flex; align-items: flex-end; justify-content: center; height: 72px;
+  position: relative; display: flex; align-items: flex-end; justify-content: center; height: 72px;
   border-bottom: 1px solid var(--rule-strong); margin-bottom: 1px;
   transition: border-color var(--t-fade) var(--ease-out);
 }
-.shelf-figure img, .shelf-figure video { display: block; max-height: 66px; max-width: 86%; object-fit: contain; background: transparent; pointer-events: none; transition: transform var(--t-fade) var(--ease-out); }
+.shelf-figure img, .shelf-figure video, .shelf-figure canvas { display: block; max-height: 66px; max-width: 86%; object-fit: contain; background: transparent; pointer-events: none; transition: transform var(--t-fade) var(--ease-out); }
 .shelf-figure .app-glyph { margin-bottom: 8px; }
 .shelf-figure .cat-shape { margin-bottom: 6px; }
 .pet-stage .cat-shape { margin-bottom: 14px; }
-.shelf-button:hover .shelf-figure :is(img, video) { transform: translateY(-3px); }
+.pet-stage > .pet-alpha-colour, .shelf-figure > .pet-alpha-colour { position: absolute; }
+.shelf-button:hover .shelf-figure :is(img, video, canvas) { transform: translateY(-3px); }
 .shelf-item.is-selected .shelf-figure { border-bottom: 2px solid var(--ink); margin-bottom: 0; }
 .shelf-name { margin-top: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: center; font-size: var(--text-small); line-height: 18px; color: var(--ink-2); padding: 0 4px; }
 .shelf-item.is-selected .shelf-name { color: var(--ink); font-weight: 600; }

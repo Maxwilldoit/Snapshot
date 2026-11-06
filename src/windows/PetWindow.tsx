@@ -17,6 +17,7 @@ import {
 import { iconUrl } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
 import { PetMedia, type PetMediaElement } from "../components/PetMedia";
+import { petVideoPixels } from "../lib/petVideoAlpha";
 import { petImageFrame, usePetImages, type PetImageFrame } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { placementForEntry, type PetPlacement } from "../lib/petFrame";
@@ -980,7 +981,7 @@ export function PetWindow() {
       }
       try {
         context.clearRect(0, 0, width, height);
-        context.drawImage(media, 0, 0, width, height);
+        context.drawImage(petVideoPixels(media), 0, 0, width, height);
         const pixels = context.getImageData(0, 0, width, height).data;
         let left = width;
         let top = height;

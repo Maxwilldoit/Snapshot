@@ -20,6 +20,22 @@ export const petUrl = (assetId: string, entry?: string | null) =>
 export const isWebmEntry = (entry: string | null | undefined) =>
   /(?:^|[.])webm(?:$|[?#])/i.test(entry ?? "");
 
+/** WKWebView on macOS ignores WebM's alpha plane; request it as a second video. */
+export function petAlphaUrl(src: string): string | null {
+  if (!/Macintosh|Mac OS X/.test(navigator.userAgent)) return null;
+  try {
+    const url = new URL(src);
+    if (url.protocol !== "media:" && url.hostname !== "media.localhost") return null;
+    // convertFileSrc may encode the entire path, including its slashes.
+    // Preserve that encoding so filenames containing literal '%' are decoded only once.
+    if (!/^\/pet(?:-walk)?(?:\/|%2f)/i.test(url.pathname)) return null;
+    url.pathname = url.pathname.replace(/^\/pet(?:-walk)?(?=\/|%2f)/i, "/pet-alpha");
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 /** 拖动桌宠时播的走路动作；横穿画布的由后端改成原地走 */
 export const petWalkUrl = (assetId: string, entry: string) => media(`pet-walk/${assetId}/${entry}`);
 

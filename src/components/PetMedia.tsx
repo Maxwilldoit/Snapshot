@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { isWebmEntry, petThumbUrl, petUrl } from "../lib/media";
+import { isWebmEntry, petAlphaUrl, petThumbUrl, petUrl } from "../lib/media";
+import { MacPetVideo } from "./MacPetVideo";
 
 export type PetMediaElement = HTMLImageElement | HTMLVideoElement;
 
-type PetMediaProps = {
+export type PetMediaProps = {
   src: string | null;
   entry: string | null | undefined;
   className?: string;
@@ -57,6 +58,10 @@ export function PetMedia({
   if (!src || failed) return <>{fallback}</>;
 
   if (video) {
+    const alphaSrc = petAlphaUrl(src);
+    if (alphaSrc) return <MacPetVideo key={src} src={src} alphaSrc={alphaSrc} entry={entry}
+      className={className} style={style} alt={alt} hidden={hidden} playing={playing} loop={loop}
+      onReady={onReady} onEnded={onEnded} onError={() => { setFailed(true); onError?.(); }} />;
     return (
       <video
         ref={videoRef}

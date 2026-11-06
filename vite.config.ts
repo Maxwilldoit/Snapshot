@@ -8,7 +8,8 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      ignored: ["**/src-tauri/target/**"],
+      // 后端由 Tauri 自己监听，Swift / Rust 构建产物不应触发前端重载。
+      ignored: ["**/src-tauri/**"],
     },
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],

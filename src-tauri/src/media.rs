@@ -8,6 +8,7 @@
 //!   snapshot/<快照 id>
 //!   thumb/<快照 id>              缩略图（没有就现做）
 //!   pet/<形象 id>[/<压缩包内的动作路径>]
+//!   pet-alpha/<形象 id>[/<动作路径>]  WebM 的独立透明通道（macOS 视频合成用）
 //!   pet-walk/<形象 id>/<动作路径>  拖动时播的走路动作（横穿画布的改成原地走）
 //!   pet-thumb/<形象 id>          默认动作的第一帧
 //!   icon/<pid>/<边长>
@@ -37,7 +38,17 @@ pub(crate) fn handle(
         let path = percent_decode_str(request.uri().path().trim_start_matches('/'))
             .decode_utf8_lossy()
             .into_owned();
-        responder.respond(into_response(serve(&app, &path)));
+        let response = into_response(serve(&app, &path));
+        // macOS 的 WKURLSchemeTask 在主线程取消。若在后台线程回包，Wry 的
+        // 有效性检查与 didReceiveResponse 之间可能被取消，抛出 "This task has
+        // already been stopped"；release 的 panic=abort 无法捕获这个异常。
+        // 只把回包交回主线程，与 stop 回调串行执行，读盘/解压仍留在后台。
+        #[cfg(target_os = "macos")]
+        if let Err(error) = app.run_on_main_thread(move || responder.respond(response)) {
+            eprintln!("snapshot: could not dispatch media response: {error}");
+        }
+        #[cfg(not(target_os = "macos"))]
+        responder.respond(response);
     });
 }
 
@@ -87,12 +98,17 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
             immutable: false,
             bytes: pet::read_thumbnail(&state, rest)?,
         }),
-        "pet" => {
+        "pet" | "pet-alpha" => {
             let (id, entry) = match rest.split_once('/') {
                 Some((id, entry)) => (id, Some(entry)),
                 None => (rest, None),
             };
             let bytes = pet::read_animation(&state, id, entry)?;
+            let bytes = if kind == "pet-alpha" {
+                pet_alpha::extract(&bytes)?
+            } else {
+                bytes
+            };
             Ok(Media {
                 mime: pet::animation_mime(&bytes),
                 immutable: false,
