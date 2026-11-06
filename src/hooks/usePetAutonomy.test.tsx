@@ -60,6 +60,21 @@ async function setup(
 }
 
 describe("桌宠空闲行为", () => {
+  it("行走时收紧窗口，只改变窗口偏移，不改变角色运动原点", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    let shift = { x: 0, y: 0 };
+    const { position, placements } = await setup({ wander: true, frameShift: () => shift });
+    await act(async () => { await vi.advanceTimersByTimeAsync(6632); });
+    const before = { ...position };
+    const count = placements.length;
+    shift = { x: 30, y: 45 };
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    expect(placements.length).toBeGreaterThan(count);
+    expect(position.x - shift.x - before.x).toBeGreaterThanOrEqual(0);
+    expect(position.x - shift.x - before.x).toBeLessThanOrEqual(2);
+    expect(position.y - shift.y).toBe(before.y);
+  });
+
   it("开启自由走动后会沿当前屏幕底部移动", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.9);
     const { position, placements, setWalking } = await setup({ wander: true });
@@ -126,7 +141,7 @@ describe("桌宠空闲行为", () => {
     expect(setWalking.mock.calls).toEqual([["right"]]);
   });
 
-  it("2x DPI 下只缩放逻辑媒体范围，保持物理窗口位置和原有 y 限制", async () => {
+  it("2x DPI 下按可见底边限位，透明下边距不再把行走中的角色抬高", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.9);
     const { placements } = await setup({
       wander: true,
@@ -138,8 +153,20 @@ describe("桌宠空闲行为", () => {
     expect(placements.length).toBeGreaterThan(0);
     expect(placements[0].x).toBeGreaterThan(-40);
     expect(placements[0].x).toBeLessThan(-35);
-    // 原有 floor = 当前屏幕工作区底边 740 - 物理窗口高度 160。
-    expect(placements.every(({ x, y }) => x + 40 >= 0 && y === 580)).toBe(true);
+    // 可见底边 = (10 + 60) * 2 = 140，floor = 740 - 140。
+    expect(placements.every(({ x, y }) => x + 40 >= 0 && y === 600)).toBe(true);
+  });
+
+  it("横向素材脚底贴住任务栏后，自由走动不会按透明方窗向上弹回", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const { placements } = await setup({
+      wander: true,
+      contentBounds: () => ({ left: 20, top: 35, width: 120, height: 90 }),
+      groundY: () => 116.5625,
+    }, { initialPosition: { x: 100, y: 623 } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(6632); });
+    expect(placements.length).toBeGreaterThan(0);
+    expect(placements.every(({ y }) => y === 623)).toBe(true);
   });
 
   it.each([

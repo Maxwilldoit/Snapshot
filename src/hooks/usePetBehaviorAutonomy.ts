@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { availableMonitors, currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { pickPetBehaviorAction, pickPetEntry, type PetBehavior, type PetBehaviorMove } from "../lib/petBehavior";
-import { clampPetX, petHorizontalLimits } from "../lib/petBounds";
+import { clampPetX, petFloorY, petHorizontalLimits } from "../lib/petBounds";
 import type { MediaBounds } from "../lib/petSize";
 import type { WalkDirection } from "../lib/petWalk";
 
@@ -17,6 +17,9 @@ export type PetBehaviorAutonomyOptions = {
   play: (entry: string, facing: WalkDirection, onReady?: (media: HTMLVideoElement) => void) => Promise<PlaybackResult>;
   cancelPlayback: () => void;
   contentBounds?: () => MediaBounds | null;
+  groundY?: () => number | null;
+  frameShift?: () => { x: number; y: number };
+  canvasWidth?: () => number;
 };
 
 const FAILURE_BACKOFF_MS = 250;
@@ -106,22 +109,25 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
       ]);
       if (!alive()) return null;
       const areas = monitors?.length ? monitors.map((item) => item.workArea) : monitor ? [monitor.workArea] : [];
-      const limits = petHorizontalLimits(areas, position, size, latest.current.contentBounds?.() ?? null, scale);
+      const content = latest.current.contentBounds?.() ?? null;
+      const limits = petHorizontalLimits(areas, position, size, content, scale);
       if (!limits || limits.minX >= limits.maxX) return null;
       // Native positions are whole physical pixels. Rounding may not cross a fractional DPI limit.
       const pixels = { minX: Math.ceil(limits.minX), maxX: Math.floor(limits.maxX) };
       if (pixels.minX > pixels.maxX) return null;
       const area = monitor?.workArea;
-      const y = area && [area.position.y, area.size.height].every(Number.isFinite) && area.size.height > 0
-        ? Math.max(area.position.y, Math.min(position.y, area.position.y + area.size.height - size.height))
+      const floor = area ? petFloorY(area, size.height, content, scale, latest.current.groundY?.() ?? null) : null;
+      const y = area && floor !== null
+        ? Math.min(floor, Math.max(area.position.y, position.y))
         : position.y;
-      return { position: { x: position.x, y }, size, scale, limits, pixels };
+      const shift = latest.current.frameShift?.() ?? { x: 0, y: 0 };
+      return { position: { x: position.x, y }, size, scale, limits, pixels, shift };
     }
     type Geometry = NonNullable<Awaited<ReturnType<typeof geometry>>>;
     type Motion = { move: PetBehaviorMove; distance: number };
     const physicalDistance = (motion: Motion, view: Geometry) => {
       // Tauri's native width is physical; scale to the profile's logical reference, then back to physical.
-      const logicalWidth = view.size.width / view.scale;
+      const logicalWidth = latest.current.canvasWidth?.() ?? view.size.width / view.scale;
       return motion.distance * (logicalWidth / profile.referenceWidth) * view.scale;
     };
     const targetX = (motion: Motion, view: Geometry, facing: WalkDirection) =>
@@ -160,8 +166,9 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
             progress = Math.max(progress, Math.min(1, Math.max(0, (timeMs - motion.move.leadMs) / travelMs)));
             // Lead and tail do not reposition even if window rounding differs from the source position.
             if (progress === 0) return;
-            const x = clampPetX(Math.round(view.position.x + (endX - view.position.x) * progress), view.pixels);
-            const y = Math.round(view.position.y);
+            const shift = latest.current.frameShift?.() ?? view.shift;
+            const x = clampPetX(Math.round(view.position.x + (endX - view.position.x) * progress), view.pixels) + shift.x - view.shift.x;
+            const y = Math.round(view.position.y + shift.y - view.shift.y);
             if (x === lastX && y === lastY) return;
             writing = true;
             lastX = x;

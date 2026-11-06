@@ -538,29 +538,8 @@ pub fn run() {
                 }
             } else if window.label() == "pet" {
                 if let WindowEvent::Moved(position) = event {
-                    let mut position = PhysicalPosition::new(position.x, position.y);
-                    // 无论拖动还是自由走动，都先把窗口底边压回任务栏上方。
-                    // set_position 会再发一次 Moved，届时位置已在界内，不会循环。
-                    let gravity = window
-                        .app_handle()
-                        .try_state::<AppState>()
-                        .map(|state| state.settings.lock().pet_gravity)
-                        .unwrap_or(true);
-                    if gravity {
-                        if let (Ok(Some(monitor)), Ok(size)) =
-                            (window.current_monitor(), window.outer_size())
-                        {
-                            let area = monitor.work_area();
-                            let limit = pet_top_limit(
-                                area.position.y + area.size.height as i32,
-                                size.height as i32,
-                            );
-                            if position.y > limit {
-                                position.y = limit;
-                                let _ = window.set_position(position);
-                            }
-                        }
-                    }
+                    // 边界由前端按可见内容/脚底锚点统一处理。这里若再按整个透明
+                    // 方窗的高度限位，会把已落地的角色推离 Dock，并与拖动反复抢位置。
                     let app = window.app_handle().clone();
                     {
                         let Some(state) = app.try_state::<AppState>() else {

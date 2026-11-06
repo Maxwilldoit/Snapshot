@@ -99,6 +99,7 @@ export function PetMedia({
       className={className}
       style={style}
       src={src}
+      crossOrigin="anonymous"
       alt={alt}
       hidden={hidden}
       draggable={false}

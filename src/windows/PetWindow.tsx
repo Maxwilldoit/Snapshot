@@ -20,9 +20,9 @@ import { PetMedia, type PetMediaElement } from "../components/PetMedia";
 import { petVideoPixels } from "../lib/petVideoAlpha";
 import { petImageFrame, usePetImages, type PetImageFrame } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
-import { placementForEntry, type PetPlacement } from "../lib/petFrame";
+import { coverPetPlacements, cropPetPlacement, groundForEntry, mediaPlacement, placementForEntry, type PetPlacement } from "../lib/petFrame";
 import { PET_SCALE, containedMediaBounds, petWindowSize, type MediaBounds } from "../lib/petSize";
-import { clampPetX, petHorizontalLimits, type PetWorkArea } from "../lib/petBounds";
+import { clampPetX, petFloorY, petHorizontalLimits, type PetWorkArea } from "../lib/petBounds";
 import { ensurePetAutoScale, readPetBaseScale, watchPetBaseScales } from "../lib/petScale";
 import { nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
 import { clickableAnimations, ordinaryAnimations } from "../lib/petActions";
@@ -35,37 +35,77 @@ import { createPetPlayback, type PetPlaybackOwner } from "../lib/petPlayback";
 import { usePetBehaviorAutonomy } from "../hooks/usePetBehaviorAutonomy";
 import type { PetAsset, PetEvent, PetLayout, PreviousApp, RecordingStatus, Settings } from "../types";
 
+type MediaShape = { width: number; height: number; bounds: MediaBounds | null };
+const shapeKey = (frame: PetImageFrame) => JSON.stringify([frame.assetId, frame.entry, frame.walk]);
+
+function framePlacement(side: number, layout: PetLayout | null, frame: PetImageFrame | null, shapes: Map<string, MediaShape>) {
+  if (!frame) return null;
+  const shape = shapes.get(shapeKey(frame));
+  const place = placementForEntry(side, layout, frame.entry, frame.flip) ??
+    (shape ? mediaPlacement(side, shape.width, shape.height) : null);
+  return place ? cropPetPlacement(place, shape?.bounds ?? null, frame.flip) : null;
+}
+
+function viewportPlacement(side: number, layout: PetLayout | null, current: PetImageFrame | null, previous: PetImageFrame | null, shapes: Map<string, MediaShape>, squashing = false) {
+  let place = framePlacement(side, layout, current, shapes);
+  if (place && squashing) {
+    // 点击 Q 弹最大横向放大 8%、向上放大 4%；只在这 280ms 内为变形留余量。
+    const x = Math.ceil(place.imageWidth * .04);
+    const y = Math.ceil(place.imageHeight * .04);
+    place = { ...place, shiftX: place.shiftX - x, shiftY: place.shiftY - y,
+      width: place.width + x * 2, height: place.height + y };
+  }
+  return place ? coverPetPlacements(place, framePlacement(side, layout, previous, shapes)) : null;
+}
+
+function viewportGround(side: number, layout: PetLayout | null, frame: PetImageFrame | null, place: PetPlacement | null) {
+  if (!frame || !place) return null;
+  const normal = placementForEntry(side, layout, frame.entry, frame.flip);
+  const ground = groundForEntry(side, layout, frame.entry, frame.flip);
+  return normal && ground !== null ? ground + normal.shiftY - place.shiftY : null;
+}
+
+function viewportContent(place: PetPlacement, frame: PetImageFrame, shapes: Map<string, MediaShape>): MediaBounds {
+  const bounds = shapes.get(shapeKey(frame))?.bounds ?? { left: 0, top: 0, width: 1, height: 1 };
+  return {
+    left: place.imageX - place.shiftX + (frame.flip ? 1 - bounds.left - bounds.width : bounds.left) * place.imageWidth,
+    top: place.imageY - place.shiftY + bounds.top * place.imageHeight,
+    width: bounds.width * place.imageWidth, height: bounds.height * place.imageHeight,
+  };
+}
+
 /** 放大后超出了所在屏幕的可用区域，就挪回来 */
-async function keepOnScreen(petWindow: Window, content: MediaBounds | null = null, horizontal = true, canMove = () => true) {
+async function keepOnScreen(petWindow: Window, content: MediaBounds | null = null, horizontal = true, canMove = () => true, groundY: number | null = null) {
   const monitor = await currentMonitor();
   if (!monitor || !canMove()) return;
   const [position, size, scale, monitors] = await Promise.all([
     petWindow.outerPosition(), petWindow.outerSize(), petWindow.scaleFactor(), availableMonitors().catch(() => []),
   ]);
   if (!canMove()) return;
-  const { position: origin, size: area } = monitor.workArea;
+  const { position: origin } = monitor.workArea;
   const areas = monitors?.length ? monitors.map((item) => item.workArea) : [monitor.workArea];
   const x = horizontal ? clampPetX(position.x, petHorizontalLimits(areas, position, size, content, scale)) : position.x;
-  const y = Math.max(origin.y, Math.min(position.y, origin.y + area.height - size.height));
+  const floor = petFloorY(monitor.workArea, size.height, content, scale, groundY);
+  const y = floor === null ? position.y : Math.min(floor, Math.max(origin.y, position.y));
   if (x !== position.x || y !== position.y) await petWindow.setPosition(new PhysicalPosition(x, y));
 }
 
 /** 动作切换只修正垂直位置；横向由拖动和可见范围校准处理，避免透明方窗把角色推离屏幕边缘。 */
-async function nudgeNormalWindow(normalY: number, side: number, factor: number) {
+async function nudgeNormalWindow(normalY: number, side: number, factor: number, groundY: number | null, canMove: () => boolean) {
   const monitor = await currentMonitor();
-  if (!monitor || !(factor > 0)) return { x: 0, y: 0 };
+  if (!monitor || !(factor > 0) || groundY === null || !canMove()) return { x: 0, y: 0 };
   const extent = Math.round(side * factor);
-  const { position: origin, size: area } = monitor.workArea;
-  const y = Math.max(origin.y, Math.min(normalY, origin.y + area.height - extent));
+  const floor = petFloorY(monitor.workArea, extent, null, factor, groundY);
+  const y = floor === null ? normalY : Math.min(floor, Math.max(monitor.workArea.position.y, normalY));
   return { x: 0, y: y - normalY };
 }
 
-/** 没长出方窗时和老路径用同一个键，拖动换走路动作不会把窗口重摆一遍 */
+/** 相同外框无需重设原生窗口，呼吸动画只扩展一次包围盒，不逐帧缩放窗口。 */
 function windowKey(side: number, place: PetPlacement | null) {
   if (!place || (place.shiftX === 0 && place.shiftY === 0 && place.width === side && place.height === side)) {
     return `square|${side}`;
   }
-  return `grow|${side}|${place.width}x${place.height}@${place.shiftX},${place.shiftY}`;
+  return `frame|${side}|${place.width}x${place.height}@${place.shiftX},${place.shiftY}`;
 }
 
 async function commitPetWindow(
@@ -74,10 +114,12 @@ async function commitPetWindow(
   place: PetPlacement | null,
   shiftRef: { current: { x: number; y: number } },
   translate: (source: string) => string,
+  groundY: number | null,
+  canNudge: () => boolean,
 ) {
-  const grows =
+  const reframes =
     place != null && !(place.shiftX === 0 && place.shiftY === 0 && place.width === side && place.height === side);
-  if (!place || !grows) {
+  if (!place || !reframes) {
     if (shiftRef.current.x !== 0 || shiftRef.current.y !== 0) {
       const pos = await petWindow.outerPosition();
       const nextX = pos.x - shiftRef.current.x;
@@ -89,7 +131,8 @@ async function commitPetWindow(
       }
     }
     await petWindow.setSize(new LogicalSize(side, side));
-    await keepOnScreen(petWindow, null, false);
+    // 未测量的透明媒体不能先按方窗下沿推回去；随后可见范围校准会处理。
+    if (groundY !== null && canNudge()) await keepOnScreen(petWindow, null, false, canNudge, groundY);
     return;
   }
 
@@ -102,7 +145,7 @@ async function commitPetWindow(
   const shiftY = Math.round(place.shiftY * factor);
   const normalX = pos.x - shiftRef.current.x;
   const normalY = pos.y - shiftRef.current.y;
-  const nudge = await nudgeNormalWindow(normalY, side, factor);
+  const nudge = await nudgeNormalWindow(normalY, side, factor, groundY === null ? null : groundY + place.shiftY, canNudge);
   const nextX = Math.round(normalX + nudge.x + shiftX);
   const nextY = Math.round(normalY + nudge.y + shiftY);
   shiftRef.current = { x: shiftX, y: shiftY };
@@ -117,14 +160,14 @@ export const CLICK_DELAY_MS = 400;
 type DragGeometry = {
   position: { x: number; y: number };
   scale: number;
-  /** 窗口左上角的物理像素上限；再往下就会碰到任务栏或屏幕工作区边缘。 */
+  /** 按脚底而非透明方窗计算的窗口左上角物理像素上限。 */
   floorY: number | null;
   size: { width: number; height: number };
   areas: PetWorkArea[];
   content: MediaBounds | null;
 };
 
-async function readDragGeometry(petWindow: Window, content: MediaBounds | null): Promise<DragGeometry | null> {
+async function readDragGeometry(petWindow: Window, content: MediaBounds | null, groundY: number | null): Promise<DragGeometry | null> {
   const [position, size, scale, monitor, monitors] = await Promise.all([
     petWindow.outerPosition(),
     petWindow.outerSize(),
@@ -134,7 +177,7 @@ async function readDragGeometry(petWindow: Window, content: MediaBounds | null):
   ]);
   if (!(scale > 0) || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
   const floorY = monitor
-    ? monitor.workArea.position.y + monitor.workArea.size.height - size.height
+    ? petFloorY(monitor.workArea, size.height, content, scale, groundY)
     : null;
   const areas = monitors?.length ? monitors.map((item) => item.workArea) : monitor ? [monitor.workArea] : [];
   return { position, scale, floorY, size, areas, content };
@@ -148,6 +191,7 @@ export function PetWindow() {
   const [appearanceId, setAppearanceId] = useState("app-icon");
   const [animations, setAnimations] = useState<string[]>([]);
   const [layout, setLayout] = useState<PetLayout | null>(null);
+  const [mediaShapes, setMediaShapes] = useState(() => new Map<string, MediaShape>());
   const [eventActions, setEventActions] = useState<PetAsset["eventActions"]>({});
   const [stateActions, setStateActions] = useState<PetAsset["stateActions"]>({});
   const [restingEntry, setRestingEntry] = useState<string | null>(null);
@@ -175,6 +219,7 @@ export function PetWindow() {
   const [pressed, setPressed] = useState(false);
   const [falling, setFalling] = useState(false);
   const [manualAction, setManualAction] = useState(false);
+  const [squashing, setSquashing] = useState(false);
   const dragged = useRef(false);
   // 点过之后下一次从这里接着换，回到待机也不清掉，免得每次点击都是同一个动作
   const actionCursor = useRef(0);
@@ -194,11 +239,14 @@ export function PetWindow() {
   const gravityFrame = useRef(0);
   const petRootRef = useRef<HTMLDivElement>(null);
   const visibleBounds = useRef<MediaBounds | null>(null);
+  const groundOffset = useRef<number | null>(null);
   const pointerHeld = useRef(false);
   const positionRevision = useRef(0);
   const needsHorizontalFit = useRef(true);
   const windowFrameReady = useRef(false);
   const requestBoundsReport = useRef<() => void>(() => {});
+  const reframeDrag = useRef<() => void>(() => {});
+  const cancelPointerDrag = useRef<(() => void) | null>(null);
   const fittedAppearance = useRef("");
   const playbackRef = useRef<ReturnType<typeof createPetPlayback> | null>(null);
   const playback = playbackRef.current ??= createPetPlayback();
@@ -251,6 +299,7 @@ export function PetWindow() {
     playback.cancel();
     squash.current?.cancel();
     squash.current = null;
+    setSquashing(false);
   }
 
   function playBehavior(entry: string, facing: WalkDirection, owner: PetPlaybackOwner, onReady?: (media: HTMLVideoElement) => void) {
@@ -274,9 +323,11 @@ export function PetWindow() {
           { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
         ], { duration: 280, easing: "ease-out" });
         squash.current = animation;
+        setSquashing(true);
         const release = () => {
           if (squash.current !== animation) return;
           squash.current = null;
+          setSquashing(false);
           requestBoundsReport.current();
         };
         void animation.finished?.then(release, release);
@@ -311,6 +362,7 @@ export function PetWindow() {
       window.clearTimeout(returnTimer.current);
       window.clearTimeout(clickTimer.current);
       window.clearTimeout(eventTimer.current);
+      cancelPointerDrag.current?.();
       cancelBehaviorPlayback();
     },
     [],
@@ -352,6 +404,7 @@ export function PetWindow() {
         setAppearanceId(id);
         setAnimations(entries);
         setLayout(asset?.layout ?? null);
+        setMediaShapes(new Map());
         setEventActions(asset?.eventActions ?? {});
         setStateActions(asset?.stateActions ?? {});
         setRestingEntry(nextResting);
@@ -442,6 +495,8 @@ export function PetWindow() {
     onAction: showAutoEntry,
     actionDuration: (entry) => petActionDuration(appearanceId, entry),
     contentBounds: () => visibleBounds.current,
+    groundY: () => groundOffset.current,
+    frameShift: () => frameShift.current,
   });
 
   const shownWalk = stateEntry || eventEntry ? null : walks.find((walk) => walk.direction === walking && walk.choice)?.direction ?? null;
@@ -461,7 +516,8 @@ export function PetWindow() {
   const visibleFlip = displayed?.flip ?? false;
   const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
   const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale, custom ? "pet" : "app-icon", baseScale);
-  const visiblePlacement = fittedSize === null ? null : placementForEntry(fittedSize, layout, visibleEntry, visibleFlip);
+  const visiblePlacement = fittedSize === null ? null : viewportPlacement(fittedSize, layout, displayed, leaving, mediaShapes, squashing);
+  const fittedGround = fittedSize === null ? null : viewportGround(fittedSize, layout, displayed, visiblePlacement);
   const fittedKey = fittedSize === null ? "pending" : windowKey(fittedSize, visiblePlacement);
 
   const behaviorAutonomy = usePetBehaviorAutonomy({
@@ -474,6 +530,9 @@ export function PetWindow() {
     play: (entry, facing, onReady) => playBehavior(entry, facing, "auto", onReady),
     cancelPlayback: cancelBehaviorAuto,
     contentBounds: () => visibleBounds.current,
+    groundY: () => groundOffset.current,
+    frameShift: () => frameShift.current,
+    canvasWidth: () => fittedSize ?? petSize,
   });
 
   function reportPlaybackReady() {
@@ -553,6 +612,7 @@ export function PetWindow() {
   async function dropToFloor(canMove = () => true) {
     const petWindow = getCurrentWindow();
     const token = ++gravityToken.current;
+    const shift = { ...frameShift.current };
     const [monitor, position, size, scale] = await Promise.all([
       currentMonitor(),
       petWindow.outerPosition(),
@@ -560,8 +620,9 @@ export function PetWindow() {
       petWindow.scaleFactor(),
     ]);
     if (!monitor || token !== gravityToken.current || !canMove()) return;
-    const { position: origin, size: area } = monitor.workArea;
-    const floor = origin.y + area.height - size.height;
+    const { position: origin } = monitor.workArea;
+    const floor = petFloorY(monitor.workArea, size.height, visibleBounds.current, scale, groundOffset.current);
+    if (floor === null) return;
     // 重力只负责竖直落地；横向已在拖动或素材尺寸校准时限制。
     const x = position.x;
     let y = Math.min(floor, Math.max(origin.y, position.y));
@@ -589,7 +650,9 @@ export function PetWindow() {
         y += velocity * dt;
         const landed = y >= floor;
         if (landed) y = floor;
-        void petWindow.setPosition(new PhysicalPosition(Math.round(x), Math.round(y))).catch(() => {});
+        void petWindow.setPosition(new PhysicalPosition(
+          Math.round(x + frameShift.current.x - shift.x), Math.round(y + frameShift.current.y - shift.y),
+        )).catch(() => {});
         if (landed) resolve();
         else gravityFrame.current = requestAnimationFrame(step);
       };
@@ -599,7 +662,7 @@ export function PetWindow() {
   }
 
   async function fitOnScreen(content: MediaBounds | null, canMove: () => boolean) {
-    await keepOnScreen(getCurrentWindow(), content, true, canMove);
+    await keepOnScreen(getCurrentWindow(), content, true, canMove, groundOffset.current);
     if (canMove() && gravityEnabled.current) {
       // 校准改变了 x 或窗口尺寸时，正在进行的下落不能继续写入旧坐标。
       cancelGravity();
@@ -611,7 +674,7 @@ export function PetWindow() {
     const revision = positionRevision.current;
     const canMove = () => revision === positionRevision.current && !pointerHeld.current;
     if (gravityEnabled.current) void dropToFloor(canMove).catch(() => {});
-    else void keepOnScreen(getCurrentWindow(), visibleBounds.current, false, canMove).catch(() => {});
+    else void keepOnScreen(getCurrentWindow(), visibleBounds.current, false, canMove, groundOffset.current).catch(() => {});
   };
 
   useEffect(() => {
@@ -628,34 +691,34 @@ export function PetWindow() {
     [],
   );
 
-  // 物理像素。放大时窗口左上角相对方窗的偏移，存位置要减掉
+  // 物理像素。紧致窗口相对虚拟画布的偏移；存位置和拖动都使用未裁切的稳定原点。
   const frameShift = useRef({ x: 0, y: 0 });
   const appliedKey = useRef("");
-  const frameModel = useRef({ appearanceId, petScale, baseScale, custom, layout, visibleEntry, visibleFlip });
-  frameModel.current = { appearanceId, petScale, baseScale, custom, layout, visibleEntry, visibleFlip };
+  const frameModel = useRef({ appearanceId, petScale, baseScale, custom, layout, displayed, leaving, mediaShapes, squashing });
+  frameModel.current = { appearanceId, petScale, baseScale, custom, layout, displayed, leaving, mediaShapes, squashing };
+  const frameApplying = useRef(false);
+  const frameAgain = useRef(false);
 
   useLayoutEffect(() => {
     if (fittedSize === null || petScale === null) return;
     const petWindow = getCurrentWindow();
     let active = true;
-    let running = false;
-    let again = false;
-
     const apply = async () => {
-      if (running) {
-        again = true;
+      if (frameApplying.current) {
+        frameAgain.current = true;
         return;
       }
-      running = true;
+      frameApplying.current = true;
       try {
         do {
-          again = false;
+          frameAgain.current = false;
           const model = frameModel.current;
           if (model.petScale === null) return;
           const shortEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
           const side = petWindowSize(shortEdge, model.petScale, model.custom ? "pet" : "app-icon", model.baseScale);
           if (active) setPetSize(side);
-          const place = placementForEntry(side, model.layout, model.visibleEntry, model.visibleFlip);
+          const place = viewportPlacement(side, model.layout, model.displayed, model.leaving, model.mediaShapes, model.squashing);
+          const groundY = viewportGround(side, model.layout, model.displayed, place);
           const key = windowKey(side, place);
           const appearance = `${model.appearanceId}|${side}`;
           if (appearance !== fittedAppearance.current) {
@@ -664,14 +727,19 @@ export function PetWindow() {
             needsHorizontalFit.current = !pointerHeld.current;
           }
           if (key === appliedKey.current) {
+            groundOffset.current = groundY;
+            if (place && model.displayed) visibleBounds.current = viewportContent(place, model.displayed, model.mediaShapes);
             requestBoundsReport.current();
             continue;
           }
           appliedKey.current = key;
           windowFrameReady.current = false;
-          await commitPetWindow(petWindow, side, place, frameShift, t);
+          await commitPetWindow(petWindow, side, place, frameShift, t, groundY, () => !pointerHeld.current);
           if (appliedKey.current === key) {
+            groundOffset.current = groundY;
+            if (place && model.displayed) visibleBounds.current = viewportContent(place, model.displayed, model.mediaShapes);
             windowFrameReady.current = true;
+            reframeDrag.current();
             reportPlaybackReady();
             if (!model.custom && needsHorizontalFit.current && !pointerHeld.current) {
               needsHorizontalFit.current = false;
@@ -680,12 +748,12 @@ export function PetWindow() {
             }
             requestBoundsReport.current();
           }
-        } while (again);
+        } while (frameAgain.current);
       } catch (error) {
         appliedKey.current = "";
         console.error("snapshot: pet window resize failed", error);
       } finally {
-        running = false;
+        frameApplying.current = false;
       }
     };
 
@@ -701,10 +769,11 @@ export function PetWindow() {
       void movedListener.then((unlisten) => unlisten());
       void scaleListener.then((unlisten) => unlisten());
     };
-  }, [appearanceId, fittedSize, petScale, fittedKey, t]);
+  }, [appearanceId, fittedSize, petScale, fittedKey, fittedGround, t]);
 
   function onPointerDown(event: React.PointerEvent) {
     if (event.button !== 0) return;
+    cancelPointerDrag.current?.();
     pointerHeld.current = true;
     setPressed(true);
     positionRevision.current += 1;
@@ -726,6 +795,9 @@ export function PetWindow() {
     const startY = event.clientY;
     const startScreenX = event.screenX;
     const startScreenY = event.screenY;
+    // 拖动记录虚拟画布的原点。动作/alpha 外框改变窗口偏移时，鼠标抓住的仍是同一只宠物。
+    const dragShift = { ...frameShift.current };
+    let placedShift = { ...dragShift };
     let lastScreenX = startScreenX;
     let lastScreenY = startScreenY;
     let geometry: DragGeometry | null = null;
@@ -741,6 +813,8 @@ export function PetWindow() {
     }
 
     const cleanup = () => {
+      if (cancelPointerDrag.current === dispose) cancelPointerDrag.current = null;
+      if (reframeDrag.current === reframe) reframeDrag.current = () => {};
       window.removeEventListener("pointermove", markDrag);
       window.removeEventListener("pointerup", finishPress);
       window.removeEventListener("pointercancel", cancelPress);
@@ -754,6 +828,13 @@ export function PetWindow() {
       }
     };
 
+    const dispose = () => {
+      finished = true;
+      pointerHeld.current = false;
+      cleanup();
+    };
+    cancelPointerDrag.current = dispose;
+
     const placeTarget = () => {
       if (finished || !geometry || !target) return;
       const previousX = moved.x;
@@ -765,9 +846,12 @@ export function PetWindow() {
         dragMotion.current = next;
         setWalking(next.direction);
       }
-      const x = Math.round(target.x);
-      const y = Math.round(target.y);
-      if (x === Math.round(previousX) && y === Math.round(previousY)) return;
+      const shift = frameShift.current;
+      const x = Math.round(target.x + shift.x);
+      const y = Math.round(target.y + shift.y);
+      if (Math.round(target.x) === Math.round(previousX) && Math.round(target.y) === Math.round(previousY) &&
+        shift.x === placedShift.x && shift.y === placedShift.y) return;
+      placedShift = { ...shift };
       void petWindow.setPosition(new PhysicalPosition(x, y)).catch(() => {});
     };
 
@@ -783,12 +867,19 @@ export function PetWindow() {
       if (!geometry) return null;
       const rawX = geometry.position.x + (screenX - startScreenX) * geometry.scale;
       const rawY = geometry.position.y + (screenY - startScreenY) * geometry.scale;
-      // Rust 侧在 Moved 时也会守住这条线。两边使用同一个上限，避免反复把窗口压回又拖下去。
+      // 透明留白可以跨过 Dock，只有角色脚底到达工作区底边时才停止。
       const y = geometry.floorY === null ? rawY : Math.min(rawY, geometry.floorY);
       const position = { x: rawX, y };
       const x = clampPetX(rawX, petHorizontalLimits(geometry.areas, position, geometry.size, geometry.content, geometry.scale));
-      return { x, y };
+      return { x: x - dragShift.x, y: y - dragShift.y };
     };
+
+    const reframe = () => {
+      if (finished || !dragged.current || !geometry) return;
+      target = clampTarget(lastScreenX, lastScreenY);
+      schedulePlace();
+    };
+    reframeDrag.current = reframe;
 
     const startMoving = () => {
       if (dragged.current) return;
@@ -798,8 +889,8 @@ export function PetWindow() {
       window.clearTimeout(clickTimer.current);
       clickTimer.current = undefined;
       dragMotion.current = STANDING;
-      moved.x = geometry?.position.x ?? startScreenX;
-      moved.y = geometry?.position.y ?? startScreenY;
+      moved.x = geometry ? geometry.position.x - dragShift.x : startScreenX;
+      moved.y = geometry ? geometry.position.y - dragShift.y : startScreenY;
     };
 
     const markDrag = (move: PointerEvent) => {
@@ -857,7 +948,7 @@ export function PetWindow() {
       dragMotion.current = STANDING;
       const revision = positionRevision.current;
       const landing = target && geometry
-        ? petWindow.setPosition(new PhysicalPosition(Math.round(target.x), Math.round(target.y))).catch(() => {})
+        ? petWindow.setPosition(new PhysicalPosition(Math.round(target.x + frameShift.current.x), Math.round(target.y + frameShift.current.y))).catch(() => {})
         : Promise.resolve();
       void landing.then(() => {
         if (revision === positionRevision.current && !pointerHeld.current) finishDrag.current();
@@ -879,12 +970,12 @@ export function PetWindow() {
     window.addEventListener("pointercancel", cancelPress);
     element.addEventListener("lostpointercapture", loseCapture);
 
-    void readDragGeometry(petWindow, visibleBounds.current).then((result) => {
+    void readDragGeometry(petWindow, visibleBounds.current, groundOffset.current).then((result) => {
       if (finished) return;
       geometry = result;
       if (dragged.current && geometry) {
-        moved.x = geometry.position.x;
-        moved.y = geometry.position.y;
+        moved.x = geometry.position.x - dragShift.x;
+        moved.y = geometry.position.y - dragShift.y;
         target = clampTarget(lastScreenX, lastScreenY);
         schedulePlace();
       }
@@ -929,9 +1020,11 @@ export function PetWindow() {
   );
 
   // 有锚点的图按基准比例摆；窗口长出去的那截已经算进 shift，这里减掉才是相对当前窗口的位置
-  const framedStyle = (entry: string, flip: boolean) => {
+  const framedStyle = (entry: string, flip: boolean, walk: boolean) => {
     if (fittedSize === null || !visiblePlacement) return undefined;
-    const place = placementForEntry(fittedSize, layout, entry, flip);
+    const shape = mediaShapes.get(JSON.stringify([appearanceId, entry, walk]));
+    const place = placementForEntry(fittedSize, layout, entry, flip) ??
+      (shape ? mediaPlacement(fittedSize, shape.width, shape.height) : null);
     if (!place) return undefined;
     return {
       left: place.imageX - visiblePlacement.shiftX,
@@ -942,7 +1035,7 @@ export function PetWindow() {
   };
   const framed = visiblePlacement != null;
 
-  // 原生方窗只负责承载透明 WebView；输入命中区收紧到当前媒体真正画出的矩形。
+  // 测量 alpha 并缓存每个动作的外框；原生窗口和输入命中区都围住实际形象。
   useLayoutEffect(() => {
     const root = petRootRef.current;
     if (!root) return;
@@ -964,7 +1057,7 @@ export function PetWindow() {
     };
 
     const scanAlpha = (media: PetMediaElement, content: { left: number; top: number; width: number; height: number }) => {
-      if (alphaScanUnavailable || !(media instanceof HTMLVideoElement) || media.readyState < 2) return null;
+      if (alphaScanUnavailable || (media instanceof HTMLVideoElement ? media.readyState < 2 : !media.complete)) return null;
       if (!scanCanvas) {
         scanCanvas = document.createElement("canvas");
         scanContext = scanCanvas.getContext("2d", { willReadFrequently: true });
@@ -975,18 +1068,19 @@ export function PetWindow() {
         alphaScanUnavailable = true;
         return null;
       }
-      const sourceWidth = media.videoWidth;
-      const sourceHeight = media.videoHeight;
+      const sourceWidth = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
+      const sourceHeight = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
       if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null;
-      const width = Math.min(96, sourceWidth);
-      const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth));
+      const sampleScale = Math.min(1, 192 / Math.max(sourceWidth, sourceHeight));
+      const width = Math.max(1, Math.round(sourceWidth * sampleScale));
+      const height = Math.max(1, Math.round(sourceHeight * sampleScale));
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
         canvas.height = height;
       }
       try {
         context.clearRect(0, 0, width, height);
-        context.drawImage(petVideoPixels(media), 0, 0, width, height);
+        context.drawImage(media instanceof HTMLVideoElement ? petVideoPixels(media) : media, 0, 0, width, height);
         const pixels = context.getImageData(0, 0, width, height).data;
         let left = width;
         let top = height;
@@ -1008,6 +1102,24 @@ export function PetWindow() {
           right: Math.max(alphaBounds?.right ?? 0, (right + 1) / width),
           bottom: Math.max(alphaBounds?.bottom ?? 0, (bottom + 1) / height),
         };
+        const frame = displayedRef.current;
+        if (frame) {
+          const sample = { left: alphaBounds.left, top: alphaBounds.top,
+            width: alphaBounds.right - alphaBounds.left, height: alphaBounds.bottom - alphaBounds.top };
+          setMediaShapes((previous) => {
+            const key = shapeKey(frame);
+            const cached = previous.get(key);
+            const old = cached?.bounds;
+            const left = Math.min(old?.left ?? 1, sample.left);
+            const top = Math.min(old?.top ?? 1, sample.top);
+            const right = Math.max(old ? old.left + old.width : 0, sample.left + sample.width);
+            const bottom = Math.max(old ? old.top + old.height : 0, sample.top + sample.height);
+            if (old && Math.abs(old.left - left) < 1e-6 && Math.abs(old.top - top) < 1e-6 &&
+              Math.abs(old.left + old.width - right) < 1e-6 && Math.abs(old.top + old.height - bottom) < 1e-6) return previous;
+            return new Map(previous).set(key, { width: sourceWidth, height: sourceHeight,
+              bounds: { left, top, width: right - left, height: bottom - top } });
+          });
+        }
         return {
           left: content.left + (visibleFlip ? 1 - alphaBounds.right : alphaBounds.left) * content.width,
           top: content.top + alphaBounds.top * content.height,
@@ -1050,7 +1162,7 @@ export function PetWindow() {
       const scanned = scanAlpha(media, content);
       const measured = scanned ?? content;
       visibleBounds.current = measured;
-      send(framed ? content : measured);
+      send(measured);
       // 只在导入、切换形象或调整大小后校准一次；动画呼吸和松手不会重新推挤位置。
       const measuredVideo = !(media instanceof HTMLVideoElement) || scanned || alphaScanUnavailable ||
         typeof media.requestVideoFrameCallback !== "function";
@@ -1087,6 +1199,8 @@ export function PetWindow() {
       };
       videoFrame = media.requestVideoFrameCallback(scanFrame);
     }
+    const scanTimer = custom && !(media instanceof HTMLVideoElement && typeof media.requestVideoFrameCallback === "function")
+      ? window.setInterval(report, 100) : undefined;
     window.addEventListener("resize", schedule);
     return () => {
       if (requestBoundsReport.current === schedule) requestBoundsReport.current = () => {};
@@ -1095,6 +1209,7 @@ export function PetWindow() {
         media.cancelVideoFrameCallback(videoFrame);
       }
       observer?.disconnect();
+      window.clearInterval(scanTimer);
       window.removeEventListener("resize", schedule);
     };
   }, [custom, displayed?.key, fittedKey, framed, visibleFlip]);
@@ -1122,7 +1237,7 @@ export function PetWindow() {
         {custom ? (
           <>
             {frames.map((frame) => {
-              const style = framedStyle(frame.entry ?? "", frame.flip);
+              const style = framedStyle(frame.entry ?? "", frame.flip, frame.walk);
               return (
                 <PetMedia
                   key={frame.key}
@@ -1139,6 +1254,14 @@ export function PetWindow() {
                   loop={!behavior || (!playback.matches(frame.key) && frame.entry !== eventEntry)}
                   onReady={(element) => {
                     readyMedia.current.set(frame.key, element);
+                    const width = element instanceof HTMLVideoElement ? element.videoWidth : element.naturalWidth;
+                    const height = element instanceof HTMLVideoElement ? element.videoHeight : element.naturalHeight;
+                    if (width > 0 && height > 0) setMediaShapes((previous) => {
+                      const key = shapeKey(frame);
+                      const cached = previous.get(key);
+                      if (cached?.width === width && cached.height === height) return previous;
+                      return new Map(previous).set(key, { width, height, bounds: null });
+                    });
                     void onPetImageReady(frame, element);
                   }}
                   onEnded={() => onBehaviorEnded(frame)}

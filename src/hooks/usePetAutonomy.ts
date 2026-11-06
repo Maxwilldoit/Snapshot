@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { availableMonitors, currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
-import { clampPetX, petHorizontalLimits } from "../lib/petBounds";
+import { clampPetX, petFloorY, petHorizontalLimits } from "../lib/petBounds";
 import type { MediaBounds } from "../lib/petSize";
 import type { WalkDirection } from "../lib/petWalk";
 
@@ -21,6 +21,8 @@ type AutonomyOptions = {
   onAction: (entry: string | null) => void;
   actionDuration: (entry: string) => Promise<number>;
   contentBounds?: () => MediaBounds | null;
+  groundY?: () => number | null;
+  frameShift?: () => { x: number; y: number };
 };
 
 function randomBetween([min, max]: readonly [number, number]) {
@@ -79,19 +81,22 @@ export function usePetAutonomy(options: AutonomyOptions) {
         availableMonitors().catch(() => []),
       ]);
       if (!alive() || !monitor || !(scale > 0)) return;
-      const { position: origin, size: area } = monitor.workArea;
+      const { position: origin } = monitor.workArea;
+      const content = latest.current.contentBounds?.() ?? null;
       const limits = petHorizontalLimits(
         monitors?.length ? monitors.map((item) => item.workArea) : [monitor.workArea],
         position,
         size,
-        latest.current.contentBounds?.() ?? null,
+        content,
         scale,
       );
       if (!limits || limits.minX >= limits.maxX) return;
       const { minX, maxX } = limits;
-      const floor = origin.y + area.height - size.height;
+      const floor = petFloorY(monitor.workArea, size.height, content, scale, latest.current.groundY?.() ?? null);
+      if (floor === null) return;
       let x = clampPetX(position.x, limits);
-      const y = Math.max(origin.y, Math.min(floor, position.y));
+      const y = Math.min(floor, Math.max(origin.y, position.y));
+      const shift = latest.current.frameShift?.() ?? { x: 0, y: 0 };
       const margin = Math.min(120 * scale, (maxX - minX) / 4);
       let direction: WalkDirection = Math.random() < 0.5 ? "left" : "right";
       if (position.x - minX < margin) direction = "right";
@@ -122,8 +127,9 @@ export function usePetAutonomy(options: AutonomyOptions) {
             autoWalking = direction;
             setWalking(direction);
           }
+          const currentShift = latest.current.frameShift?.() ?? shift;
           void petWindow
-            .setPosition(new PhysicalPosition(Math.round(x), Math.round(y)))
+            .setPosition(new PhysicalPosition(Math.round(x + currentShift.x - shift.x), Math.round(y + currentShift.y - shift.y)))
             .catch(() => {});
           raf = requestAnimationFrame(step);
         };

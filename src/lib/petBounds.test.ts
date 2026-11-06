@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPetX, petHorizontalLimits, type PetWorkArea } from "./petBounds";
+import { clampPetX, petFloorY, petHorizontalLimits, type PetWorkArea } from "./petBounds";
 import type { MediaBounds } from "./petSize";
 
 const area = (x = 0, y = 0, width = 1000, height = 800): PetWorkArea => ({
@@ -7,6 +7,45 @@ const area = (x = 0, y = 0, width = 1000, height = 800): PetWorkArea => ({
 });
 const windowSize = { width: 200, height: 200 };
 const content: MediaBounds = { left: 50, top: 100, width: 100, height: 80 };
+
+describe("桌宠脚底的竖向边界", () => {
+  it("透明下边距不占用下拉空间，按可见内容落地", () => {
+    expect(petFloorY(area(), 200, content, 1)).toBe(620);
+    expect(petFloorY(area(), 200, null, 1)).toBe(600);
+  });
+
+  it("宽屏素材按脚底锚点落地，不随动画可见高度变化", () => {
+    expect(petFloorY(area(), 200, content, 1, 145)).toBe(655);
+    expect(petFloorY(area(), 200, { ...content, height: 20 }, 1, 145)).toBe(655);
+  });
+
+  it("Retina 与负原点屏幕使用物理像素，只缩放脚底一次", () => {
+    expect(petFloorY(area(-2000, -1000, 2000, 1600), 400, content, 2, 145)).toBe(310);
+    expect(petFloorY(area(), 250, content, 1.25, 145)).toBe(618);
+  });
+
+  it.each([NaN, Infinity, -10, 0, 300])("无效锚点 %s 回退到可见底边", (anchor) => {
+    expect(petFloorY(area(), 200, content, 1, anchor)).toBe(620);
+  });
+
+  it("缺少或无效可见矩形时保留原有方窗边界", () => {
+    for (const invalid of [null, { ...content, top: NaN }, { ...content, height: 0 },
+      { ...content, height: Infinity }, { ...content, top: -300 }, { ...content, height: 300 }]) {
+      expect(petFloorY(area(), 200, invalid, 1)).toBe(600);
+    }
+    expect(petFloorY(area(0, 0, 1000, 100), 200, null, 1)).toBe(-100);
+  });
+
+  it("无效工作区、缩放和窗口高度不产生非有限坐标", () => {
+    expect(petFloorY(area(0, NaN), 200, content, 1)).toBeNull();
+    expect(petFloorY(area(0, 0, 1000, 0), 200, content, 1)).toBeNull();
+    expect(petFloorY(area(0, Number.MAX_VALUE, 1000, Number.MAX_VALUE), 200, content, 1)).toBeNull();
+    for (const invalid of [0, -1, NaN, Infinity]) {
+      expect(petFloorY(area(), invalid, content, 1)).toBeNull();
+      expect(petFloorY(area(), 200, content, invalid)).toBeNull();
+    }
+  });
+});
 
 describe("桌宠可见矩形的横向边界", () => {
   it("允许透明外圈越过左边，并让可见内容贴齐右边", () => {

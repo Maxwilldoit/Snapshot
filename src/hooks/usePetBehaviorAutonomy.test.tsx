@@ -188,6 +188,23 @@ describe("profile 自主行为选择", () => {
 });
 
 describe("profile 视频同步移动", () => {
+  it("紧致窗口宽度不影响步幅，途中裁切不改变角色位置", async () => {
+    let shift = { x: 20, y: 30 };
+    const rig = await setup({ behavior: moveOnly(), canvasWidth: () => 200, frameShift: () => shift },
+      { size: { width: 80, height: 100 } });
+    const media = video(6, 3);
+    await flush(() => rig.clips[0].ready?.(media));
+    await rig.frame();
+    // 走完一半：200px 虚拟画布对应 100px 路程，不使用裁小后的 80px 窗宽。
+    expect(rig.position).toEqual({ x: 300, y: 200 });
+    shift = { x: 45, y: 60 };
+    await rig.frame();
+    expect(rig.position).toEqual({ x: 325, y: 230 });
+    media.currentTime = 5;
+    await rig.frame();
+    expect(rig.position).toEqual({ x: 225, y: 230 });
+  });
+
   it("等待 onReady，按 currentTime 走完整个 lead/移动/tail；卡帧不随墙钟前进", async () => {
     const rig = await setup({ behavior: moveOnly() });
     const media = video();
@@ -294,6 +311,17 @@ describe("profile 边界和工作区", () => {
     await flush(() => rig.clips[0].ready?.(video(6, 5)));
     await rig.frame();
     expect(rig.position).toEqual({ x: -80, y: 540 });
+  });
+
+  it("落地后播放 profile 移动仍按脚底锚点保留高度，不被透明方窗推离 Dock", async () => {
+    const rig = await setup({ behavior: moveOnly(),
+      contentBounds: () => ({ left: 40, top: 20, width: 80, height: 120 }),
+      groundY: () => 130,
+    }, { position: { x: 400, y: 610 } });
+    await flush(() => rig.clips[0].ready?.(video(6, 5)));
+    await rig.frame();
+    expect(rig.placements.length).toBeGreaterThan(0);
+    expect(rig.position).toEqual({ x: 200, y: 610 });
   });
 
   it("小数 DPI 的像素取整不会把可见内容推过边界", async () => {

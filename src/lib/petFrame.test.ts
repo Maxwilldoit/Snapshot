@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PetLayout, PetLayoutFrame } from "../types";
-import { PET_WINDOW_PAD, feetInNormalWindow, petPlacement, placementForEntry } from "./petFrame";
+import { PET_WINDOW_PAD, coverPetPlacements, cropPetPlacement, feetInNormalWindow, groundForEntry, mediaPlacement, petPlacement, placementForEntry } from "./petFrame";
 
 const side = 204;
 const pad = PET_WINDOW_PAD;
@@ -14,6 +14,18 @@ function frame(entry: string, width: number, height: number, anchorX: number, an
 }
 
 describe("桌宠画布锚点", () => {
+  it("640×360 素材的脚底不在方窗下沿，扩展动作仍保持同一个屏幕脚底", () => {
+    const idle = frame("idle.webm", 640, 360, 320, 330);
+    const jump = frame("jump.webm", 640, 800, 320, 770);
+    const pack = { baseWidth: 640, baseHeight: 360, anchorX: 320, anchorY: 330, frames: [idle, jump] };
+    expect(groundForEntry(268, pack, idle.entry)).toBeCloseTo(195.875);
+    const grown = petPlacement(268, pack, jump)!;
+    expect(groundForEntry(268, pack, jump.entry)! + grown.shiftY).toBeCloseTo(195.875);
+    expect(groundForEntry(268, pack, idle.entry, true)).toBeCloseTo(195.875);
+    expect(groundForEntry(268, null, idle.entry)).toBeNull();
+    expect(groundForEntry(268, pack, "missing.gif")).toBeNull();
+  });
+
   it("画布和锚点都跟基准一样时，窗口仍是原来的方窗，图按 contain 铺满内框", () => {
     const gif = frame("idle.gif", 100, 100, 50, 90);
     const place = petPlacement(side, layout([gif]), gif);
@@ -120,4 +132,55 @@ describe("桌宠画布锚点", () => {
     expect(feetInNormalWindow(grown, dunk).y).toBeCloseTo(feetInNormalWindow(resting, idle).y);
     expect(feetInNormalWindow(grown, dunk).x).toBeCloseTo(feetInNormalWindow(resting, idle).x);
   });
+});
+
+describe("桌宠紧致窗口", () => {
+  it("没有作者布局的宽图仍保持原大小、底部对齐，只收紧窗口", () => {
+    const normal = mediaPlacement(204, 400, 200)!;
+    expect(normal).toMatchObject({ imageX: 2, imageY: 102, imageWidth: 200, imageHeight: 100 });
+    expect(cropPetPlacement(normal)).toEqual({ ...normal, shiftY: 100, height: 104 });
+  });
+
+  it("按 alpha 外框裁去透明边，四周只留 4px，不更改素材比例", () => {
+    const normal = mediaPlacement(204, 100, 100)!;
+    const cropped = cropPetPlacement(normal, { left: .2, top: .1, width: .5, height: .7 });
+    expect(cropped).toEqual({ ...normal, shiftX: 38, shiftY: 18, width: 108, height: 148 });
+    expect(cropped.imageX + .2 * cropped.imageWidth - cropped.shiftX).toBe(4);
+    expect(cropped.imageY + .1 * cropped.imageHeight - cropped.shiftY).toBe(4);
+  });
+
+  it("镜像时翻转 alpha 外框，不翻转纵向位置或缩放比例", () => {
+    const normal = mediaPlacement(204, 100, 100)!;
+    const bounds = { left: .1, top: .2, width: .3, height: .5 };
+    const plain = cropPetPlacement(normal, bounds);
+    const flipped = cropPetPlacement(normal, bounds, true);
+    expect(flipped.shiftX).toBe(118);
+    expect(flipped.shiftY).toBe(plain.shiftY);
+    expect(flipped.width).toBe(plain.width);
+    expect(flipped.height).toBe(plain.height);
+    expect(flipped.imageWidth).toBe(normal.imageWidth);
+  });
+
+  it.each([
+    { left: -1, top: 0, width: 1, height: 1 },
+    { left: 0, top: NaN, width: 1, height: 1 },
+    { left: .5, top: 0, width: 1, height: 1 },
+    { left: 0, top: 0, width: 0, height: 1 },
+  ])("无效 alpha 外框 %j 保守包住整张素材", (bounds) => {
+    const normal = mediaPlacement(204, 100, 200)!;
+    expect(cropPetPlacement(normal, bounds)).toEqual(cropPetPlacement(normal));
+  });
+
+  it("叠化时覆盖两个动作，结束后恢复当前动作的紧致外框", () => {
+    const current = cropPetPlacement(mediaPlacement(204, 100, 100)!, { left: .2, top: .1, width: .5, height: .7 });
+    const previous = { ...current, shiftX: -22, shiftY: -82, width: 250, height: 260 };
+    expect(coverPetPlacements(current, previous)).toEqual({ ...current, shiftX: -22, shiftY: -82, width: 250, height: 260 });
+    expect(coverPetPlacements(current, null)).toBe(current);
+  });
+
+  it.each([[0, 100, 100], [204, 0, 100], [204, 100, Infinity], [NaN, 100, 100]])(
+    "无效媒体尺寸 %j 不生成窗口几何", (side, width, height) => {
+      expect(mediaPlacement(side, width, height)).toBeNull();
+    },
+  );
 });

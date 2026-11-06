@@ -7,6 +7,29 @@ export type PetWorkArea = {
 
 type HorizontalLimits = { minX: number; maxX: number };
 
+/** 脚底贴住工作区底边；透明窗口的下沿可以越过 Dock/任务栏。groundY 为逻辑像素。 */
+export function petFloorY(
+  area: PetWorkArea,
+  windowHeight: number,
+  content: MediaBounds | null,
+  scale: number,
+  groundY: number | null = null,
+): number | null {
+  const bottom = area.position.y + area.size.height;
+  if (![area.position.y, area.size.height, bottom, windowHeight, scale].every(Number.isFinite) ||
+    area.size.height <= 0 || windowHeight <= 0 || scale <= 0) return null;
+
+  // 有锚点时不跟随跳跃、蹲下或拖拽动作的 alpha 底边，避免每换一帧就上下跳。
+  const anchor = groundY === null ? NaN : groundY * scale;
+  const visibleBottom = content && [content.top, content.height].every(Number.isFinite) && content.height > 0
+    ? (content.top + content.height) * scale : NaN;
+  const valid = (offset: number) => Number.isFinite(offset) && offset > 0 && offset <= windowHeight;
+  const offset = valid(anchor) ? anchor : valid(visibleBottom) ? visibleBottom : windowHeight;
+  // setPosition 使用整数物理像素，向内取整，脚底不会越过边界半个像素。
+  const floor = Math.floor(bottom - offset);
+  return Number.isFinite(floor) ? floor : null;
+}
+
 /** 输入及返回值均为物理像素，只有 content 使用 CSS 逻辑像素。 */
 export function petHorizontalLimits(
   areas: readonly PetWorkArea[],
