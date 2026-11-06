@@ -1021,6 +1021,31 @@ describe("桌宠：透明留白不占窗口面积", () => {
     expect(size).toEqual({ width: 86, height: 106 });
   });
 
+  it("新动作显示前已测量 alpha，不先退回整张画布把宠物裁出旧窗口", async () => {
+    alphaImage();
+    const { container, size, sizes, delay } = await renderPet(grok);
+    await elapse(120);
+    // 从已经收紧的旧窗口切换，load/decode 交接前就必须量好新图。
+    expect(size).toEqual({ width: 86, height: 106 });
+    const idle = shown(container).img;
+    const style = { left: idle.style.left, top: idle.style.top };
+    const count = sizes.length;
+
+    await act(async () => click(container));
+    await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+    expect(shown(container).img).toBe(idle);
+    await loadPetImages();
+
+    const next = shown(container).img;
+    expect(next).not.toBe(idle);
+    expect({ left: next.style.left, top: next.style.top }).toEqual(style);
+    expect({ left: idle.style.left, top: idle.style.top }).toEqual(style);
+    expect(size).toEqual({ width: 86, height: 106 });
+    await elapse(300);
+    // 两个动作的可见外框相同，不应出现 160px 方窗/额外挪动。
+    expect(sizes).toHaveLength(count);
+  });
+
   it("按住宠物时外框扩大，鼠标抓点和松手位置仍然稳定", async () => {
     const setBounds = alphaImage();
     const { container, position, shifts } = await renderPet({ ...grok, animations: [grok.entry] });

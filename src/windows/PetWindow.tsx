@@ -17,7 +17,7 @@ import {
 import { iconUrl } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
 import { PetMedia, type PetMediaElement } from "../components/PetMedia";
-import { petVideoPixels } from "../lib/petVideoAlpha";
+import { createPetAlphaReader } from "../lib/petMediaBounds";
 import { petImageFrame, usePetImages, type PetImageFrame } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { coverPetPlacements, cropPetPlacement, groundForEntry, mediaPlacement, placementForEntry, type PetPlacement } from "../lib/petFrame";
@@ -252,7 +252,32 @@ export function PetWindow() {
   const playback = playbackRef.current ??= createPetPlayback();
   const behaviorRevision = useRef(0);
   const readyMedia = useRef(new Map<string, PetMediaElement>());
+  const alphaReader = useRef<ReturnType<typeof createPetAlphaReader> | null>(null);
+  const readAlpha = alphaReader.current ??= createPetAlphaReader();
   const squash = useRef<Animation | null>(null);
+
+  function rememberMediaShape(frame: PetImageFrame, media: PetMediaElement, bounds: MediaBounds | null) {
+    const width = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
+    const height = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
+    if (!(width > 0 && height > 0)) return;
+    setMediaShapes((previous) => {
+      const key = shapeKey(frame);
+      const cached = previous.get(key);
+      const old = cached?.width === width && cached.height === height ? cached.bounds : null;
+      let next = bounds ?? old;
+      if (old && bounds) {
+        const left = Math.min(old.left, bounds.left);
+        const top = Math.min(old.top, bounds.top);
+        const right = Math.max(old.left + old.width, bounds.left + bounds.width);
+        const bottom = Math.max(old.top + old.height, bounds.top + bounds.height);
+        next = { left, top, width: right - left, height: bottom - top };
+      }
+      if (cached?.width === width && cached.height === height && (next === old || (old && next &&
+        Math.abs(old.left - next.left) < 1e-6 && Math.abs(old.top - next.top) < 1e-6 &&
+        Math.abs(old.width - next.width) < 1e-6 && Math.abs(old.height - next.height) < 1e-6))) return previous;
+      return new Map(previous).set(key, { width, height, bounds: next });
+    });
+  }
 
   // 点击切换只在常规动作里转，走路动作留给拖动
   const regularAnimations = ordinaryAnimations({ animations, eventActions, stateActions });
@@ -1045,8 +1070,6 @@ export function PetWindow() {
     let alphaBounds: { left: number; top: number; right: number; bottom: number } | null = null;
     let lastHitbox = "";
     let lastScan = 0;
-    let scanCanvas: HTMLCanvasElement | null = null;
-    let scanContext: CanvasRenderingContext2D | null = null;
     let alphaScanUnavailable = false;
 
     const send = (bounds: { left: number; top: number; width: number; height: number }) => {
@@ -1057,69 +1080,18 @@ export function PetWindow() {
     };
 
     const scanAlpha = (media: PetMediaElement, content: { left: number; top: number; width: number; height: number }) => {
-      if (alphaScanUnavailable || (media instanceof HTMLVideoElement ? media.readyState < 2 : !media.complete)) return null;
-      if (!scanCanvas) {
-        scanCanvas = document.createElement("canvas");
-        scanContext = scanCanvas.getContext("2d", { willReadFrequently: true });
-      }
-      const canvas = scanCanvas;
-      const context = scanContext;
-      if (!canvas || !context) {
-        alphaScanUnavailable = true;
-        return null;
-      }
-      const sourceWidth = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
-      const sourceHeight = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
-      if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null;
-      const sampleScale = Math.min(1, 192 / Math.max(sourceWidth, sourceHeight));
-      const width = Math.max(1, Math.round(sourceWidth * sampleScale));
-      const height = Math.max(1, Math.round(sourceHeight * sampleScale));
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
+      if (alphaScanUnavailable) return null;
       try {
-        context.clearRect(0, 0, width, height);
-        context.drawImage(media instanceof HTMLVideoElement ? petVideoPixels(media) : media, 0, 0, width, height);
-        const pixels = context.getImageData(0, 0, width, height).data;
-        let left = width;
-        let top = height;
-        let right = -1;
-        let bottom = -1;
-        for (let y = 0; y < height; y += 1) {
-          for (let x = 0; x < width; x += 1) {
-            if (pixels[(y * width + x) * 4 + 3] <= 8) continue;
-            left = Math.min(left, x);
-            top = Math.min(top, y);
-            right = Math.max(right, x);
-            bottom = Math.max(bottom, y);
-          }
-        }
-        if (right < left || bottom < top) return null;
+        const sample = readAlpha(media);
+        if (!sample) return null;
         alphaBounds = {
-          left: Math.min(alphaBounds?.left ?? 1, left / width),
-          top: Math.min(alphaBounds?.top ?? 1, top / height),
-          right: Math.max(alphaBounds?.right ?? 0, (right + 1) / width),
-          bottom: Math.max(alphaBounds?.bottom ?? 0, (bottom + 1) / height),
+          left: Math.min(alphaBounds?.left ?? 1, sample.left),
+          top: Math.min(alphaBounds?.top ?? 1, sample.top),
+          right: Math.max(alphaBounds?.right ?? 0, sample.left + sample.width),
+          bottom: Math.max(alphaBounds?.bottom ?? 0, sample.top + sample.height),
         };
         const frame = displayedRef.current;
-        if (frame) {
-          const sample = { left: alphaBounds.left, top: alphaBounds.top,
-            width: alphaBounds.right - alphaBounds.left, height: alphaBounds.bottom - alphaBounds.top };
-          setMediaShapes((previous) => {
-            const key = shapeKey(frame);
-            const cached = previous.get(key);
-            const old = cached?.bounds;
-            const left = Math.min(old?.left ?? 1, sample.left);
-            const top = Math.min(old?.top ?? 1, sample.top);
-            const right = Math.max(old ? old.left + old.width : 0, sample.left + sample.width);
-            const bottom = Math.max(old ? old.top + old.height : 0, sample.top + sample.height);
-            if (old && Math.abs(old.left - left) < 1e-6 && Math.abs(old.top - top) < 1e-6 &&
-              Math.abs(old.left + old.width - right) < 1e-6 && Math.abs(old.top + old.height - bottom) < 1e-6) return previous;
-            return new Map(previous).set(key, { width: sourceWidth, height: sourceHeight,
-              bounds: { left, top, width: right - left, height: bottom - top } });
-          });
-        }
+        if (frame) rememberMediaShape(frame, media, sample);
         return {
           left: content.left + (visibleFlip ? 1 - alphaBounds.right : alphaBounds.left) * content.width,
           top: content.top + alphaBounds.top * content.height,
@@ -1254,14 +1226,11 @@ export function PetWindow() {
                   loop={!behavior || (!playback.matches(frame.key) && frame.entry !== eventEntry)}
                   onReady={(element) => {
                     readyMedia.current.set(frame.key, element);
-                    const width = element instanceof HTMLVideoElement ? element.videoWidth : element.naturalWidth;
-                    const height = element instanceof HTMLVideoElement ? element.videoHeight : element.naturalHeight;
-                    if (width > 0 && height > 0) setMediaShapes((previous) => {
-                      const key = shapeKey(frame);
-                      const cached = previous.get(key);
-                      if (cached?.width === width && cached.height === height) return previous;
-                      return new Map(previous).set(key, { width, height, bounds: null });
-                    });
+                    // MacPetVideo 只在透明合成首帧完成后 ready；在交接前读取它，
+                    // 不能先用整张画布重排旧画面、再等下一轮 RAF 才裁掉透明边距。
+                    let bounds: MediaBounds | null = null;
+                    try { bounds = readAlpha(element); } catch { /* 老 WebView 保留媒体矩形回退。 */ }
+                    rememberMediaShape(frame, element, bounds);
                     void onPetImageReady(frame, element);
                   }}
                   onEnded={() => onBehaviorEnded(frame)}
