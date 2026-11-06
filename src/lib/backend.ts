@@ -95,6 +95,9 @@ export const getPreviousApp = () => invoke<PreviousApp>("get_previous_app");
 
 export const listWindows = () => invoke<CapturableWindow[]>("list_capturable_windows");
 
+/** macOS 专用：仅在用户点击授权按钮时请求屏幕录制权限。 */
+export const authorizeScreenCapture = () => invoke<boolean>("authorize_screen_capture");
+
 
 /**
  * 输入框里执行会截屏的动作：后端先把输入框藏起来再动手。

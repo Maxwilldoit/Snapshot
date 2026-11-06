@@ -4,7 +4,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Snapshot is a cross-platform desktop utility for capturing application windows, recording them to MP4, annotating screenshots, storing reusable prompts, and rewriting prompts. A desktop companion keeps the most common actions within reach, while a launchpad provides quick access to installed applications.
+Snapshot is a cross-platform desktop utility for capturing application windows, recording them to MP4, annotating screenshots, storing reusable prompts, and rewriting prompts. A desktop companion keeps the most common actions within reach, while a launchpad on Windows and Linux provides quick access to installed applications.
 
 Built with Tauri 2, React, and native platform APIs for Windows, macOS, and Linux. The interface supports English and Simplified Chinese, follows the system language by default, and can be changed at any time in Preferences.
 
@@ -49,8 +49,8 @@ The Makima companion comes from the [Pets library](https://github.com/Maxwilldoi
 - **Unified history**: screenshots and prompt rewrites appear together in chronological order. Snapshot previews can be copied or annotated; prompt entries retain the original, result, rule, and time. Neither kind has an automatic item limit.
 - **Prompt rewriting**: use an OpenAI-compatible endpoint and custom rules. API keys are stored in the operating system credential store, never in the settings file.
 - **Prompt library**: save reusable prompts independently from rewriting rules and history. Open the library from the companion's quick menu or its global shortcut, then copy any saved prompt without closing the window.
-- **Desktop companion**: display the active application's icon or an animated GIF/WebM. It can roam the current display, play actions while idle, and drop back to the taskbar after dragging. Right-click for quick actions; double-click to open the launchpad. On Windows, the companion steps aside when another app covers the same display in fullscreen.
-- **Launchpad**: application catalog caching, icon warming, search, folders, and multi-page navigation keep application launching responsive.
+- **Desktop companion**: display the active application's icon or an animated GIF/WebM. It can roam the current display, play actions while idle, and drop back to the taskbar after dragging. Right-click for quick actions; on Windows and Linux, double-click to open the launchpad. On Windows, the companion steps aside when another app covers the same display in fullscreen.
+- **Launchpad (Windows and Linux)**: application catalog caching, icon warming, search, folders, and multi-page navigation keep application launching responsive. macOS does not create or preload a launchpad.
 - **Global shortcuts**: bind capture, recording, prompt rewriting, the Prompt library, and the quick menu. Pause every global shortcut without losing saved bindings; the paused state persists across restarts.
 - **Appearance**: four layout styles, light and dark themes, system-aware color, and reduced-motion support.
 
@@ -62,7 +62,8 @@ The Makima companion comes from the [Pets library](https://github.com/Maxwilldoi
 | Window recording | ✓ | ✓ | ✓ |
 | System audio and microphone | ✓ | macOS 15+ for microphone | ✓ |
 | Scrolling capture | — | — | X11 only |
-| History, annotation, prompt rewriting and library, companion, launchpad | ✓ | ✓ | ✓ |
+| History, annotation, prompt rewriting and library, companion | ✓ | ✓ | ✓ |
+| Launchpad | ✓ | — | ✓ |
 | Launch at login | ✓ | ✓ | ✓ |
 | Global shortcuts | ✓ | ✓ | Depends on the desktop session |
 
@@ -81,7 +82,7 @@ Download the package for your platform from [Releases](https://github.com/Maxwil
 
 The packages are not code-signed or notarized. On macOS, Control-click the app and choose **Open** the first time. On Windows, SmartScreen may show a warning. Windows 10 downloads the WebView2 runtime during installation when needed.
 
-macOS requires Screen Recording permission for capture and recording, Accessibility permission to restore minimized windows, and Microphone permission for audio recording.
+macOS requires Screen Recording permission to list windows, capture, and record, Accessibility permission to restore minimized windows, and Microphone permission for audio recording. If the window picker requests access, use **Open System Settings** to allow Snapshot under **Privacy & Security → Screen Recording**, then choose **Reload windows**. If access is already enabled but windows still cannot be read, quit and reopen Snapshot. Missing access is shown as a permission request rather than an empty window list.
 
 ### Linux dependencies
 
@@ -108,7 +109,7 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 
 **Prompt library.** Open it from the companion's quick menu or its global shortcut (default `Ctrl/Cmd+Shift+P`). Create and edit entries, search titles or content, and copy any prompt without closing the library. These saved prompts are separate from rewrite rules and rewrite history.
 
-**Companion and launchpad.** Import a ZIP of GIF/WebM actions or a single GIF/WebM file from the Companion page. Under **Preferences → Desktop companion**, enable **Free roam** or **Random actions** for autonomous behavior, and **Gravity** to make a dragged companion fall back to the work-area floor. Click once to play another action; double-click to open the launchpad. The launchpad supports search, folders, drag-and-drop organization, and paged navigation. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md).
+**Companion and launchpad.** Import a ZIP of GIF/WebM actions or a single GIF/WebM file from the Companion page. Under **Preferences → Desktop companion**, enable **Free roam** or **Random actions** for autonomous behavior, and **Gravity** to make a dragged companion fall back to the work-area floor. Click once to play another action. On Windows and Linux, double-click to open the launchpad, which supports search, folders, drag-and-drop organization, and paged navigation. macOS has no launchpad, so clicks switch actions immediately without waiting for a double-click. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md).
 
 **Language and appearance.** Choose **System**, **Simplified Chinese**, or **English** under **Preferences → Interface language**. The Themes page controls layout, color, and motion.
 

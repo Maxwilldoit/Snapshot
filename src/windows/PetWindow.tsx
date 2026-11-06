@@ -111,7 +111,7 @@ async function commitPetWindow(
   await petWindow.setSize(new LogicalSize(place.width, place.height));
 }
 
-/** 等这么久还没来第二下，才算单击。第二下是双击，打开启动台，不换动作 */
+/** Windows/Linux 等待双击打开启动台；macOS 没有启动台，点击立即切换动作。 */
 export const CLICK_DELAY_MS = 400;
 
 type DragGeometry = {
@@ -142,6 +142,7 @@ async function readDragGeometry(petWindow: Window, content: MediaBounds | null):
 
 export function PetWindow() {
   const { t } = useI18n();
+  const hasLaunchpad = !/Macintosh|Mac OS X/.test(navigator.userAgent);
   useWindowTitle(t("桌宠"));
   const [app, setApp] = useState<PreviousApp>({ id: null, pid: null, name: "", title: "" });
   const [appearanceId, setAppearanceId] = useState("app-icon");
@@ -822,6 +823,10 @@ export function PetWindow() {
       cleanup();
       if (!dragged.current) {
         if (cancelled) return;
+        if (!hasLaunchpad) {
+          switchOnClick();
+          return;
+        }
         if (clickTimer.current !== undefined) {
           window.clearTimeout(clickTimer.current);
           clickTimer.current = undefined;

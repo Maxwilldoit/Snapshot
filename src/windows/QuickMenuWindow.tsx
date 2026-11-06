@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  authorizeScreenCapture,
   copyText,
   getRecordingStatus,
   getShortcutConflicts,
@@ -50,7 +51,12 @@ export function windowPickerLabels(item: Pick<CapturableWindow, "appName" | "tit
   };
 }
 
-const errorText = (error: unknown) => localizeMessage(error instanceof Error ? error.message : String(error));
+const errorText = (error: unknown) => localizeMessage(
+  typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error),
+);
+
+const needsScreenCapturePermission = (error: unknown) =>
+  typeof error === "object" && error !== null && "kind" in error && error.kind === "screenCapturePermission";
 
 /**
  * 快捷菜单：右键桌宠或按「呼出快捷菜单」快捷键出来。
@@ -65,6 +71,8 @@ export function QuickMenuWindow() {
   const [cursor, setCursor] = useState(0);
   const [pickerMode, setPickerMode] = useState<"capture" | "record">("capture");
   const [windows, setWindows] = useState<CapturableWindow[] | null>(null);
+  const [capturePermissionRequired, setCapturePermissionRequired] = useState(false);
+  const [pickerLoading, setPickerLoading] = useState(false);
   const [recording, setRecording] = useState<RecordingStatus>({ active: false, target: null, startedAt: null });
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
@@ -104,6 +112,8 @@ export function QuickMenuWindow() {
     setCursor(0);
     setStatus(null);
     setWindows(null);
+    setCapturePermissionRequired(false);
+    setPickerLoading(false);
     setResult(null);
     setPolishError(null);
     setRunning(false);
@@ -187,6 +197,7 @@ export function QuickMenuWindow() {
 
   async function openPicker(mode: "capture" | "record") {
     const token = ++pickerToken.current;
+    setPickerLoading(true);
     setPickerMode(mode);
     setCursor(0);
     showStatus(null);
@@ -195,13 +206,41 @@ export function QuickMenuWindow() {
       if (token !== pickerToken.current) return;
       // 等列表到手再切页：避免「读取中」矮面板和完整列表之间再改一次高度。
       setWindows(list);
+      setCapturePermissionRequired(false);
       setView("windows");
     } catch (error) {
       if (token !== pickerToken.current) return;
       setWindows([]);
       setView("windows");
-      showStatus({ kind: "error", text: t(errorText(error)) });
+      const permissionRequired = needsScreenCapturePermission(error);
+      setCapturePermissionRequired(permissionRequired);
+      if (!permissionRequired) showStatus({ kind: "error", text: t(errorText(error)) });
+    } finally {
+      if (token === pickerToken.current) setPickerLoading(false);
     }
+    rootRef.current?.focus();
+  }
+
+  async function authorizeCapture() {
+    const token = ++pickerToken.current;
+    setPickerLoading(true);
+    showStatus(null);
+    rootRef.current?.focus();
+    try {
+      const granted = await authorizeScreenCapture();
+      if (token !== pickerToken.current) return;
+      if (granted) await openPicker(pickerMode);
+    } catch (error) {
+      if (token === pickerToken.current) showStatus({ kind: "error", text: t(errorText(error)) });
+    } finally {
+      if (token === pickerToken.current) setPickerLoading(false);
+    }
+  }
+
+  function leavePicker() {
+    pickerToken.current += 1;
+    setPickerLoading(false);
+    setView("menu");
     rootRef.current?.focus();
   }
 
@@ -416,13 +455,15 @@ export function QuickMenuWindow() {
       event.preventDefault();
       setCursor((value) => (rowCount ? (value - 1 + rowCount) % rowCount : 0));
     } else if (event.key === "Enter") {
+      // 授权页的按钮保留浏览器默认键盘激活，不能被窗口列表的回车处理吞掉。
+      if (event.target instanceof HTMLButtonElement) return;
       event.preventDefault();
       if (view === "menu") items[cursor]?.run();
       else if (visibleWindows[cursor]) void pickWindow(visibleWindows[cursor]);
     } else if (event.key === "Escape") {
       event.preventDefault();
       if (view === "windows") {
-        setView("menu");
+        leavePicker();
       } else void hideQuickMenu();
     }
   }
@@ -495,7 +536,7 @@ export function QuickMenuWindow() {
             <>
               {view === "windows" && (
                 <div className="palette-window-head">
-                  <button type="button" className="palette-back" aria-label={t("返回")} onClick={() => setView("menu")}>
+                  <button type="button" className="palette-back" aria-label={t("返回")} onClick={leavePicker}>
                     <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
                   </button>
                   <span className="palette-window-heading">
@@ -523,9 +564,19 @@ export function QuickMenuWindow() {
                   ))}
                 </div>
               ) : (
-                <div ref={windowListRef} className="palette-list palette-windows" role="listbox" aria-label={t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}>
+                <div ref={windowListRef} className={`palette-list palette-windows${capturePermissionRequired ? " is-permission" : ""}`} role={capturePermissionRequired ? "group" : "listbox"} aria-label={t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}>
                   {windows === null && <p className="palette-empty small quiet">{t("正在读取窗口…")}</p>}
-                  {windows !== null && visibleWindows.length === 0 && (
+                  {capturePermissionRequired && (
+                    <div className="palette-permission">
+                      <p className="small" role="alert">{t("需要「屏幕录制」权限才能读取和截取窗口")}</p>
+                      <p className="small ink-2">{t("请在系统设置 → 隐私与安全性 → 屏幕录制中允许应用快照，然后重新读取。若已开启仍无法读取，请退出并重新打开应用。")}</p>
+                      <div className="palette-permission-actions">
+                        <button type="button" className="btn btn-small" disabled={pickerLoading} onClick={() => void authorizeCapture()}>{t("打开系统设置")}</button>
+                        <button type="button" className="text-btn small" disabled={pickerLoading} onClick={() => void openPicker(pickerMode)}>{t("重新读取")}</button>
+                      </div>
+                    </div>
+                  )}
+                  {windows !== null && visibleWindows.length === 0 && !capturePermissionRequired && status?.kind !== "error" && (
                     <p className="palette-empty small quiet">{t("没有找到可用的窗口")}</p>
                   )}
                   {visibleWindows.map((item, index) => {

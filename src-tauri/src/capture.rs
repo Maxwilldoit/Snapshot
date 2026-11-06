@@ -17,6 +17,8 @@ pub(crate) fn capture_window(
     id: Option<u32>,
     trace: CaptureTrace,
 ) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    os::require_screen_capture_access()?;
     let target_id = id
         .or_else(|| {
             state
@@ -523,6 +525,8 @@ pub(crate) fn capture_fullscreen_image(
     include_cursor: bool,
     trace: &CaptureTrace,
 ) -> Result<(RgbaImage, String, Option<String>), String> {
+    #[cfg(target_os = "macos")]
+    os::require_screen_capture_access()?;
     let monitor = primary_monitor()?;
     let name = monitor
         .name()

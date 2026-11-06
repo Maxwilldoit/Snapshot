@@ -4,7 +4,9 @@ mod capabilities;
 mod capture;
 mod capture_timing;
 mod clipboard;
+#[cfg(not(target_os = "macos"))]
 mod launchpad;
+#[cfg(not(target_os = "macos"))]
 mod launchpad_cache;
 mod media;
 mod pet;
@@ -102,7 +104,9 @@ struct AppState {
     shortcut_pause_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
     tray_open_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     tray_quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+    #[cfg(not(target_os = "macos"))]
     launch_catalog: launchpad_cache::CatalogCache,
+    #[cfg(not(target_os = "macos"))]
     launch_icons: Mutex<HashMap<String, Vec<u8>>>,
     /// 快照索引的读改写必须原子化；否则并发截图会互相覆盖历史记录。
     snapshot_index_lock: Mutex<()>,
@@ -270,6 +274,14 @@ fn init_x11_threads() {
 #[cfg(not(target_os = "linux"))]
 fn init_x11_threads() {}
 
+fn configure_platform_windows(config: &mut tauri::Config) {
+    // 配置窗口在 setup 之前创建，必须先过滤，不能创建后再隐藏。
+    config
+        .app
+        .windows
+        .retain(|window| !cfg!(target_os = "macos") || window.label != "launchpad");
+}
+
 pub fn run() {
     init_x11_threads();
     let started_at_login = std::env::args_os().any(|arg| arg == OsStr::new(AUTOSTART_ARG));
@@ -280,7 +292,8 @@ pub fn run() {
     // 路径这里自己算：Tauri 的 app_config_dir()/app_data_dir() 实现就是
     // dirs::config_dir()/dirs::data_dir() 再拼 bundle identifier，
     // 标识符从 context 取，和 tauri.conf.json 保持同源，不会写死漂移。
-    let context = tauri::generate_context!();
+    let mut context = tauri::generate_context!();
+    configure_platform_windows(context.config_mut());
     let identifier = context.config().identifier.clone();
     let settings_path = dirs::config_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -344,9 +357,11 @@ pub fn run() {
             shortcut_pause_item: Mutex::new(None),
             tray_open_item: Mutex::new(None),
             tray_quit_item: Mutex::new(None),
+            #[cfg(not(target_os = "macos"))]
             launch_catalog: launchpad_cache::CatalogCache::new(
                 data_dir.join("launchpad-catalog.json"),
             ),
+            #[cfg(not(target_os = "macos"))]
             launch_icons: Mutex::new(HashMap::new()),
             snapshot_index_lock: Mutex::new(()),
         })
@@ -402,6 +417,7 @@ pub fn run() {
                 }
             }
             tracker::start_tracker(app.handle().clone(), tracker);
+            #[cfg(not(target_os = "macos"))]
             launchpad::preload(app.handle().clone());
             pet_catalog::preload(app.handle().clone());
             #[cfg(target_os = "windows")]
@@ -507,6 +523,7 @@ pub fn run() {
             } else if window.label() == "launchpad" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
+                    #[cfg(not(target_os = "macos"))]
                     launchpad::conceal(window.app_handle());
                 }
             } else if window.label() == "annotate" {
@@ -617,6 +634,8 @@ pub fn run() {
             settings::save_preferences,
             tracker::get_previous_app,
             tracker::list_capturable_windows,
+            #[cfg(target_os = "macos")]
+            os::permissions::authorize_screen_capture,
             recording::get_recording_status,
             recording::toggle_recording,
             polish::polish_text,
@@ -640,10 +659,15 @@ pub fn run() {
             actions::hide_quick_menu,
             actions::run_action,
             actions::show_main_window,
+            #[cfg(not(target_os = "macos"))]
             launchpad::show_launchpad,
+            #[cfg(not(target_os = "macos"))]
             launchpad::hide_launchpad,
+            #[cfg(not(target_os = "macos"))]
             launchpad::launchpad_state,
+            #[cfg(not(target_os = "macos"))]
             launchpad::save_launchpad,
+            #[cfg(not(target_os = "macos"))]
             launchpad::launch_app,
             capture::get_annotate_image,
             capture::annotate_get_title,
@@ -660,6 +684,23 @@ pub fn run() {
 #[cfg(test)]
 mod pet_asset_tests {
     use super::*;
+
+    #[test]
+    fn platform_windows_exclude_launchpad_only_on_macos() {
+        let mut config: tauri::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        configure_platform_windows(&mut config);
+        let labels: Vec<_> = config
+            .app
+            .windows
+            .iter()
+            .map(|window| window.label.as_str())
+            .collect();
+        assert_eq!(labels.contains(&"launchpad"), !cfg!(target_os = "macos"));
+        for label in ["main", "pet", "quick-menu", "annotate", "pet-catalog"] {
+            assert!(labels.contains(&label));
+        }
+    }
 
     /// 老配置含已废弃的录制目录绑定与（Win/mac 上）不支持的滚动长截图：
     /// 移除它们，补出新动作，保留其它已有绑定。

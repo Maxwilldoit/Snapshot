@@ -1,5 +1,7 @@
 /** Native errors are returned as strings; translate the common paths at the UI boundary. */
 export const backendErrorEnglish: Record<string, string> = {
+  "需要「屏幕录制」权限才能读取和截取窗口": "Screen Recording permission is required to list and capture windows.",
+  "无法打开系统设置，请手动打开「屏幕录制」设置": "Could not open System Settings. Open Screen Recording settings manually.",
   "输入框窗口不存在": "The quick actions window is unavailable.",
   "还没有上一个应用可截取": "No previous app is available to capture.",
   "还没有上一个应用可录制": "No previous app is available to record.",
@@ -103,6 +105,7 @@ export const backendErrorEnglish: Record<string, string> = {
 };
 
 export const backendErrorPatterns: Array<[RegExp, string]> = [
+  [/^无法打开系统设置：(.+)$/s, "Could not open System Settings: $1"],
   [/^写入剪贴板失败：(.+)$/s, "Could not write to the clipboard: $1"],
   [/^截取失败：(.+)$/s, "Capture failed: $1"],
   [/^全屏截取失败：(.+?)(?: \/ fullscreen capture failed:.*)?$/s, "Fullscreen capture failed: $1"],

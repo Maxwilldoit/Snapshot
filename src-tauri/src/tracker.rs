@@ -142,17 +142,27 @@ fn native_main_capture_window(app: &AppHandle) -> Option<(u64, CapturableWindow)
 #[tauri::command]
 pub(crate) async fn list_capturable_windows(
     app: AppHandle,
-) -> Result<Vec<CapturableWindow>, String> {
+) -> Result<Vec<CapturableWindow>, WindowListError> {
     // 自有窗口的元数据查询可能需要主线程处理消息，不能从同步 IPC 阻塞窗口消息循环。
     tauri::async_runtime::spawn_blocking(move || enumerate_capturable_windows(&app))
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| WindowListError::Enumeration(error.to_string()))?
 }
 
-fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>, String> {
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", content = "message", rename_all = "camelCase")]
+pub(crate) enum WindowListError {
+    #[cfg(target_os = "macos")]
+    ScreenCapturePermission(String),
+    Enumeration(String),
+}
+
+fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>, WindowListError> {
+    #[cfg(target_os = "macos")]
+    os::require_screen_capture_access().map_err(WindowListError::ScreenCapturePermission)?;
     let main = main_capture_window(app);
     let mut result = Window::all()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| WindowListError::Enumeration(error.to_string()))?
         .into_iter()
         .filter_map(|window| {
             let id = window.id().ok()?;
@@ -276,6 +286,20 @@ pub(crate) fn start_tracker(app: AppHandle, tracker: Arc<Mutex<TrackerState>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn permission_failure_is_distinguishable_from_an_enumeration_failure() {
+        assert_eq!(
+            serde_json::to_value(WindowListError::ScreenCapturePermission("授权提示".into()))
+                .unwrap(),
+            json!({ "kind": "screenCapturePermission", "message": "授权提示" })
+        );
+        assert_eq!(
+            serde_json::to_value(WindowListError::Enumeration("读取失败".into())).unwrap(),
+            json!({ "kind": "enumeration", "message": "读取失败" })
+        );
+    }
 
     #[test]
     fn main_window_capture_uses_its_handle_instead_of_a_shared_process_or_title() {

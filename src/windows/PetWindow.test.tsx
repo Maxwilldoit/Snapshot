@@ -61,6 +61,7 @@ async function renderPet(
   monitor: Record<string, unknown> | null = null,
   durations: Record<string, number> = {},
   geometry: {
+    userAgent?: string;
     scale?: number;
     size?: { width: number; height: number };
     monitors?: Array<Record<string, unknown>>;
@@ -91,7 +92,7 @@ async function renderPet(
       }
       return undefined;
     },
-    { currentWindow: "pet", shouldMockEvents: true },
+    { currentWindow: "pet", shouldMockEvents: true, userAgent: geometry.userAgent },
   );
   // petSync 在模块加载时判断是不是 Tauri 环境，要在装好 mock 之后再加载
   vi.resetModules();
@@ -165,6 +166,19 @@ async function endDrag() {
 }
 
 describe("桌宠：点击切换，平时停在待机", () => {
+  it("macOS 单击立即切换，连续点击不会打开启动台", async () => {
+    const { container, calls } = await renderPet(grok, {}, undefined, null, {}, {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15",
+    });
+    await act(async () => click(container));
+    await loadPetImages();
+    expect(shown(container).file).toBe("grok_jump.gif");
+    await act(async () => click(container));
+    await loadPetImages();
+    expect(shown(container).file).toBe("grok_wave.gif");
+    expect(calls).not.toContain("show_launchpad");
+  });
+
   it("非方形宠物的可视底边贴住窗口底部，拖到任务栏时脚不会被透明留白悬空", async () => {
     render(<style>{petStyles}</style>);
     const { container } = await renderPet();

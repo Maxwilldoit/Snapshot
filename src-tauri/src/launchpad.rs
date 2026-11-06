@@ -12,19 +12,13 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State};
 pub(crate) struct InstalledApp {
     pub(crate) id: String,
     pub(crate) name: String,
-    /// 平台自己的启动目标（快捷方式、.app、.desktop）。不发给页面。
+    /// 平台自己的启动目标（快捷方式、.desktop）。不发给页面。
     pub(crate) target: String,
     /// 是否默认显示在网格中。隐藏条目仍可搜索和启动。
     pub(crate) listed: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct LaunchpadFolder {
-    pub(crate) id: String,
-    pub(crate) name: String,
-    pub(crate) app_ids: Vec<String>,
-}
+pub(crate) use settings::LaunchpadFolder;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,8 +49,8 @@ pub(crate) struct LaunchpadView {
 }
 
 /// 路径或包名的稳定短 id。只为媒体地址里不出现斜杠，不是安全边界。
-/// Windows / macOS 的应用扫描用它；Linux 走另一套 id。
-#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+/// Windows 的应用扫描用它；Linux 走另一套 id。
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn stable_id(key: &str) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for byte in key.as_bytes() {

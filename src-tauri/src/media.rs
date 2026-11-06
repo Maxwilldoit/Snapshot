@@ -124,6 +124,7 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
                 bytes,
             })
         }
+        #[cfg(not(target_os = "macos"))]
         "launch-icon" => {
             let (id, size) = rest.rsplit_once('/').ok_or("图标路径不完整")?;
             let size = size

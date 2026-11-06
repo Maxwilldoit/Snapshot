@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>应用快照会在你录制窗口时采集所选窗口的画面。</string>
+	<string>应用快照需要读取窗口列表，并在你截图或录制时采集所选窗口或屏幕的画面。</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>应用快照会在你启用系统音频录制时录入屏幕播放的声音。</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -61,6 +61,109 @@ describe("快捷菜单：截取自身主窗口", () => {
   });
 });
 
+describe("快捷菜单：macOS 屏幕录制授权", () => {
+  const permissionError = {
+    kind: "screenCapturePermission",
+    message: "需要「屏幕录制」权限才能读取和截取窗口",
+  };
+
+  it.each(["快照", "录制"])("%s 无权限时显示原因和授权入口，不显示空窗口列表", async (label) => {
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "list_capturable_windows") throw permissionError;
+      if (command === "authorize_screen_capture") return false;
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: label }));
+    expect((await screen.findByRole("alert")).textContent).toBe(permissionError.message);
+    expect(screen.queryByText("没有找到可用的窗口")).toBeNull();
+    expect(screen.getByText(/若已开启仍无法读取/)).toBeTruthy();
+    expect(calls.some((call) => call.command === "authorize_screen_capture")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "打开系统设置" }));
+    await waitFor(() => expect(calls.some((call) => call.command === "authorize_screen_capture")).toBe(true));
+    expect(screen.getByRole("button", { name: "重新读取" })).toBeTruthy();
+  });
+
+  it("开启授权后重新读取真实窗口，选择后使用明确的窗口 id", async () => {
+    let granted = false;
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "list_capturable_windows") {
+        if (!granted) throw permissionError;
+        return windowList;
+      }
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await screen.findByRole("alert");
+    granted = true;
+    await user.click(screen.getByRole("button", { name: "重新读取" }));
+    await user.click(await screen.findByRole("option", { name: /Visual Studio Code/ }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(calls.find((call) => call.command === "run_action")?.payload).toEqual({ action: "capture", targetId: 73 });
+  });
+
+  it("授权命令返回成功时自动重读，不必再次点按钮", async () => {
+    let granted = false;
+    const { user } = await renderPalette((command) => {
+      if (command === "list_capturable_windows") {
+        if (!granted) throw permissionError;
+        return windowList;
+      }
+      if (command === "authorize_screen_capture") return (granted = true);
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: "录制" }));
+    await user.click(await screen.findByRole("button", { name: "打开系统设置" }));
+    expect(await screen.findByRole("option", { name: /Visual Studio Code/ })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("授权入口支持键盘回车，打开失败后保留说明并允许重试", async () => {
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "list_capturable_windows") throw permissionError;
+      if (command === "authorize_screen_capture") throw "无法打开系统设置，请手动打开「屏幕录制」设置";
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: "快照" }));
+    const button = await screen.findByRole("button", { name: "打开系统设置" });
+    button.focus();
+    await user.keyboard("{Enter}");
+    expect((await screen.findByRole("status")).textContent).toBe("无法打开系统设置，请手动打开「屏幕录制」设置");
+    expect(calls.filter((call) => call.command === "authorize_screen_capture")).toHaveLength(1);
+    expect(screen.getByRole("alert").textContent).toBe(permissionError.message);
+    expect(button.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("等待授权时返回菜单，晚到的授权结果不会重新打开窗口列表", async () => {
+    let finishAuthorization!: (granted: boolean) => void;
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "list_capturable_windows") throw permissionError;
+      if (command === "authorize_screen_capture") {
+        return new Promise<boolean>((resolve) => { finishAuthorization = resolve; });
+      }
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await user.click(await screen.findByRole("button", { name: "打开系统设置" }));
+    await user.keyboard("{Escape}");
+    expect(await screen.findByRole("option", { name: "快照" })).toBeTruthy();
+    await act(async () => finishAuthorization(true));
+    expect(screen.getByRole("option", { name: "快照" })).toBeTruthy();
+    expect(calls.filter((call) => call.command === "list_capturable_windows")).toHaveLength(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("其它枚举错误保留原始原因，不误报没有窗口或显示授权入口", async () => {
+    const { user } = await renderPalette((command) => {
+      if (command === "list_capturable_windows") throw { kind: "enumeration", message: "读取窗口失败" };
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: "快照" }));
+    expect((await screen.findByRole("status")).textContent).toBe("读取窗口失败");
+    expect(screen.queryByText("没有找到可用的窗口")).toBeNull();
+    expect(screen.queryByRole("button", { name: "打开系统设置" })).toBeNull();
+  });
+});
+
 describe("快捷菜单：录制", () => {
   it("选「录制」先列窗口，点哪个就录哪个", async () => {
     const { calls, user } = await renderPalette((command) => {

@@ -376,7 +376,12 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 .palette-status.is-ok { color: var(--ink); }
 .palette-status.is-error { color: var(--signal); }
 
-/* ---------- 启动台 ---------- */
+.palette-permission { padding: 12px 16px; }
+.palette-windows.is-permission { max-height: 360px; }
+.palette-permission p { margin: 0 0 12px; }
+.palette-permission-actions { display: flex; align-items: center; gap: 16px; }
+
+/* ---------- 启动台（Windows/Linux） ---------- */
 
 .launchpad {
   position: relative;
