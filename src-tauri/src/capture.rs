@@ -53,34 +53,47 @@ pub(crate) fn capture_window(
             })?;
         return finalize_capture(&app, &state, image, "snapshot", cursor_degraded, trace);
     }
-    let window = Window::all()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .find(|window| window.id().ok() == Some(target_id))
-        .ok_or_else(|| "目标窗口已经关闭".to_string())?;
-    trace.mark("window_enum");
-    if window.is_minimized().unwrap_or(false) {
-        os::restore_minimized(target_id)?;
-        trace.mark("window_restore");
+    #[cfg(target_os = "macos")]
+    {
+        // 独立窗口采集不依赖 xcap 的 on-screen 列表或台前调度的缩略图矩形，
+        // 也不还原/激活后台应用。光标由 ScreenCaptureKit 在原始窗口画面中处理。
+        let include_cursor = state.settings.lock().include_cursor;
+        let (image, app_name) = os::capture_window_image(target_id, include_cursor)?;
+        trace.mark("engine_capture_screencapturekit");
+        finalize_capture(&app, &state, image, &app_name, None, trace)
     }
-    let app_name = window.app_name().unwrap_or_else(|_| "应用".into());
-    let include_cursor = state.settings.lock().include_cursor;
-    let area = match (window.x(), window.y(), window.width(), window.height()) {
-        (Ok(x), Ok(y), Ok(width), Ok(height)) => Some(Area {
-            x,
-            y,
-            width,
-            height,
-        }),
-        _ => None,
-    };
-    trace.mark("window_metadata");
-    let (image, cursor_degraded) = capture_area(include_cursor, area, "窗口", &trace, || {
-        window
-            .capture_image()
-            .map_err(|error| format!("截取失败：{error}"))
-    })?;
-    finalize_capture(&app, &state, image, &app_name, cursor_degraded, trace)
+    #[cfg(not(target_os = "macos"))]
+    {
+        let window = Window::all()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|window| window.id().ok() == Some(target_id))
+            .ok_or_else(|| "目标窗口已经关闭".to_string())?;
+        trace.mark("window_enum");
+        if window.is_minimized().unwrap_or(false) {
+            os::restore_minimized(target_id)?;
+            trace.mark("window_restore");
+        }
+        let app_name = window.app_name().unwrap_or_else(|_| "应用".into());
+        let include_cursor = state.settings.lock().include_cursor;
+        let area = match (window.x(), window.y(), window.width(), window.height()) {
+            (Ok(x), Ok(y), Ok(width), Ok(height)) => Some(Area {
+                x,
+                y,
+                width,
+                height,
+            }),
+            _ => None,
+        };
+        trace.mark("window_metadata");
+        let (image, cursor_degraded) =
+            capture_area(include_cursor, area, "窗口", &trace, || {
+                window
+                    .capture_image()
+                    .map_err(|error| format!("截取失败：{error}"))
+            })?;
+        finalize_capture(&app, &state, image, &app_name, cursor_degraded, trace)
+    }
 }
 
 /// 一块屏幕区域（窗口或显示器）在屏幕上的位置与逻辑尺寸

@@ -7,6 +7,11 @@ export const backendErrorEnglish: Record<string, string> = {
   "还没有上一个应用可录制": "No previous app is available to record.",
   "未知快捷键动作": "Unknown shortcut action.",
   "目标窗口已经关闭": "The target window has closed.",
+  "目标窗口暂无可用画面，若已最小化请先还原后重试": "The window has no available frame. If it is minimized, restore it and try again.",
+  "目标窗口的截图尺寸无效或过大": "The window capture dimensions are invalid or too large.",
+  "无感窗口采集超时，请检查屏幕录制权限或先还原最小化窗口": "Background window capture timed out. Check Screen Recording permission or restore the minimized window.",
+  "无感窗口采集组件返回了无效图像": "The background window capture component returned an invalid image.",
+  "无感窗口采集失败，请检查屏幕录制权限后重试": "Background window capture failed. Check Screen Recording permission and try again.",
   "这个应用的启动项已经不在了": "This app's launcher no longer exists.",
   "这个应用没有可执行的启动命令": "This app has no executable launch command.",
   "没有这个应用的图标": "No icon is available for this app.",
@@ -105,6 +110,10 @@ export const backendErrorEnglish: Record<string, string> = {
 };
 
 export const backendErrorPatterns: Array<[RegExp, string]> = [
+  [/^无法启动无感窗口采集组件：(.+)$/s, "Could not start background window capture: $1"],
+  [/^等待无感窗口采集失败：(.+)$/s, "Could not wait for background window capture: $1"],
+  [/^读取无感窗口采集结果失败：(.+)$/s, "Could not read the background window capture: $1"],
+  [/^无感窗口采集失败：(.+)$/s, "Background window capture failed: $1"],
   [/^无法打开系统设置：(.+)$/s, "Could not open System Settings: $1"],
   [/^写入剪贴板失败：(.+)$/s, "Could not write to the clipboard: $1"],
   [/^截取失败：(.+)$/s, "Capture failed: $1"],

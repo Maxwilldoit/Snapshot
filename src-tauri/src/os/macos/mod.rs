@@ -1,8 +1,8 @@
 //! macOS 平台层。
 //!
 //! 与 Windows / Linux 平台层对外提供同名的一组函数（见 lib.rs 里 `mod os` 的说明），
-//! 共享代码只经 `os::` 调用。实现都用系统原生能力：ScreenCaptureKit 录制
-//! （经 Swift sidecar）、Accessibility 还原窗口、LaunchAgent 自启。
+//! 共享代码只经 `os::` 调用。实现都用系统原生能力：ScreenCaptureKit 录制与
+//! 无感窗口截图（经 Swift sidecar）、LaunchAgent 自启。
 
 mod autostart;
 mod cursor;
@@ -20,7 +20,7 @@ pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
 pub(crate) use icon::png_for_pid as app_icon_png;
 pub(crate) use permissions::require_screen_capture_access;
 pub(crate) use recorder::{start_recording, Recording};
-pub(crate) use window::restore_minimized;
+pub(crate) use window::capture_window_image;
 
 /// 本平台支持的全局快捷键动作，顺序即设置页的显示顺序
 pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[

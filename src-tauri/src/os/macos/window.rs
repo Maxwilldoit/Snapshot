@@ -1,200 +1,214 @@
-//! 窗口操作：用 Accessibility API 还原最小化的窗口。
+//! 无感窗口截图：ScreenCaptureKit 经现有 Swift sidecar 采集，不激活或还原目标窗口。
 
-use core_foundation::{
-    array::CFArray,
-    base::{CFType, TCFType},
-    boolean::CFBoolean,
-    string::CFString,
+use super::recorder::recorder_program;
+use image::{ImageFormat, RgbaImage};
+use serde::Deserialize;
+use std::{
+    io::Read,
+    process::{Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
-use std::{ffi::c_void, os::raw::c_int, ptr, thread, time::Duration};
 
-/// AX 没有 Windows hwnd 那样的窗口句柄，只能按进程 + 标题对齐，详见 [`unminimize_window`]。
-pub(crate) fn restore_minimized(id: u32) -> Result<(), String> {
-    unminimize_window(id)?;
-    // Dock 还原动画比 Windows 的 SW_RESTORE 慢，多等一会再截
-    thread::sleep(Duration::from_millis(400));
-    Ok(())
+const CAPTURE_TIMEOUT: &str = "无感窗口采集超时，请检查屏幕录制权限或先还原最小化窗口";
+const INVALID_RESPONSE: &str = "无感窗口采集组件返回了无效图像";
+const MAX_OUTPUT_BYTES: u64 = 128 * 1024 * 1024;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureMetadata {
+    app_name: String,
+    width: u32,
+    height: u32,
 }
 
-type AXUIElementRef = *const c_void;
-
-extern "C" {
-    fn AXIsProcessTrusted() -> bool;
-    fn AXUIElementCreateApplication(pid: c_int) -> AXUIElementRef;
-    fn AXUIElementCopyAttributeValue(
-        element: AXUIElementRef,
-        attribute: *const c_void,
-        value: *mut *const c_void,
-    ) -> c_int;
-    fn AXUIElementSetAttributeValue(
-        element: AXUIElementRef,
-        attribute: *const c_void,
-        value: *const c_void,
-    ) -> c_int;
-    fn CFRelease(cf: *const c_void);
-}
-
-pub fn unminimize_window(window_id: u32) -> Result<(), String> {
-    let target = xcap::Window::all()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .find(|window| window.id().ok() == Some(window_id))
-        .ok_or_else(|| "目标窗口已关闭".to_string())?;
-    let pid = target.pid().map_err(|error| error.to_string())?;
-    let title = target.title().unwrap_or_default();
-    unsafe {
-        if !AXIsProcessTrusted() {
-            return Err(
-                "还原最小化窗口需要「辅助功能」权限，请在系统设置 → 隐私与安全性中授权后重试"
-                    .into(),
-            );
-        }
-        let app = AXUIElementCreateApplication(pid as c_int);
-        if app.is_null() {
-            return Err("无法访问目标应用".to_string());
-        }
-        let result = unminimize_app_windows(app, &title);
-        CFRelease(app);
-        result
+pub(crate) fn capture_window_image(
+    id: u32,
+    include_cursor: bool,
+) -> Result<(RgbaImage, String), String> {
+    let mut command = Command::new(recorder_program());
+    command
+        .arg("--screenshot")
+        .arg("--window-id")
+        .arg(id.to_string());
+    if include_cursor {
+        command.arg("--include-cursor");
     }
+    let output = run_helper(command, Duration::from_secs(15))?;
+    decode_capture_output(output)
 }
 
-/// Windows 的 SW_RESTORE 只还原被指向的那一个窗口；AX 这边没有窗口句柄，
-/// 用 xcap 侧的标题去对 AXTitle，尽量只还原被截的那个。
-/// 标题为空或对不上时（个别应用不暴露 AXTitle），退回还原该进程全部最小化窗口。
-/// 标题对不上时的去向。
-///
-/// 原先是「一律还原该进程全部最小化窗口」——只有一个最小化窗口时这和还原那一个
-/// 是同一件事，但有好几个时会把用户收起来的窗口一并掀开，而且多半还猜错。
-/// 所以只在唯一确定时代劳，含糊时交回给用户，向 Windows 的 SW_RESTORE
-/// 「只动被指向的那一个」靠拢。
-#[derive(Debug, PartialEq, Eq)]
-enum Fallback {
-    /// 只有一个最小化窗口，不会猜错
-    RestoreOnly(isize),
-    /// 没有最小化的窗口，无事可做
-    NothingToDo,
-    /// 多个最小化窗口且标题对不上，不替用户决定
-    Ambiguous(usize),
-}
-
-fn decide_fallback(minimized: &[isize]) -> Fallback {
-    match minimized {
-        [] => Fallback::NothingToDo,
-        [only] => Fallback::RestoreOnly(*only),
-        many => Fallback::Ambiguous(many.len()),
-    }
-}
-
-unsafe fn unminimize_app_windows(app: AXUIElementRef, title: &str) -> Result<(), String> {
-    let attr_windows = CFString::new("AXWindows");
-    let mut raw: *const c_void = ptr::null();
-    let err = AXUIElementCopyAttributeValue(
-        app,
-        attr_windows.as_concrete_TypeRef() as *const c_void,
-        &mut raw,
-    );
-    if err != 0 || raw.is_null() {
-        return Err("无法读取目标应用的窗口列表".into());
-    }
-    let windows: CFArray<CFType> = CFArray::wrap_under_create_rule(raw as _);
-    let attr_minimized = CFString::new("AXMinimized");
-
-    // 先扫一遍：标题命中哪些、哪些确实处于最小化
-    let mut title_hits: Vec<isize> = Vec::new();
-    let mut minimized: Vec<isize> = Vec::new();
-    for index in 0..windows.len() {
-        let Some(item) = windows.get(index) else {
-            continue;
-        };
-        let element = item.as_concrete_TypeRef() as AXUIElementRef;
-        if !title.is_empty() && ax_string(element, "AXTitle").as_deref() == Some(title) {
-            title_hits.push(index);
-        }
-        if is_minimized(element, &attr_minimized) {
-            minimized.push(index);
-        }
-    }
-
-    let targets: Vec<isize> = if title_hits.is_empty() {
-        match decide_fallback(&minimized) {
-            Fallback::NothingToDo => return Ok(()),
-            Fallback::RestoreOnly(index) => vec![index],
-            Fallback::Ambiguous(count) => {
-                return Err(format!(
-                "目标窗口已最小化，但该应用有 {count} 个最小化窗口、且系统没有报告可用的窗口标题，\
-                     无法确定是哪一个。请先手动还原目标窗口再截图。"
-            ))
+fn run_helper(mut command: Command, timeout: Duration) -> Result<Output, String> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("无法启动无感窗口采集组件：{error}"))?;
+    let stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    // PNG 可能超过管道容量，必须在等退出的同时排空；两路输出都有内存上限。
+    let stdout = thread::spawn(move || read_bounded(stdout, MAX_OUTPUT_BYTES));
+    let stderr = thread::spawn(move || read_bounded(stderr, 64 * 1024));
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            result => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(match result {
+                    Err(error) => format!("等待无感窗口采集失败：{error}"),
+                    _ => CAPTURE_TIMEOUT.into(),
+                });
             }
         }
-    } else {
-        // 标题命中的里面只还原确实最小化的那些
-        title_hits
-            .into_iter()
-            .filter(|index| minimized.contains(index))
-            .collect()
     };
-
-    for index in targets {
-        let Some(item) = windows.get(index) else {
-            continue;
-        };
-        let element = item.as_concrete_TypeRef() as AXUIElementRef;
-        let _ = AXUIElementSetAttributeValue(
-            element,
-            attr_minimized.as_concrete_TypeRef() as *const c_void,
-            CFBoolean::false_value().as_concrete_TypeRef() as *const c_void,
-        );
-    }
-    Ok(())
+    let stdout = stdout.join().map_err(|_| INVALID_RESPONSE.to_string())?;
+    let stderr = stderr.join().map_err(|_| INVALID_RESPONSE.to_string())?;
+    Ok(Output {
+        status: status?,
+        stdout: stdout?,
+        stderr: stderr?,
+    })
 }
 
-unsafe fn is_minimized(element: AXUIElementRef, attr_minimized: &CFString) -> bool {
-    let mut value: *const c_void = ptr::null();
-    if AXUIElementCopyAttributeValue(
-        element,
-        attr_minimized.as_concrete_TypeRef() as *const c_void,
-        &mut value,
-    ) != 0
-        || value.is_null()
-    {
-        return false;
+fn read_bounded(reader: impl Read, limit: u64) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    reader
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("读取无感窗口采集结果失败：{error}"))?;
+    if bytes.len() as u64 > limit {
+        return Err(INVALID_RESPONSE.into());
     }
-    CFBoolean::wrap_under_create_rule(value as _) == CFBoolean::true_value()
+    Ok(bytes)
 }
 
-unsafe fn ax_string(element: AXUIElementRef, attribute: &str) -> Option<String> {
-    let name = CFString::new(attribute);
-    let mut raw: *const c_void = ptr::null();
-    if AXUIElementCopyAttributeValue(
-        element,
-        name.as_concrete_TypeRef() as *const c_void,
-        &mut raw,
-    ) != 0
-        || raw.is_null()
-    {
-        return None;
+fn decode_capture_output(output: Output) -> Result<(RgbaImage, String), String> {
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(message) = stdout.lines().find_map(|line| line.strip_prefix("ERROR ")) {
+            return Err(message.to_string());
+        }
+        return Err("无感窗口采集失败，请检查屏幕录制权限后重试".into());
     }
-    Some(CFString::wrap_under_create_rule(raw as _).to_string())
+    let newline = output
+        .stdout
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .ok_or(INVALID_RESPONSE)?;
+    let metadata: CaptureMetadata =
+        serde_json::from_slice(&output.stdout[..newline]).map_err(|_| INVALID_RESPONSE)?;
+    if metadata.width == 0
+        || metadata.height == 0
+        || metadata.width > 16_384
+        || metadata.height > 16_384
+        || u64::from(metadata.width) * u64::from(metadata.height) > 100_000_000
+    {
+        return Err(INVALID_RESPONSE.into());
+    }
+    let image =
+        image::load_from_memory_with_format(&output.stdout[newline + 1..], ImageFormat::Png)
+            .map_err(|_| INVALID_RESPONSE)?
+            .to_rgba8();
+    if image.dimensions() != (metadata.width, metadata.height)
+        || !image.pixels().any(|pixel| pixel.0[3] > 0)
+    {
+        // 全透明结果不是成功截图；纯黑但不透明的正常窗口则允许保存。
+        return Err(INVALID_RESPONSE.into());
+    }
+    Ok((image, metadata.app_name))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{decide_fallback, Fallback};
+    use super::*;
+    use image::Rgba;
+    use std::{io::Cursor, os::unix::process::ExitStatusExt, process::ExitStatus};
 
-    #[test]
-    fn single_minimized_window_is_unambiguous() {
-        assert_eq!(decide_fallback(&[2]), Fallback::RestoreOnly(2));
+    fn output(image: RgbaImage, width: u32, height: u32) -> Output {
+        let mut stdout = serde_json::to_vec(&serde_json::json!({
+            "appName": "Code\n测试", "width": width, "height": height,
+        }))
+        .unwrap();
+        stdout.push(b'\n');
+        let mut png = Cursor::new(Vec::new());
+        image.write_to(&mut png, ImageFormat::Png).unwrap();
+        stdout.extend(png.into_inner());
+        Output {
+            status: ExitStatus::from_raw(0),
+            stdout,
+            stderr: Vec::new(),
+        }
     }
 
     #[test]
-    fn nothing_minimized_is_a_no_op() {
-        assert_eq!(decide_fallback(&[]), Fallback::NothingToDo);
+    fn png_and_metadata_round_trip_without_temporary_files() {
+        let image = RgbaImage::from_pixel(12, 8, Rgba([7, 11, 23, 255]));
+        let (decoded, name) = decode_capture_output(output(image.clone(), 12, 8)).unwrap();
+        assert_eq!(image, decoded);
+        assert_eq!(name, "Code\n测试");
     }
 
     #[test]
-    fn several_minimized_windows_are_left_to_the_user() {
-        // 原先这种情况会把三个窗口全掀开
-        assert_eq!(decide_fallback(&[0, 1, 4]), Fallback::Ambiguous(3));
+    fn transparent_captures_are_errors_but_opaque_black_windows_are_valid() {
+        for (alpha, valid) in [(0, false), (255, true)] {
+            let image = RgbaImage::from_pixel(4, 3, Rgba([0, 0, 0, alpha]));
+            assert_eq!(decode_capture_output(output(image, 4, 3)).is_ok(), valid);
+        }
+    }
+
+    #[test]
+    fn incomplete_and_mismatched_responses_are_not_successful_captures() {
+        let image = RgbaImage::from_pixel(4, 3, Rgba([0, 0, 0, 255]));
+        for (width, height) in [(0, 3), (5, 3), (20_000, 3), (16_384, 16_384)] {
+            assert!(decode_capture_output(output(image.clone(), width, height)).is_err());
+        }
+        let mut bad = output(image, 4, 3);
+        bad.stdout.truncate(8);
+        assert!(decode_capture_output(bad).is_err());
+    }
+
+    #[test]
+    fn actionable_sidecar_errors_are_preserved() {
+        let result = decode_capture_output(Output {
+            status: ExitStatus::from_raw(256),
+            stdout: "ERROR 目标窗口已经关闭\n".as_bytes().to_vec(),
+            stderr: Vec::new(),
+        });
+        assert_eq!(result.unwrap_err(), "目标窗口已经关闭");
+    }
+
+    #[test]
+    fn helper_pipes_are_drained_while_waiting_for_exit() {
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "head -c 200000 /dev/zero; head -c 60000 /dev/zero >&2",
+        ]);
+        let output = run_helper(command, Duration::from_secs(5)).unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 200_000);
+        assert_eq!(output.stderr.len(), 60_000);
+    }
+
+    #[test]
+    fn stalled_helpers_are_killed_and_reaped_without_activating_any_window() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "exec sleep 20"]);
+        let start = Instant::now();
+        assert_eq!(
+            run_helper(command, Duration::from_millis(40)).unwrap_err(),
+            CAPTURE_TIMEOUT
+        );
+        assert!(start.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn helper_output_is_bounded() {
+        assert_eq!(read_bounded(Cursor::new(b"12345"), 5).unwrap(), b"12345");
+        assert!(read_bounded(Cursor::new(b"123456"), 5).is_err());
     }
 }

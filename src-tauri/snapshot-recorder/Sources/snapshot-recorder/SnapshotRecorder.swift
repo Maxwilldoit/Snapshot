@@ -1,8 +1,9 @@
-// snapshot-recorder —— macOS ScreenCaptureKit 窗口录制 sidecar
+// snapshot-recorder —— macOS ScreenCaptureKit 窗口录制 / 无感截图 sidecar
 //
 // 协议：
 //   snapshot-recorder --probe
 //   snapshot-recorder --window-id <CGWindowID> --output <file.mp4> [--include-cursor]
+//   snapshot-recorder --screenshot --window-id <CGWindowID> [--include-cursor]
 //
 // 成功收到并写入首帧后 stdout 输出一行 `READY <width> <height>`；stdin 收到 `q` 或
 // EOF 后停止并封装 MP4。启动失败时 stdout 输出 `ERROR <message>`，同时以非零状态退出。
@@ -544,8 +545,12 @@ struct SnapshotRecorder {
             application.setActivationPolicy(.prohibited)
             application.finishLaunching()
 
-            let arguments = try Arguments.parse(CommandLine.arguments)
-            try await runRecording(arguments: arguments)
+            if CommandLine.arguments.contains("--screenshot") {
+                try await runScreenshot(arguments: ScreenshotArguments.parse(CommandLine.arguments))
+            } else {
+                let arguments = try Arguments.parse(CommandLine.arguments)
+                try await runRecording(arguments: arguments)
+            }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             emit("ERROR \(message)")

@@ -28,6 +28,15 @@ describe("interface language", () => {
     expect(localizeMessage("目标窗口已经关闭", "zh")).toBe("目标窗口已经关闭");
   });
 
+  it("explains background capture errors without requesting Accessibility permission", () => {
+    expect(localizeMessage("目标窗口暂无可用画面，若已最小化请先还原后重试", "en"))
+      .toBe("The window has no available frame. If it is minimized, restore it and try again.");
+    expect(localizeMessage("无感窗口采集超时，请检查屏幕录制权限或先还原最小化窗口", "en"))
+      .toBe("Background window capture timed out. Check Screen Recording permission or restore the minimized window.");
+    expect(localizeMessage("无感窗口采集失败：permission denied", "en"))
+      .toBe("Background window capture failed: permission denied");
+  });
+
   it("switches immediately and remembers an explicit choice", () => {
     localStorage.setItem("snapshot-language", "zh");
     render(<I18nProvider><LanguageProbe /></I18nProvider>);

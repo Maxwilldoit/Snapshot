@@ -10,6 +10,10 @@ let package = Package(
         .executableTarget(
             name: "snapshot-recorder",
             path: "Sources/snapshot-recorder"
+        ),
+        .testTarget(
+            name: "SnapshotCaptureTests",
+            dependencies: ["snapshot-recorder"]
         )
     ],
     swiftLanguageModes: [.v5]

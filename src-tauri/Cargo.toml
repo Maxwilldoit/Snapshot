@@ -44,7 +44,7 @@ xcap = "0.9.8"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# AXUIElement 用于还原最小化窗口
+# macOS 图标与剪贴板等原生接口的 CF 类型
 core-foundation = "0.10"
 # NSRunningApplication.icon 用于「上一个应用」图标
 objc2 = "0.6"
