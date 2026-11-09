@@ -531,6 +531,12 @@ export function PetWindow() {
     : stateEntry ?? eventEntry ?? currentEntry;
   const normalPulse = behavior && dragging && dragEntry ? 0 : actionPulse;
   const normalFrame = custom ? petImageFrame(appearanceId, normalEntry, false, Boolean(behavior && behaviorFacing === "right"), normalPulse) : null;
+  if (normalFrame && behavior) {
+    // usePetImages retains the displayed/leaving frame object. Keep its original
+    // playback mode after the request settles; deriving loop from the current
+    // request during the hand-off would restart a completed clip at frame zero.
+    normalFrame.loop = !playback.matches(normalFrame.key) && normalEntry !== eventEntry;
+  }
   const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
   const dragFrames = behavior?.drag.map((entry) => petImageFrame(appearanceId, entry, false, behaviorFacing === "right")) ?? [];
   const targetFrame = shownWalk && shownChoice ? petImageFrame(appearanceId, shownChoice.entry, true, shownChoice.flip) : normalFrame;
@@ -1223,7 +1229,11 @@ export function PetWindow() {
                   src={frame.src}
                   entry={frame.entry}
                   hidden={displayed?.key !== frame.key && leaving?.key !== frame.key}
-                  loop={!behavior || (!playback.matches(frame.key) && frame.entry !== eventEntry)}
+                  // Keep the outgoing video on its last composited frame. In
+                  // particular, a finished one-shot must not restart as a loop
+                  // underneath its fade while the next action becomes active.
+                  playing={frame.key !== leaving?.key}
+                  loop={frame.loop}
                   onReady={(element) => {
                     readyMedia.current.set(frame.key, element);
                     // MacPetVideo 只在透明合成首帧完成后 ready；在交接前读取它，

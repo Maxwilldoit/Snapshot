@@ -1236,6 +1236,58 @@ async function renderWhale(overrides: Partial<Settings> = {}) {
 }
 
 describe("桌宠：DSH 动作交互", () => {
+  it("新动作就绪前保持旧动作播放，交接时暂停旧视频而不是让它重新循环", async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    const { container } = await renderWhale();
+    const idle = shownVideo(container).media;
+    Object.defineProperty(idle, "paused", { configurable: true, value: false });
+    idle.currentTime = 4.25;
+    play.mockClear();
+    pause.mockClear();
+
+    await act(async () => click(container));
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(shownVideo(container).media).toBe(idle);
+    expect(pause.mock.contexts).not.toContain(idle);
+    await loadPetVideos();
+
+    const next = shownVideo(container).media;
+    expect(next).not.toBe(idle);
+    expect(idle.classList.contains("pet-crossfade-out")).toBe(true);
+    expect(pause.mock.contexts).toContain(idle);
+    expect(idle.currentTime).toBe(4.25);
+    expect(play.mock.contexts).toContain(next);
+    await elapse(180);
+    expect(idle.isConnected).toBe(false);
+    expect(shownVideo(container).media).toBe(next);
+  });
+
+  it("一次性动作结束后等待下一动作时保留末帧，不改成循环重播首帧", async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const { container } = await renderWhale();
+    await act(async () => click(container));
+    await loadPetVideos();
+    const action = shownVideo(container).media;
+    expect(action.loop).toBe(false);
+    action.currentTime = 10;
+    play.mockClear();
+
+    // Returning to idle creates a new, not-yet-decoded node. Until that node is
+    // ready the completed action must stay on its last frame, not play again.
+    await act(async () => { fireEvent.ended(action); });
+    expect(shownVideo(container).media).toBe(action);
+    expect(action.loop).toBe(false);
+    expect(play.mock.contexts).not.toContain(action);
+    expect(action.currentTime).toBe(10);
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    expect(action.loop).toBe(false);
+    expect(play.mock.contexts).not.toContain(action);
+    await elapse(180);
+    expect(action.isConnected).toBe(false);
+  });
+
   it("单击立即选点击回应，首帧就位后 Q 弹，并等真实 ended 才回待机", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { container, calls, sizes } = await renderWhale();

@@ -12,6 +12,8 @@ export interface PetImageFrame {
   src: string;
   walk: boolean;
   flip: boolean;
+  /** Playback mode belongs to this mounted frame, including its outgoing fade. */
+  loop: boolean;
 }
 
 export function petImageFrame(assetId: string, entry: string | null, walk = false, flip = false, pulse = 0): PetImageFrame {
@@ -22,6 +24,7 @@ export function petImageFrame(assetId: string, entry: string | null, walk = fals
     src: walk && entry ? petWalkUrl(assetId, entry) : petUrl(assetId, entry),
     walk,
     flip,
+    loop: true,
   };
 }
 

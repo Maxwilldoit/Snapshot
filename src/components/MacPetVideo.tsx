@@ -22,10 +22,12 @@ export function MacPetVideo({
     const alpha = alphaRef.current;
     const canvas = canvasRef.current;
     if (!colour || !alpha || !canvas) return;
+    const buffer = document.createElement("canvas");
     const mask = document.createElement("canvas");
-    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const display = canvas.getContext("2d");
+    const context = buffer.getContext("2d", { willReadFrequently: true });
     const maskContext = mask.getContext("2d", { willReadFrequently: true });
-    if (!context || !maskContext) { callbacks.current.onError?.(); return; }
+    if (!display || !context || !maskContext) { callbacks.current.onError?.(); return; }
     const unregister = registerPetAlpha(colour, canvas);
     let disposed = false;
     let nativeOnly = false;
@@ -44,6 +46,10 @@ export function MacPetVideo({
     const fail = (error?: unknown) => { if (!disposed && !interrupted(error)) callbacks.current.onError?.(); };
     const draw = () => {
       if (disposed || colour.readyState < 2) return;
+      // Hidden preloads/thumbnails still need their first frame. Once ready,
+      // retain it while paused: a fading-out clip must not loop or repaint when
+      // a late seek/frame callback arrives from either decoder.
+      if (reported && (playback.current.hidden || !playback.current.playing)) return;
       if (nativeOnly) { ready(); return; }
       if (alpha.readyState < 2 || colour.seeking || alpha.seeking) return;
       // Never combine a newly sought colour frame with the old opacity frame.
@@ -53,9 +59,9 @@ export function MacPetVideo({
       }
       const { videoWidth: width, videoHeight: height } = colour;
       if (!(width > 0 && height > 0) || width !== alpha.videoWidth || height !== alpha.videoHeight) return;
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = mask.width = width;
-        canvas.height = mask.height = height;
+      if (buffer.width !== width || buffer.height !== height) {
+        buffer.width = mask.width = width;
+        buffer.height = mask.height = height;
       }
       try {
         context.clearRect(0, 0, width, height);
@@ -63,9 +69,18 @@ export function MacPetVideo({
         maskContext.drawImage(alpha, 0, 0, width, height);
         const pixels = context.getImageData(0, 0, width, height);
         applyPetAlpha(pixels.data, maskContext.getImageData(0, 0, width, height).data);
-        context.putImageData(pixels, 0, 0);
+        // Never expose the cleared canvas or WebKit's opaque colour plane.
+        // All readback/compositing happens offscreen; publish only a complete
+        // RGBA frame, keeping the last good display if a decoder is between frames.
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        display.putImageData(pixels, 0, 0);
         ready();
-      } catch { fail(); }
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "InvalidStateError")) fail(error);
+      }
     };
     const schedule = () => {
       if (disposed || nativeOnly || colour.paused || frame !== null || animation !== null) return;

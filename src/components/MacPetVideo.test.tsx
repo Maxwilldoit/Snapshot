@@ -4,15 +4,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MacPetVideo } from "./MacPetVideo";
 import { petVideoPixels } from "../lib/petVideoAlpha";
 
-let contexts: Array<{ pixels: Uint8ClampedArray; putImageData: ReturnType<typeof vi.fn> }>;
+let contexts: Array<{
+  canvas: HTMLCanvasElement;
+  pixels: Uint8ClampedArray;
+  clearRect: ReturnType<typeof vi.fn>;
+  drawImage: ReturnType<typeof vi.fn>;
+  getImageData: ReturnType<typeof vi.fn>;
+  putImageData: ReturnType<typeof vi.fn>;
+}>;
 
 beforeEach(() => {
   contexts = [];
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob(["webm"], { type: "video/webm" }) })));
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
-    // The visible canvas contains black colour; the offscreen plane encodes alpha=127.
-    const pixels = new Uint8ClampedArray(this.isConnected ? [0, 0, 0, 255] : [127, 127, 127, 255]);
-    const context = { pixels, clearRect: vi.fn(), drawImage: vi.fn(), getImageData: () => ({ data: pixels }), putImageData: vi.fn() };
+    const pixels = new Uint8ClampedArray([0, 0, 0, 255]);
+    const context = {
+      canvas: this, pixels, clearRect: vi.fn(),
+      drawImage: vi.fn((source: HTMLVideoElement) => {
+        // Colour is black; the independent grayscale video encodes alpha=127.
+        pixels.set(source.classList.contains("pet-alpha-mask") ? [127, 127, 127, 255] : [0, 0, 0, 255]);
+      }),
+      getImageData: vi.fn(() => ({ data: pixels })),
+      putImageData: vi.fn((image: ImageData) => pixels.set(image.data)),
+    };
     contexts.push(context);
     return context as unknown as CanvasRenderingContext2D;
   });
@@ -54,7 +68,8 @@ describe("MacPetVideo", () => {
     decoded(alpha);
     fireEvent.loadedData(alpha);
     expect(ready).toHaveBeenCalledExactlyOnceWith(colour);
-    expect([...contexts.at(-2)!.pixels]).toEqual([0, 0, 0, 127]);
+    const visible = contexts.filter((context) => context.canvas === container.querySelector("canvas")).at(-1)!;
+    expect([...visible.pixels]).toEqual([0, 0, 0, 127]);
     expect(petVideoPixels(colour)).toBe(container.querySelector("canvas"));
     fireEvent.loadedData(colour);
     expect(ready).toHaveBeenCalledTimes(1);
@@ -124,5 +139,61 @@ describe("MacPetVideo", () => {
     await flush();
     expect(container.querySelector("canvas")).not.toBeNull();
     expect(failed).not.toHaveBeenCalled();
+  });
+
+  it("only presents fully composited pixels, never clears or draws opaque colour on the visible canvas", async () => {
+    const { container } = render(<MacPetVideo {...props} />);
+    await flush();
+    const [colour, alpha] = [...container.querySelectorAll("video")];
+    decoded(colour);
+    decoded(alpha);
+    fireEvent.loadedData(alpha);
+    const visible = contexts.find((context) => context.canvas === container.querySelector("canvas"))!;
+    expect(visible.putImageData).toHaveBeenCalledTimes(1);
+    expect([...visible.pixels]).toEqual([0, 0, 0, 127]);
+    expect(visible.clearRect).not.toHaveBeenCalled();
+    expect(visible.drawImage).not.toHaveBeenCalled();
+    expect(visible.getImageData).not.toHaveBeenCalled();
+  });
+
+  it("holds the outgoing composited frame when paused, including late decoder events", async () => {
+    const { container, rerender } = render(<MacPetVideo {...props} playing />);
+    await flush();
+    const [colour, alpha] = [...container.querySelectorAll("video")];
+    decoded(colour);
+    decoded(alpha);
+    fireEvent.loadedData(alpha);
+    const visible = contexts.find((context) => context.canvas === container.querySelector("canvas"))!;
+    expect(visible.putImageData).toHaveBeenCalled();
+
+    rerender(<MacPetVideo {...props} playing={false} />);
+    visible.putImageData.mockClear();
+    fireEvent.pause(colour);
+    fireEvent.seeked(alpha);
+    fireEvent.loadedData(colour);
+    expect(colour.paused).toBe(true);
+    expect(alpha.paused).toBe(true);
+    expect(visible.putImageData).not.toHaveBeenCalled();
+    expect([...visible.pixels]).toEqual([0, 0, 0, 127]);
+  });
+
+  it("keeps the last good frame through a transient decoder read failure and recovers on the next frame", async () => {
+    const failed = vi.fn();
+    const { container } = render(<MacPetVideo {...props} playing onError={failed} />);
+    await flush();
+    const [colour, alpha] = [...container.querySelectorAll("video")];
+    decoded(colour);
+    decoded(alpha);
+    fireEvent.loadedData(alpha);
+    const visible = contexts.find((context) => context.canvas === container.querySelector("canvas"))!;
+    const mask = contexts.find((context) => context.drawImage.mock.calls.some(([source]) => source === alpha))!;
+    const count = visible.putImageData.mock.calls.length;
+    mask.getImageData.mockImplementationOnce(() => { throw new DOMException("Frame is changing", "InvalidStateError"); });
+    fireEvent.seeked(alpha);
+    expect(failed).not.toHaveBeenCalled();
+    expect(visible.putImageData).toHaveBeenCalledTimes(count);
+    expect([...visible.pixels]).toEqual([0, 0, 0, 127]);
+    fireEvent.seeked(alpha);
+    expect(visible.putImageData).toHaveBeenCalledTimes(count + 1);
   });
 });
