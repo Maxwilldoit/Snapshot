@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PetLayout, PetLayoutFrame } from "../types";
-import { PET_WINDOW_PAD, coverPetPlacements, cropPetPlacement, feetInNormalWindow, groundForEntry, mediaPlacement, petPlacement, placementForEntry } from "./petFrame";
+import { PET_WINDOW_PAD, coverPetPlacements, cropPetPlacement, feetInNormalWindow, groundForEntry, mediaPlacement, petPlacement, petRenderCanvas, placementForEntry } from "./petFrame";
 
 const side = 204;
 const pad = PET_WINDOW_PAD;
@@ -135,6 +135,28 @@ describe("桌宠画布锚点", () => {
 });
 
 describe("桌宠紧致窗口", () => {
+  it("原生裁切使用固定背板，包住所有动作、朝向和点击形变，但不把它当作实际窗口", () => {
+    const idle = frame("idle.gif", 100, 100, 50, 90);
+    const dunk = frame("dunk.gif", 200, 180, 60, 170);
+    const pack = layout([idle, dunk]);
+    const canvas = petRenderCanvas(side, pack);
+    for (const entry of pack.frames) for (const flip of [false, true]) {
+      const image = petPlacement(side, pack, entry, flip)!;
+      expect(canvas.left).toBeLessThanOrEqual(image.imageX - image.imageWidth * .04);
+      expect(canvas.top).toBeLessThanOrEqual(image.imageY - image.imageHeight * .04);
+      expect(canvas.left + canvas.width).toBeGreaterThanOrEqual(image.imageX + image.imageWidth * 1.04);
+      expect(canvas.top + canvas.height).toBeGreaterThanOrEqual(image.imageY + image.imageHeight);
+    }
+    expect(petRenderCanvas(side, { ...pack, frames: [...pack.frames].reverse() })).toEqual(canvas);
+    const tight = cropPetPlacement(petPlacement(side, pack, idle)!, { left: .3, top: .1, width: .4, height: .8 });
+    expect(tight.width).toBeLessThan(canvas.width);
+    expect(tight.height).toBeLessThan(canvas.height);
+  });
+
+  it("无锚点素材的固定背板不依赖当前帧的 alpha 测量结果", () => {
+    expect(petRenderCanvas(204, null)).toEqual({ left: -9, top: -9, width: 222, height: 222 });
+  });
+
   it("没有作者布局的宽图仍保持原大小、底部对齐，只收紧窗口", () => {
     const normal = mediaPlacement(204, 400, 200)!;
     expect(normal).toMatchObject({ imageX: 2, imageY: 102, imageWidth: 200, imageHeight: 100 });

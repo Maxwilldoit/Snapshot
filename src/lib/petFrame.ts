@@ -12,6 +12,29 @@ import type { MediaBounds } from "./petSize";
 /** 和 .pet-window 的 padding 一致：图像缩在去掉这一圈的方框里 */
 export const PET_WINDOW_PAD = 2;
 
+export type PetRenderCanvas = { left: number; top: number; width: number; height: number };
+
+/** A stable WebKit backing surface, NOT the visible/native window. Cropping it
+ * in AppKit avoids resizing the WebView and then waiting for a separate DOM
+ * paint to undo that movement. Include both facings and click-squash overscan. */
+export function petRenderCanvas(side: number, layout: PetLayout | null): PetRenderCanvas {
+  const pad = Math.ceil(side * .04);
+  let left = -pad, top = -pad, right = side + pad, bottom = side + pad;
+  for (const frame of layout?.frames ?? []) {
+    for (const flip of [false, true]) {
+      const place = petPlacement(side, layout!, frame, flip);
+      if (!place) continue;
+      const x = Math.ceil(place.imageWidth * .04) + PET_WINDOW_PAD;
+      const y = Math.ceil(place.imageHeight * .04) + PET_WINDOW_PAD;
+      left = Math.min(left, Math.floor(place.imageX - x));
+      top = Math.min(top, Math.floor(place.imageY - y));
+      right = Math.max(right, Math.ceil(place.imageX + place.imageWidth + x));
+      bottom = Math.max(bottom, Math.ceil(place.imageY + place.imageHeight + PET_WINDOW_PAD));
+    }
+  }
+  return { left, top, width: right - left, height: bottom - top };
+}
+
 export interface PetPlacement {
   /** 窗口外框，逻辑像素 */
   width: number;

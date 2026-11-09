@@ -11,6 +11,7 @@ import {
   onSettingsChanged,
   setPetHitbox,
   setPetFrameShift,
+  setPetBounds,
   showLaunchpad,
   showQuickMenu,
 } from "../lib/backend";
@@ -18,9 +19,10 @@ import { iconUrl } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
 import { PetMedia, type PetMediaElement } from "../components/PetMedia";
 import { createPetAlphaReader } from "../lib/petMediaBounds";
+import { petVideoPixels } from "../lib/petVideoAlpha";
 import { petImageFrame, usePetImages, type PetImageFrame } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
-import { coverPetPlacements, cropPetPlacement, groundForEntry, mediaPlacement, placementForEntry, type PetPlacement } from "../lib/petFrame";
+import { coverPetPlacements, cropPetPlacement, groundForEntry, mediaPlacement, petRenderCanvas, placementForEntry, type PetPlacement, type PetRenderCanvas } from "../lib/petFrame";
 import { PET_SCALE, containedMediaBounds, petWindowSize, type MediaBounds } from "../lib/petSize";
 import { clampPetX, petFloorY, petHorizontalLimits, type PetWorkArea } from "../lib/petBounds";
 import { ensurePetAutoScale, readPetBaseScale, watchPetBaseScales } from "../lib/petScale";
@@ -101,11 +103,12 @@ async function nudgeNormalWindow(normalY: number, side: number, factor: number, 
 }
 
 /** 相同外框无需重设原生窗口，呼吸动画只扩展一次包围盒，不逐帧缩放窗口。 */
-function windowKey(side: number, place: PetPlacement | null) {
+function windowKey(side: number, place: PetPlacement | null, canvas: PetRenderCanvas | null = null) {
+  const backing = canvas ? `|canvas:${canvas.left},${canvas.top},${canvas.width},${canvas.height}` : "";
   if (!place || (place.shiftX === 0 && place.shiftY === 0 && place.width === side && place.height === side)) {
-    return `square|${side}`;
+    return `square|${side}${backing}`;
   }
-  return `frame|${side}|${place.width}x${place.height}@${place.shiftX},${place.shiftY}`;
+  return `frame|${side}|${place.width}x${place.height}@${place.shiftX},${place.shiftY}${backing}`;
 }
 
 async function commitPetWindow(
@@ -116,10 +119,20 @@ async function commitPetWindow(
   translate: (source: string) => string,
   groundY: number | null,
   canNudge: () => boolean,
+  canvas: PetRenderCanvas | null,
 ) {
+  const atomic = /Macintosh|Mac OS X/.test(navigator.userAgent);
   const reframes =
     place != null && !(place.shiftX === 0 && place.shiftY === 0 && place.width === side && place.height === side);
   if (!place || !reframes) {
+    if (atomic) {
+      const pos = await petWindow.outerPosition();
+      const offset = await setPetBounds({ x: pos.x - shiftRef.current.x, y: pos.y - shiftRef.current.y,
+        width: side, height: side, shiftX: 0, shiftY: 0, canvas });
+      shiftRef.current = { x: 0, y: 0 };
+      if (groundY !== null && canNudge()) await keepOnScreen(petWindow, null, false, canNudge, groundY);
+      return offset;
+    }
     if (shiftRef.current.x !== 0 || shiftRef.current.y !== 0) {
       const pos = await petWindow.outerPosition();
       const nextX = pos.x - shiftRef.current.x;
@@ -148,10 +161,16 @@ async function commitPetWindow(
   const nudge = await nudgeNormalWindow(normalY, side, factor, groundY === null ? null : groundY + place.shiftY, canNudge);
   const nextX = Math.round(normalX + nudge.x + shiftX);
   const nextY = Math.round(normalY + nudge.y + shiftY);
-  shiftRef.current = { x: shiftX, y: shiftY };
-  await setPetFrameShift(shiftX, shiftY);
-  if (nextX !== pos.x || nextY !== pos.y) await petWindow.setPosition(new PhysicalPosition(nextX, nextY));
-  await petWindow.setSize(new LogicalSize(place.width, place.height));
+  if (atomic) {
+    const offset = await setPetBounds({ x: nextX, y: nextY, width: place.width, height: place.height, shiftX, shiftY, canvas });
+    shiftRef.current = { x: shiftX, y: shiftY };
+    return offset;
+  } else {
+    shiftRef.current = { x: shiftX, y: shiftY };
+    await setPetFrameShift(shiftX, shiftY);
+    if (nextX !== pos.x || nextY !== pos.y) await petWindow.setPosition(new PhysicalPosition(nextX, nextY));
+    await petWindow.setSize(new LogicalSize(place.width, place.height));
+  }
 }
 
 /** Windows/Linux 等待双击打开启动台；macOS 没有启动台，点击立即切换动作。 */
@@ -338,10 +357,11 @@ export function PetWindow() {
     const pulse = bumpPulse();
     const key = petImageFrame(asset.id, entry, false, facing === "right", pulse).key;
     const result = playback.play(key, owner, (media) => {
-      if (owner === "click" && behaviorRef.current?.clicks.includes(entry) && !motionReduced() && typeof media.animate === "function") {
+      const surface = petVideoPixels(media);
+      if (owner === "click" && behaviorRef.current?.clicks.includes(entry) && !motionReduced() && surface instanceof HTMLElement && typeof surface.animate === "function") {
         squash.current?.cancel();
         const mirror = facing === "right" ? "scaleX(-1) " : "";
-        const animation = media.animate([
+        const animation = surface.animate([
           { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
           { transform: `${mirror}scale(1.08, .84)`, transformOrigin: "50% 100%", offset: 0.3 },
           { transform: `${mirror}scale(.97, 1.04)`, transformOrigin: "50% 100%", offset: 0.65 },
@@ -549,7 +569,11 @@ export function PetWindow() {
   const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale, custom ? "pet" : "app-icon", baseScale);
   const visiblePlacement = fittedSize === null ? null : viewportPlacement(fittedSize, layout, displayed, leaving, mediaShapes, squashing);
   const fittedGround = fittedSize === null ? null : viewportGround(fittedSize, layout, displayed, visiblePlacement);
-  const fittedKey = fittedSize === null ? "pending" : windowKey(fittedSize, visiblePlacement);
+  // On macOS, media never follows the changing alpha crop in the DOM. AppKit
+  // crops/moves a fixed-size WebView instead, in the same native transaction
+  // as the window; an IPC reply/flushSync cannot make two processes paint atomically.
+  const renderCanvas = !hasLaunchpad && custom && fittedSize !== null ? petRenderCanvas(fittedSize, layout) : null;
+  const fittedKey = fittedSize === null ? "pending" : windowKey(fittedSize, visiblePlacement, renderCanvas);
 
   const behaviorAutonomy = usePetBehaviorAutonomy({
     behavior,
@@ -724,6 +748,7 @@ export function PetWindow() {
 
   // 物理像素。紧致窗口相对虚拟画布的偏移；存位置和拖动都使用未裁切的稳定原点。
   const frameShift = useRef({ x: 0, y: 0 });
+  const viewOffset = useRef({ x: 0, y: 0 });
   const appliedKey = useRef("");
   const frameModel = useRef({ appearanceId, petScale, baseScale, custom, layout, displayed, leaving, mediaShapes, squashing });
   frameModel.current = { appearanceId, petScale, baseScale, custom, layout, displayed, leaving, mediaShapes, squashing };
@@ -750,7 +775,8 @@ export function PetWindow() {
           if (active) setPetSize(side);
           const place = viewportPlacement(side, model.layout, model.displayed, model.leaving, model.mediaShapes, model.squashing);
           const groundY = viewportGround(side, model.layout, model.displayed, place);
-          const key = windowKey(side, place);
+          const canvas = !hasLaunchpad && model.custom ? petRenderCanvas(side, model.layout) : null;
+          const key = windowKey(side, place, canvas);
           const appearance = `${model.appearanceId}|${side}`;
           if (appearance !== fittedAppearance.current) {
             fittedAppearance.current = appearance;
@@ -765,7 +791,8 @@ export function PetWindow() {
           }
           appliedKey.current = key;
           windowFrameReady.current = false;
-          await commitPetWindow(petWindow, side, place, frameShift, t, groundY, () => !pointerHeld.current);
+          const offset = await commitPetWindow(petWindow, side, place, frameShift, t, groundY, () => !pointerHeld.current, canvas);
+          viewOffset.current = offset ?? { x: 0, y: 0 };
           if (appliedKey.current === key) {
             groundOffset.current = groundY;
             if (place && model.displayed) visibleBounds.current = viewportContent(place, model.displayed, model.mediaShapes);
@@ -1058,8 +1085,8 @@ export function PetWindow() {
       (shape ? mediaPlacement(fittedSize, shape.width, shape.height) : null);
     if (!place) return undefined;
     return {
-      left: place.imageX - visiblePlacement.shiftX,
-      top: place.imageY - visiblePlacement.shiftY,
+      left: place.imageX - (renderCanvas?.left ?? visiblePlacement.shiftX),
+      top: place.imageY - (renderCanvas?.top ?? visiblePlacement.shiftY),
       width: place.imageWidth,
       height: place.imageHeight,
     };
@@ -1125,7 +1152,12 @@ export function PetWindow() {
         void setPetHitbox(0, 0, 0, 0).catch(() => {});
         return;
       }
-      const box = media.getBoundingClientRect();
+      const pixels = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
+      const rect = (pixels instanceof HTMLElement ? pixels : media).getBoundingClientRect();
+      // DOM coordinates are relative to the stable WebView, not the cropped
+      // native window. Drag/floor limits and hit boxes still use window space.
+      const box = { left: rect.left + viewOffset.current.x, top: rect.top + viewOffset.current.y,
+        width: rect.width, height: rect.height };
       const naturalWidth = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
       const naturalHeight = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
       const content = framed

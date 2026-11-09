@@ -332,7 +332,7 @@
 /* ---------- 桌面伴侣 ---------- */
 
 .pet-page { display: grid; grid-template-columns: 236px minmax(0, 1fr); column-gap: 40px; min-height: calc(100vh - var(--titlebar-h)); padding: 10px 32px 22px 20px; }
-.pet-current { position: sticky; top: 10px; align-self: start; display: flex; flex-direction: column; min-width: 0; min-height: calc(100vh - var(--titlebar-h) - 32px); }
+.pet-page > .pet-current { position: sticky; top: 10px; align-self: start; display: flex; flex-direction: column; min-width: 0; min-height: calc(100vh - var(--titlebar-h) - 32px); }
 .pet-stage { position: relative; display: flex; align-items: flex-end; justify-content: center; height: 250px; flex: 0 0 auto; }
 .pet-stage-image { display: block; max-height: 232px; max-width: 100%; object-fit: contain; background: transparent; pointer-events: none; animation: fade-in var(--t-open) var(--ease-out); }
 /* 从架子上飞过来的替身还在路上时，真图先藏着，落地那一刻再露出来 */
@@ -344,7 +344,7 @@
 .pet-rename { font-size: var(--text-lead); font-weight: 600; padding: 2px 6px; }
 .pet-actions { margin-top: 14px; }
 .pet-remove { align-self: flex-start; }
-.pet-current > .pet-name { margin-top: 14px; }
+.pet-page > .pet-current > .pet-name { margin-top: 14px; }
 
 .pet-collection { display: flex; flex-direction: column; gap: 32px; min-width: 0; }
 .pet-shelf-area { display: flex; flex-direction: column; min-width: 0; }

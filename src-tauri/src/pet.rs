@@ -371,6 +371,157 @@ pub(crate) fn set_pet_frame_shift(state: State<'_, AppState>, x: i32, y: i32) {
     *state.pet_frame_shift.lock() = (x, y);
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Deserialize)]
+pub(crate) struct PetRenderCanvas {
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Serialize)]
+pub(crate) struct PetViewOffset {
+    x: f64,
+    y: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn pet_view_frame(
+    canvas: Option<PetRenderCanvas>,
+    width: f64,
+    height: f64,
+    factor: f64,
+    shift_x: i32,
+    shift_y: i32,
+    flipped: bool,
+) -> (objc2_foundation::NSRect, PetViewOffset) {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let canvas = canvas.unwrap_or(PetRenderCanvas {
+        left: 0.0,
+        top: 0.0,
+        width,
+        height,
+    });
+    let offset = PetViewOffset {
+        // Use the actual rounded physical shift, including fractional DPI.
+        x: canvas.left - f64::from(shift_x) / factor,
+        y: canvas.top - f64::from(shift_y) / factor,
+    };
+    let y = if flipped {
+        offset.y
+    } else {
+        height - canvas.height - offset.y
+    };
+    (
+        NSRect::new(
+            NSPoint::new(offset.x, y),
+            NSSize::new(canvas.width, canvas.height),
+        ),
+        offset,
+    )
+}
+
+/// Move/crop the native window AND its stable WebView in the same AppKit turn.
+/// Resizing the WebView or adjusting DOM offsets after an IPC reply still lets
+/// WebKit present one frame at the wrong screen position, even with flushSync.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub(crate) async fn set_pet_bounds(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    x: i32,
+    y: i32,
+    width: f64,
+    height: f64,
+    shift_x: i32,
+    shift_y: i32,
+    canvas: Option<PetRenderCanvas>,
+) -> Result<PetViewOffset, String> {
+    if window.label() != "pet"
+        || ![width, height]
+            .into_iter()
+            .all(|v| v.is_finite() && v > 0.0)
+        || canvas.is_some_and(|c| {
+            ![c.left, c.top, c.width, c.height]
+                .into_iter()
+                .all(f64::is_finite)
+                || c.width <= 0.0
+                || c.height <= 0.0
+        })
+    {
+        return Err("Invalid pet window bounds".into());
+    }
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let caller = window.clone();
+    window
+        .with_webview(move |webview| {
+            let result = (|| {
+                use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindow};
+                use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+                let factor = caller.scale_factor().map_err(|e| e.to_string())?;
+                if !factor.is_finite() || factor <= 0.0 {
+                    return Err("Invalid pet window scale".to_string());
+                }
+                let position = caller.outer_position().map_err(|e| e.to_string())?;
+                // SAFETY: Tauri owns both objects; with_webview runs on the main
+                // thread. WKWebView is an NSView subclass. The pet is borderless.
+                let native = unsafe { &*webview.ns_window().cast::<NSWindow>() };
+                let view = unsafe { &*webview.inner().cast::<NSView>() };
+                let parent = unsafe { view.superview() }.ok_or("Pet WebView has no parent")?;
+                let old = native.frame();
+                // Work from the current frame instead of assuming a primary screen
+                // height: Cocoa's Y axis points up, Tauri's physical Y points down.
+                let frame = NSRect::new(
+                    NSPoint::new(
+                        old.origin.x + (f64::from(x) - f64::from(position.x)) / factor,
+                        old.origin.y
+                            + (f64::from(position.y) - f64::from(y)) / factor
+                            + old.size.height
+                            - height,
+                    ),
+                    NSSize::new(width, height),
+                );
+                let (view_frame, offset) = pet_view_frame(
+                    canvas,
+                    width,
+                    height,
+                    factor,
+                    shift_x,
+                    shift_y,
+                    parent.isFlipped(),
+                );
+                // Wry normally stretches WKWebView with the window. Keep its pixel
+                // backing size stable across alpha changes, actions and crossfades.
+                view.setAutoresizingMask(NSAutoresizingMaskOptions::empty());
+                // Tauri uses FullSizeContentView even for a borderless window.
+                // Unless its titlebar is transparent, WebKit treats a negative
+                // top offset as titlebar overlap and inserts an automatic inset.
+                // That would shift the pixels down instead of cropping them.
+                native.setTitlebarAppearsTransparent(true);
+                *app.state::<AppState>().pet_frame_shift.lock() = (shift_x, shift_y);
+                native.setFrame_display(frame, false);
+                view.setFrame(view_frame);
+                if canvas.is_none() {
+                    // The ordinary app-icon window resumes Wry's default layout.
+                    view.setAutoresizingMask(
+                        NSAutoresizingMaskOptions::ViewWidthSizable
+                            | NSAutoresizingMaskOptions::ViewHeightSizable,
+                    );
+                }
+                Ok(offset)
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || receiver.recv())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?
+}
+
 /// 桌宠窗口里的媒体矩形（WebView 的逻辑像素）。Windows 将透明外圈裁出原生窗口区域，
 /// 这样点到透明处会穿过桌宠；其它平台保留普通窗口行为。
 #[cfg(target_os = "windows")]
@@ -952,6 +1103,57 @@ mod cache_tests {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_crop_keeps_webview_size_and_screen_pixels_stable() {
+        let canvas = PetRenderCanvas {
+            left: -40.0,
+            top: -80.0,
+            width: 420.0,
+            height: 360.0,
+        };
+        for factor in [1.0_f64, 1.5, 2.0] {
+            for flipped in [false, true] {
+                for (x, y, width, height) in
+                    [(38.0, 18.0, 108.0, 148.0), (-23.0, -81.0, 250.0, 260.0)]
+                {
+                    let sx = (x * factor).round() as i32;
+                    let sy = (y * factor).round() as i32;
+                    let (view, offset) =
+                        pet_view_frame(Some(canvas), width, height, factor, sx, sy, flipped);
+                    assert_eq!(view.size.width, canvas.width);
+                    assert_eq!(view.size.height, canvas.height);
+                    let top = if flipped {
+                        view.origin.y
+                    } else {
+                        height - view.origin.y - view.size.height
+                    };
+                    assert!((top - offset.y).abs() < 1e-9);
+                    // Position of an unchanged DOM pixel in screen coordinates
+                    // remains the same for every crop, orientation and DPI.
+                    let image_x = 52.25;
+                    let image_y = 34.75;
+                    let screen_x = f64::from(sx) / factor + view.origin.x + image_x - canvas.left;
+                    let screen_y = f64::from(sy) / factor + top + image_y - canvas.top;
+                    assert!((screen_x - image_x).abs() < 1e-9);
+                    assert!((screen_y - image_y).abs() < 1e-9);
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_icon_resets_the_webview_to_the_window() {
+        let (frame, offset) = pet_view_frame(None, 80.0, 80.0, 2.0, 0, 0, false);
+        assert_eq!(frame.origin.x, 0.0);
+        assert_eq!(frame.origin.y, 0.0);
+        assert_eq!(frame.size.width, 80.0);
+        assert_eq!(frame.size.height, 80.0);
+        assert_eq!(offset.x, 0.0);
+        assert_eq!(offset.y, 0.0);
+    }
 
     fn make_zip(name: &str, entries: &[&str]) -> PathBuf {
         let path = std::env::temp_dir().join(format!("snapshot-pet-test-{name}.zip"));

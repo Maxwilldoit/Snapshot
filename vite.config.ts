@@ -22,6 +22,6 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     // 画面交接测试检查真实透明度和层级，不能把这份 CSS 替换成空模块。
-    css: { include: [/styles\.css(?:\?|$)/] },
+    css: { include: [/\.css(?:\?|$)/] },
   },
 });

@@ -69,6 +69,13 @@ export const deletePetAsset = (id: string) => invoke<Settings>("delete_pet_asset
  */
 export const setPetFrameShift = (x: number, y: number) => invoke<void>("set_pet_frame_shift", { x, y });
 
+/** macOS: crop a stable WebView and move the tight window in one native update.
+ * Returns the WebView's top-left relative to the native window for hit testing. */
+export const setPetBounds = (bounds: {
+  x: number; y: number; width: number; height: number; shiftX: number; shiftY: number;
+  canvas: { left: number; top: number; width: number; height: number } | null;
+}) => invoke<{ x: number; y: number }>("set_pet_bounds", bounds);
+
 /** 桌宠当前画面在窗口中的实际矩形；窗口外的透明区域交给下面的应用处理。 */
 export const setPetHitbox = (x: number, y: number, width: number, height: number) =>
   invoke<void>("set_pet_hitbox", { x, y, width, height });

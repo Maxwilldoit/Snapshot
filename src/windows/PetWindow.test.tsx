@@ -2,10 +2,11 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { emit } from "@tauri-apps/api/event";
 import type { PetAsset, PetLayout, Settings } from "../types";
-import { petPlacement } from "../lib/petFrame";
+import { petPlacement, petRenderCanvas, type PetRenderCanvas } from "../lib/petFrame";
 import { petWindowSize } from "../lib/petSize";
 import { setupTauriMock } from "../test/tauri";
 import petStyles from "../styles.css?raw";
+import appStyles from "../styles/app.css?raw";
 
 vi.mock("../lib/petAutoScale", () => ({ measurePetScale: vi.fn().mockResolvedValue(null) }));
 
@@ -66,6 +67,7 @@ async function renderPet(
     size?: { width: number; height: number };
     monitors?: Array<Record<string, unknown>>;
     readMonitor?: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
+    commitBounds?: () => Promise<void>;
   } = {},
 ) {
   vi.useFakeTimers();
@@ -74,6 +76,7 @@ async function renderPet(
   const size = { ...(geometry.size ?? { width: 160, height: 160 }) };
   const sizes: Array<{ width: number; height: number }> = [];
   const shifts: Array<{ x: number; y: number }> = [];
+  const canvases: Array<PetRenderCanvas | null> = [];
   setupTauriMock(
     (command, payload) => {
       calls.push(command);
@@ -81,6 +84,18 @@ async function renderPet(
       if (command === "get_previous_app") return { id: null, pid: null, name: "", title: "" };
       if (command === "plugin:window|outer_position") return { ...position };
       if (command === "plugin:window|outer_size") return { ...size };
+      if (command === "set_pet_bounds") {
+        const args = payload as { x: number; y: number; width: number; height: number; shiftX: number; shiftY: number; canvas: PetRenderCanvas | null };
+        return (geometry.commitBounds?.() ?? Promise.resolve()).then(() => {
+          Object.assign(position, { x: args.x, y: args.y });
+          const scale = geometry.scale ?? 1;
+          Object.assign(size, { width: Math.round(args.width * scale), height: Math.round(args.height * scale) });
+          sizes.push({ width: args.width, height: args.height });
+          shifts.push({ x: args.shiftX, y: args.shiftY });
+          canvases.push(args.canvas);
+          return args.canvas ? { x: args.canvas.left - args.shiftX / scale, y: args.canvas.top - args.shiftY / scale } : { x: 0, y: 0 };
+        });
+      }
       if (command === "plugin:window|set_size") {
         const args = payload as { value: { size: { width: number; height: number } } };
         const scale = geometry.scale ?? 1;
@@ -117,7 +132,7 @@ async function renderPet(
     await vi.advanceTimersByTimeAsync(0);
   });
   await loadPetImages();
-  return { ...view, calls, delay: CLICK_DELAY_MS, position, size, sizes, shifts };
+  return { ...view, calls, delay: CLICK_DELAY_MS, position, size, sizes, shifts, canvases };
 }
 
 // JSDOM 不加载图片；显式模拟 WebView 已加载的图片，慢加载用例则自行控制 load/decode。
@@ -181,6 +196,19 @@ async function endDrag() {
 }
 
 describe("桌宠：点击切换，平时停在待机", () => {
+  it("主窗口的形象详情样式不能把当前动画变成 sticky 或撑高媒体", async () => {
+    render(<style>{petStyles + appStyles}</style>);
+    const { container, delay } = await renderPet();
+    const idle = shown(container).img;
+    const style = getComputedStyle(idle);
+    expect(style.position).not.toBe("sticky");
+    expect(style.top).not.toBe("10px");
+    expect(style.minHeight).not.toContain("100vh");
+    await act(async () => click(container));
+    await elapse(delay);
+    expect(getComputedStyle(idle).position).toBe(style.position);
+  });
+
   it("macOS 单击立即切换，连续点击不会打开启动台", async () => {
     const { container, calls } = await renderPet(grok, {}, undefined, null, {}, {
       userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15",
@@ -726,6 +754,77 @@ describe("桌宠：拖动时走路", () => {
 });
 
 describe("桌宠：动作画面交接", () => {
+  it("macOS 原生裁切固定画布；窗口更新前后、叠化收紧时 DOM 画面坐标都不改变", async () => {
+    const idle = { entry: "idle.gif", width: 100, height: 100, anchorX: 50, anchorY: 90 };
+    const action = { entry: "action.gif", width: 200, height: 180, anchorX: 60, anchorY: 170 };
+    const layout = { baseWidth: 100, baseHeight: 100, anchorX: 50, anchorY: 90, frames: [idle, action] };
+    let pending: Promise<void> | undefined;
+    let commit!: () => void;
+    const { container, calls, canvases, sizes } = await renderPet({ ...grok, entry: idle.entry, animations: [idle.entry, action.entry], layout },
+      {}, undefined, null, {}, { userAgent: "Macintosh", scale: 2, commitBounds: () => pending ?? Promise.resolve() });
+    const old = shown(container).img;
+    const before = { left: old.style.left, top: old.style.top };
+    const backing = canvases.at(-1)!;
+    const initialSize = sizes.at(-1)!;
+    calls.length = 0;
+    pending = new Promise<void>((resolve) => { commit = resolve; });
+    await act(async () => click(container));
+    await loadPetImages();
+    expect(calls).toContain("set_pet_bounds");
+    expect(calls).not.toContain("plugin:window|set_position");
+    expect(calls).not.toContain("plugin:window|set_size");
+    expect(calls).not.toContain("set_pet_frame_shift");
+    expect({ left: old.style.left, top: old.style.top }).toEqual(before);
+    expect(old.classList.contains("pet-crossfade-out")).toBe(true);
+    const next = shown(container).img;
+    const nextStyle = next.getAttribute("style");
+    await act(async () => { pending = undefined; commit(); });
+    // Crucially, no DOM compensation after native commit either: that would
+    // still leave a frame at the wrong origin while waiting for WebKit's paint.
+    expect({ left: old.style.left, top: old.style.top }).toEqual(before);
+    expect(next.getAttribute("style")).toBe(nextStyle);
+    expect(old.isConnected).toBe(true);
+    expect(sizes.at(-1)).not.toEqual(initialSize);
+    expect(canvases.every((canvas) => JSON.stringify(canvas) === JSON.stringify(backing))).toBe(true);
+    await elapse(180);
+    expect(old.isConnected).toBe(false);
+    expect(next.getAttribute("style")).toBe(nextStyle);
+    expect(canvases.at(-1)).toEqual(backing);
+  });
+
+  it("macOS 的 alpha 外框扩大只改变原生裁切，不移动图片、不扩大实际窗口到整个画布", async () => {
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(100);
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(100);
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    let left = 40, right = 60;
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(), drawImage: vi.fn(), getImageData: () => {
+        const data = new Uint8ClampedArray(100 * 100 * 4);
+        for (let y = 20; y < 80; y++) for (let x = left; x < right; x++) data[(y * 100 + x) * 4 + 3] = 255;
+        return { data };
+      },
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return new DOMRect(parseFloat(this.style.left), parseFloat(this.style.top), parseFloat(this.style.width), parseFloat(this.style.height));
+    });
+    const { container, size, canvases } = await renderPet({ ...grok, animations: [grok.entry] }, {}, undefined, null, {}, { userAgent: "Macintosh" });
+    const image = shown(container).img;
+    const style = image.getAttribute("style");
+    const initialWidth = size.width;
+    const backing = canvases.at(-1)!;
+    expect(backing).toEqual(petRenderCanvas(160, null));
+    expect(size.width).toBeLessThan(backing.width / 2);
+    left = 30; right = 70;
+    await elapse(250);
+    expect(size.width).toBeGreaterThan(initialWidth);
+    expect(size.width).toBeLessThan(backing.width / 2);
+    expect(image.getAttribute("style")).toBe(style);
+    expect(canvases.at(-1)).toEqual(backing);
+    // Return to ordinary icon: reset native WebView layout and drop overscan.
+    await act(async () => { await emit("settings-changed", { ...settingsWith(grok), selectedAppearanceId: "app-icon" }); });
+    expect(canvases.at(-1)).toBeNull();
+  });
+
   it("等待解码和交接时不移动已挂载的 GIF 节点，避免 WebView 重置动画", async () => {
     const { container, delay } = await renderPet();
     const mounted = new Set(container.querySelectorAll("img"));
@@ -1236,6 +1335,31 @@ async function renderWhale(overrides: Partial<Settings> = {}) {
 }
 
 describe("桌宠：DSH 动作交互", () => {
+  it("透明视频的点击变形作用在可见合成画布，而不是隐藏的颜色解码器", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const { container } = await renderWhale();
+    await act(async () => click(container));
+    const incoming = [...container.querySelectorAll<HTMLVideoElement>("video")]
+      .find((media) => decodeURIComponent(media.src).includes("点击回应-"))!;
+    const canvas = document.createElement("canvas");
+    container.querySelector(".pet-frames")!.append(canvas);
+    const { registerPetAlpha } = await import("../lib/petVideoAlpha");
+    const release = registerPetAlpha(incoming, canvas);
+    const hiddenAnimate = vi.fn();
+    let finished!: () => void;
+    const visibleAnimate = vi.fn(() => ({ cancel: vi.fn(), finished: new Promise<void>((resolve) => { finished = resolve; }) }));
+    Object.defineProperty(incoming, "animate", { value: hiddenAnimate });
+    Object.defineProperty(canvas, "animate", { value: visibleAnimate });
+    try {
+      await loadPetVideos();
+      expect(visibleAnimate).toHaveBeenCalledTimes(1);
+      expect(hiddenAnimate).not.toHaveBeenCalled();
+      await act(async () => { finished(); });
+    } finally {
+      release();
+    }
+  });
+
   it("新动作就绪前保持旧动作播放，交接时暂停旧视频而不是让它重新循环", async () => {
     const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
