@@ -1,4 +1,4 @@
-// 单帧截图复用录制 sidecar，但不还原窗口、不激活应用，也不请求辅助功能权限。
+// 单帧截图复用录制 sidecar，不激活应用。只有 Dock 里的最小化窗口会经辅助功能临时还原（见 MinimizedWindow.swift）。
 import AppKit
 import CoreMedia
 import CoreVideo
@@ -139,10 +139,29 @@ func runScreenshot(arguments: ScreenshotArguments) async throws {
     guard let window = content.windows.first(where: { $0.windowID == arguments.windowID }) else {
         throw RecorderError(message: "目标窗口已经关闭")
     }
-    let filter = SCContentFilter(desktopIndependentWindow: window)
-    let size = try await WindowSizeProbe().measure(filter: filter)
-    let configuration = screenshotConfiguration(width: size.width, height: size.height, includeCursor: arguments.includeCursor)
-    let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    let capture = { (target: SCWindow) async throws -> CGImage in
+        let filter = SCContentFilter(desktopIndependentWindow: target)
+        let size = try await WindowSizeProbe().measure(filter: filter)
+        let configuration = screenshotConfiguration(width: size.width, height: size.height, includeCursor: arguments.includeCursor)
+        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    }
+    let image: CGImage
+    if !window.isOnScreen, !window.isActive {
+        // 不在屏幕上、也不在台前调度侧栏：多半是最小化到了程序坞。ScreenCaptureKit 对它的截图请求不会返回，
+        // 先认出它（需要辅助功能权限），临时还原再截。
+        image = try await withMinimizedRestoreLock {
+            // 拿到锁后重新读一次：等锁期间别的进程可能已经动过它。
+            let current = await refreshedWindow(window.windowID) ?? window
+            if current.isOnScreen || current.isActive { return try await capture(current) }
+            if let element = minimizedAXElement(for: current) {
+                return try await withTemporarilyRestored(current, element: element, body: capture)
+            }
+            if !AXIsProcessTrusted() { throw RecorderError(message: minimizedNeedsAccessibility) }
+            return try await capture(current)
+        }
+    } else {
+        image = try await capture(window)
+    }
     let data = NSMutableData()
     guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
         throw RecorderError(message: "无感窗口采集失败：无法创建 PNG 编码器")

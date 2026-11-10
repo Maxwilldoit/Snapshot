@@ -8,6 +8,7 @@ export const backendErrorEnglish: Record<string, string> = {
   "未知快捷键动作": "Unknown shortcut action.",
   "目标窗口已经关闭": "The target window has closed.",
   "目标窗口暂无可用画面，若已最小化请先还原后重试": "The window has no available frame. If it is minimized, restore it and try again.",
+  "截取最小化的窗口需要「辅助功能」权限：在系统设置 › 隐私与安全性 › 辅助功能里允许 Snapshot 后重试": "Capturing a minimized window needs Accessibility permission. Allow Snapshot in System Settings › Privacy & Security › Accessibility, then try again.",
   "目标窗口的截图尺寸无效或过大": "The window capture dimensions are invalid or too large.",
   "无感窗口采集超时，请检查屏幕录制权限或先还原最小化窗口": "Background window capture timed out. Check Screen Recording permission or restore the minimized window.",
   "无感窗口采集组件返回了无效图像": "The background window capture component returned an invalid image.",

@@ -398,9 +398,10 @@ func runRecording(arguments: Arguments) async throws {
     } catch {
         throw RecorderError(message: "读取可录制窗口失败：\(error.localizedDescription)")
     }
-    guard let window = content.windows.first(where: { $0.windowID == arguments.windowID }) else {
+    guard let listed = content.windows.first(where: { $0.windowID == arguments.windowID }) else {
         throw RecorderError(message: "目标窗口已关闭或系统不再允许录制")
     }
+    let window = try await restoredForRecording(listed)
     guard window.isOnScreen,
           window.frame.width >= 80,
           window.frame.height >= 80 else {

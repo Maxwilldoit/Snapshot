@@ -30,6 +30,12 @@ pub(crate) struct ListedWindow {
     pub(crate) app_name: String,
     pub(crate) title: String,
     pub(crate) area: u64,
+    /// 从前到后的叠放顺序（0 = 最前）。旧版组件没有这个字段时按面积排。
+    #[serde(default)]
+    pub(crate) order: Option<u32>,
+    /// 最小化到程序坞的窗口（组件经辅助功能确认）；截取时组件会临时还原再最小化回去。
+    #[serde(default)]
+    pub(crate) minimized: bool,
 }
 
 /// 与截图使用同一份 ScreenCaptureKit 窗口列表，包括台前调度侧栏、其它空间的窗口。
@@ -42,7 +48,23 @@ pub(crate) fn list_windows() -> Result<Vec<ListedWindow>, String> {
 
 fn decode_window_list_output(output: Output) -> Result<Vec<ListedWindow>, String> {
     check_helper_status(&output)?;
-    serde_json::from_slice(&output.stdout).map_err(|_| "无感窗口采集组件返回了无效窗口列表".into())
+    let mut windows: Vec<ListedWindow> = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "无感窗口采集组件返回了无效窗口列表".to_string())?;
+    sort_front_to_back(&mut windows);
+    Ok(windows)
+}
+
+/// macOS 的窗口选择习惯：最前面（最近用过）的窗口在上面。
+/// 没有叠放顺序的（旧版组件）排在后面，按应用名、再按面积从大到小。
+fn sort_front_to_back(windows: &mut [ListedWindow]) {
+    windows.sort_by(|left, right| {
+        left.order
+            .unwrap_or(u32::MAX)
+            .cmp(&right.order.unwrap_or(u32::MAX))
+            .then_with(|| left.app_name.cmp(&right.app_name))
+            .then_with(|| right.area.cmp(&left.area))
+            .then_with(|| left.title.cmp(&right.title))
+    });
 }
 
 pub(crate) fn capture_window_image(
@@ -189,6 +211,40 @@ mod tests {
         assert_eq!((window.id, window.pid, window.area), (7046, 59230, 23_345));
         assert_eq!(window.app_name, "Code");
         assert_eq!(window.title, "测试\n— experiment5");
+        // 旧组件没有 minimized 字段时按未最小化处理
+        assert!(!window.minimized);
+    }
+
+    #[test]
+    fn minimized_flag_from_the_helper_is_preserved() {
+        let output = Output {
+            status: ExitStatus::from_raw(0),
+            stdout: br#"[{"id":5,"pid":6,"appName":"TextEdit","title":"a.txt","area":100,"order":1000040,"minimized":true}]"#.to_vec(),
+            stderr: Vec::new(),
+        };
+        assert!(decode_window_list_output(output).unwrap()[0].minimized);
+    }
+
+    #[test]
+    fn window_list_is_ordered_front_to_back_with_legacy_entries_last() {
+        let output = Output {
+            status: ExitStatus::from_raw(0),
+            stdout: r#"[
+                {"id":3,"pid":1,"appName":"访达","title":"max","area":19691,"order":182},
+                {"id":1,"pid":2,"appName":"Grok Bot","title":"Grok Bot","area":681200,"order":30},
+                {"id":9,"pid":3,"appName":"Code","title":"旧组件","area":10},
+                {"id":2,"pid":4,"appName":"Code","title":"test2.cpp","area":23230,"order":138}
+            ]"#
+            .as_bytes()
+            .to_vec(),
+            stderr: Vec::new(),
+        };
+        let ids: Vec<u32> = decode_window_list_output(output)
+            .unwrap()
+            .iter()
+            .map(|window| window.id)
+            .collect();
+        assert_eq!(ids, vec![1, 2, 3, 9]);
     }
 
     #[test]

@@ -32,7 +32,7 @@ final class WindowListTests: XCTestCase {
     }
 
     func testWindowListProtocolPreservesNativeIdentifiersAndTitles() throws {
-        let window = ListedWindow(id: 7046, pid: 59230, appName: "Code", title: "测试\n— experiment5", area: 23_345)
+        let window = ListedWindow(id: 7046, pid: 59230, appName: "Code", title: "测试\n— experiment5", area: 23_345, order: 3)
         let data = try JSONEncoder().encode([window])
         let entries = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
         let entry = try XCTUnwrap(entries.first)
@@ -41,5 +41,60 @@ final class WindowListTests: XCTestCase {
         XCTAssertEqual(entry["appName"] as? String, "Code")
         XCTAssertEqual(entry["title"] as? String, "测试\n— experiment5")
         XCTAssertEqual(entry["area"] as? Int, 23_345)
+        XCTAssertEqual(entry["order"] as? Int, 3)
+    }
+
+    func testDesktopWallpaperDockAndOverlayLayersAreExcluded() {
+        // 访达的桌面层、程序坞壁纸都是全屏大窗口，但层级是负的极值。
+        XCTAssertNil(listedWindowArea(title: "Desktop", layer: -2147483603, size: CGSize(width: 1280, height: 800)))
+        XCTAssertNil(listedWindowArea(title: "Wallpaper-06ACE38B", layer: -2147483624, size: CGSize(width: 1280, height: 800)))
+        // 输入法切换浮层（TextInputSwitcher「键盘输入」）在很高的层。
+        XCTAssertNil(listedWindowArea(title: "键盘输入", layer: 2147483628, size: CGSize(width: 247, height: 160)))
+        XCTAssertNil(listedWindowArea(title: "Notification Center", layer: 2005, size: CGSize(width: 400, height: 800)))
+    }
+
+    func testInvisibleHelperWindowsAreExcluded() {
+        // QQ 1×1 的辅助窗口
+        XCTAssertNil(listedWindowArea(title: "QQ", layer: 0, size: CGSize(width: 1, height: 1)))
+        XCTAssertNil(listedWindowArea(title: "QQ", layer: 0, size: CGSize(width: 30, height: 600)))
+    }
+
+    func testOnlyActiveWindowsOfUserAppsAreListed() {
+        // 台前调度侧栏里的窗口 isActive 为 true
+        XCTAssertTrue(isUserFacingWindow(bundleID: "com.microsoft.VSCode", appName: "Code", isActive: true))
+        // 关到托盘的 QQ 主窗口、ChatGPT Computer Use 的权限引导窗：存在但 isActive 为 false
+        XCTAssertFalse(isUserFacingWindow(bundleID: "com.tencent.qq", appName: "QQ", isActive: false))
+        XCTAssertFalse(isUserFacingWindow(bundleID: "com.openai.sky.CUAService", appName: "ChatGPT Computer Use", isActive: false))
+        // 系统界面进程，就算 isActive 也不列
+        for bundleID in ["com.apple.WindowManager", "com.apple.dock", "com.apple.TextInputSwitcher", "com.apple.controlcenter"] {
+            XCTAssertFalse(isUserFacingWindow(bundleID: bundleID, appName: "System", isActive: true))
+        }
+        // 没有应用名的（WindowServer 的 Desktop）不列
+        XCTAssertFalse(isUserFacingWindow(bundleID: nil, appName: " ", isActive: true))
+    }
+
+    func testMinimizedWindowsAreMatchedByTitleAndFrameNotGuessed() {
+        let frame = CGRect(x: 300, y: 152, width: 480, height: 348)
+        let candidates = [
+            AXWindowSnapshot(title: "文稿 1", frame: CGRect(x: 10, y: 10, width: 400, height: 300)),
+            AXWindowSnapshot(title: "文稿 2", frame: frame),
+            AXWindowSnapshot(title: "文稿 2", frame: CGRect(x: 600, y: 100, width: 480, height: 348)),
+        ]
+        // 同标题两个：按位置大小认
+        XCTAssertEqual(matchMinimizedWindow(title: "文稿 2", frame: frame, among: candidates), 1)
+        // 同标题只有一个：位置变了也认
+        XCTAssertEqual(matchMinimizedWindow(title: "文稿 1", frame: frame.offsetBy(dx: 50, dy: 0), among: candidates), 0)
+        // 标题不同、同标题有多个但位置都对不上：不猜
+        XCTAssertNil(matchMinimizedWindow(title: "文稿 2", frame: CGRect(x: 0, y: 0, width: 10, height: 10), among: candidates))
+        // QQ 关到托盘的隐藏窗口不是最小化：AX 里没有对应的最小化窗口
+        XCTAssertNil(matchMinimizedWindow(title: "QQ", frame: frame, among: []))
+    }
+
+    func testMinimizedFlagIsEncoded() throws {
+        var window = ListedWindow(id: 1, pid: 2, appName: "文本编辑", title: "未命名", area: 10, order: 5)
+        window.minimized = true
+        let entry = try XCTUnwrap((JSONSerialization.jsonObject(with: JSONEncoder().encode([window])) as? [[String: Any]])?.first)
+        XCTAssertEqual(entry["minimized"] as? Bool, true)
     }
 }
+

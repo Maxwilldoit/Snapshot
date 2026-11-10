@@ -162,7 +162,9 @@ fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>
     #[cfg(target_os = "macos")]
     os::require_screen_capture_access().map_err(WindowListError::ScreenCapturePermission)?;
     let main = main_capture_window(app);
+    // macOS 上 list_windows 已按从前到后排好（最近用过的在上面），这里保持那个顺序。
     #[cfg(target_os = "macos")]
+    #[allow(unused_mut)]
     let mut result = os::list_windows()
         .map_err(WindowListError::Enumeration)?
         .into_iter()
@@ -180,8 +182,8 @@ fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>
                     pid: window.pid,
                     app_name: window.app_name,
                     title: window.title,
-                    // ScreenCaptureKit 的 off-screen 包括台前调度/其它空间，不能当成最小化。
-                    minimized: false,
+                    // 只信组件经辅助功能确认的最小化；off-screen 还包括台前调度/其它空间。
+                    minimized: window.minimized,
                 },
             )
         })
@@ -230,6 +232,7 @@ fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>
             result.push(main);
         }
     }
+    #[cfg(not(target_os = "macos"))]
     result.sort_by(|(left_area, left), (right_area, right)| {
         left.app_name
             .cmp(&right.app_name)
