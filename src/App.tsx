@@ -10,18 +10,19 @@ import { previewHintSound, primeHintSound } from "./lib/sound";
 import { shortcutKeys } from "./lib/format";
 import { canViewTransition, viewTransition, type TransitionDirection } from "./lib/motion";
 import { AppContext, errorText, type AppContextValue, type Notice, type NoticeKind } from "./app/context";
-import { NoticeLine, SideNav, TitleBar } from "./app/Shell";
+import { NoticeLine, SideNav, WindowChrome } from "./app/Shell";
 import { LoadingState } from "./components/LoadingState";
 import { useActivityLog, useClipboardState, useRecordingStatus } from "./hooks/useLive";
 import { ShortcutsPage } from "./pages/ShortcutsPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { PromptsPage } from "./pages/PromptsPage";
 import { PetPage } from "./pages/PetPage";
-import { PreferencesPage } from "./pages/PreferencesPage";
+import { CapturePage, GeneralPage } from "./pages/PreferencesPage";
 import type { NavPage, PlatformCapabilities, Settings } from "./types";
 import { useI18n, useWindowTitle } from "./lib/i18n";
 
 /** 侧栏的先后顺序决定换页时上下滑入的方向 */
-const NAV_ORDER: NavPage[] = ["shortcuts", "history", "pet", "prefs"];
+const NAV_ORDER: NavPage[] = ["history", "prompts", "pet", "capture", "shortcuts", "general"];
 
 function directionFor(from: NavPage, to: NavPage): TransitionDirection {
   return NAV_ORDER.indexOf(to) >= NAV_ORDER.indexOf(from) ? "down" : "up";
@@ -32,14 +33,18 @@ const NOTICE_MS: Record<NoticeKind, number> = { info: 3200, error: 9000 };
 
 function PageView({ page }: { page: NavPage }) {
   switch (page) {
-    case "history":
-      return <HistoryPage />;
+    case "prompts":
+      return <PromptsPage />;
     case "pet":
       return <PetPage />;
-    case "prefs":
-      return <PreferencesPage />;
-    default:
+    case "capture":
+      return <CapturePage />;
+    case "shortcuts":
       return <ShortcutsPage />;
+    case "general":
+      return <GeneralPage />;
+    default:
+      return <HistoryPage />;
   }
 }
 
@@ -48,7 +53,8 @@ export function App() {
   useWindowTitle(t("应用快照"));
   // 默认值只在后端有一份；拿到之前显示加载态，不在前端再抄一份默认设置
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [page, setPage] = useState<NavPage>("shortcuts");
+  const [page, setPage] = useState<NavPage>("history");
+  const [viewedPetId, setViewedPetId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [caps, setCaps] = useState<PlatformCapabilities | null>(null);
@@ -83,6 +89,15 @@ export function App() {
       void pending.then((unlisten) => unlisten());
     };
   }, [notify]);
+
+  // 正在看的是桌面上那只时，桌面换了（素材库导入、托盘切换）就跟着换；看的是别的就不打扰
+  const deskPet = settings?.selectedAppearanceId ?? null;
+  const previousDeskPet = useRef(deskPet);
+  useEffect(() => {
+    const previous = previousDeskPet.current;
+    previousDeskPet.current = deskPet;
+    if (previous !== deskPet) setViewedPetId((viewed) => (viewed === previous ? null : viewed));
+  }, [deskPet]);
 
   // 托盘暂停也会推送设置，清掉已经释放的快捷键上残留的冲突标记。
   useEffect(() => {
@@ -154,6 +169,7 @@ export function App() {
   // 换页：旧页往反方向退半步淡掉，新页从导航的方向滑进来；导航下的墨线跟着滑过去
   const navigate = useCallback<AppContextValue["navigate"]>((next, options) => {
     if (options?.previewId) setPendingPreviewId(options.previewId);
+    if (options?.petId !== undefined) setViewedPetId(options.petId);
     const from = pageRef.current;
     if (next === from) return;
     pageEnters.current = !canViewTransition();
@@ -161,7 +177,7 @@ export function App() {
       "page",
       () => {
         setPage(next);
-        mainRef.current?.scrollTo?.({ top: 0 });
+        mainRef.current?.querySelector(".mw-scroll")?.scrollTo?.({ top: 0 });
       },
       { direction: directionFor(from, next) },
     );
@@ -183,18 +199,19 @@ export function App() {
         recording,
         page,
         navigate,
+        viewedPetId,
         pendingPreviewId,
         consumePreviewId: () => setPendingPreviewId(null),
       },
     [
       settings, notify, notice, dismissNotice, conflicts, caps, activity, clipboard, recording,
-      page, navigate, pendingPreviewId,
+      page, navigate, viewedPetId, pendingPreviewId,
     ],
   );
 
   if (!value) {
     return (
-      <div className="window">
+      <div className="window mw">
         <BareTitleBar />
         <LoadingState />
         {notice && <div className="notice-line is-error" role="alert">{notice.text}</div>}
@@ -212,10 +229,10 @@ export function App() {
 
   return (
     <AppContext.Provider value={value}>
-      <div className="window layout-companion">
-        <TitleBar />
+      <div className={`window mw ${caps?.os === "macos" ? "is-mac" : ""}`}>
         <div className="shell">
           <aside className="sidebar">
+            <WindowChrome placement="sidebar" />
             <SideNav />
           </aside>
           {content}

@@ -506,6 +506,19 @@ pub fn run() {
             };
             // 主窗口在配置里默认隐藏，正常启动时到这里再显示，避免开机自启时闪一下。
             // 没有可用托盘时，自启后仍需保留一个可见入口。
+            // macOS：主窗口侧栏用系统 sidebar 材质（毛玻璃），窗口失焦时跟随系统变灰。
+            // 窗口本身在配置里是透明的，内容区由前端画成不透明。
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                use tauri::window::{Effect, EffectState, EffectsBuilder};
+                let _ = window.set_effects(
+                    EffectsBuilder::new()
+                        .effect(Effect::Sidebar)
+                        .state(EffectState::FollowsWindowActiveState)
+                        .radius(10.0)
+                        .build(),
+                );
+            }
             if should_show_main_window(started_at_login, tray_available) {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();

@@ -36,7 +36,7 @@ const base: Settings = {
 
 type Saved = { templates: Settings["templates"]; activeTemplateId: string };
 
-/** 打开偏好设置页；后端的设置是有状态的，存什么下次就读到什么 */
+/** 打开设置 · 通用页（润色规则在这里）；后端的设置是有状态的，存什么下次就读到什么 */
 async function openPreferences() {
   let settings = structuredClone(base);
   const saves: Saved[] = [];
@@ -58,7 +58,7 @@ async function openPreferences() {
   const { App } = await import("../App");
   render(<App />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: /^偏好设置/ }));
+  await user.click(await screen.findByRole("button", { name: /^通用/ }));
   await screen.findByText("润色规则");
   return { user, saves };
 }

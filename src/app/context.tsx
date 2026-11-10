@@ -28,7 +28,9 @@ export type AppContextValue = {
   clipboard: ClipboardState | null;
   recording: RecordingStatus;
   page: NavPage;
-  navigate: (page: NavPage, options?: { previewId?: string }) => void;
+  navigate: (page: NavPage, options?: { previewId?: string; petId?: string }) => void;
+  /** 桌面伴侣页正在看的那只（侧栏里点的那一行）；缺省时看桌面上那只 */
+  viewedPetId?: string | null;
   /** navigate 顺带的参数：进历史页直接放大指定截图 */
   pendingPreviewId: string | null;
   consumePreviewId: () => void;

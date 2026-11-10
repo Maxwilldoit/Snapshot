@@ -14,6 +14,7 @@ import { Keys } from "../components/ui/Keys";
 import { Choices } from "../components/ui/Choices";
 import { Switch } from "../components/ui/Switch";
 import { errorText, useApp } from "../app/context";
+import { Toolbar } from "../app/Shell";
 import { useI18n } from "../lib/i18n";
 import type { Settings, ShortcutAction, ShortcutBinding } from "../types";
 
@@ -252,13 +253,11 @@ export function ShortcutsPanel() {
   );
 }
 
-/** 剪贴板、图片格式、保存位置、录制——这一组和快捷键页放在一起，都是截图的去向 */
-export function StoragePanel() {
-  const { settings, onSaved, notify, caps } = useApp();
-  const { t } = useI18n();
+/** 快照、录像的保存位置：读一次实际路径，设置里的目录变了再读 */
+function useStoragePaths() {
+  const { settings } = useApp();
   const [snapshotPath, setSnapshotPath] = useState("");
   const [recordingPath, setRecordingPath] = useState("");
-
   useEffect(() => {
     let alive = true;
     void Promise.allSettled([getSnapshotDir(), getRecordingDir()]).then(([snapshot, recording]) => {
@@ -270,7 +269,12 @@ export function StoragePanel() {
       alive = false;
     };
   }, [settings.saveDir, settings.recordingDir]);
+  return { snapshotPath, setSnapshotPath, recordingPath, setRecordingPath };
+}
 
+function useStorageActions() {
+  const { onSaved, notify } = useApp();
+  const { t } = useI18n();
   async function update(patch: Partial<Settings>, message?: string) {
     try {
       onSaved(await savePreferences(patch));
@@ -279,7 +283,6 @@ export function StoragePanel() {
       notify(errorText(error), "error");
     }
   }
-
   async function pickDir(key: "saveDir" | "recordingDir") {
     try {
       const selected = await open({ directory: true, multiple: false });
@@ -288,6 +291,15 @@ export function StoragePanel() {
       notify(t("当前环境不支持选择目录"), "error");
     }
   }
+  return { update, pickDir };
+}
+
+/** 截图怎么存：剪贴板多久清空、图片格式、存到哪个文件夹。放在「截图与录制」左栏 */
+export function SnapshotStorageRows() {
+  const { settings, notify } = useApp();
+  const { t } = useI18n();
+  const { snapshotPath, setSnapshotPath } = useStoragePaths();
+  const { update, pickDir } = useStorageActions();
 
   async function openSnapshotFolder() {
     try {
@@ -296,6 +308,61 @@ export function StoragePanel() {
       notify(errorText(error), "error");
     }
   }
+
+  return (
+    <>
+      <div className="row">
+        <span className="row-label">{t("自动清空剪贴板")}</span>
+        <Choices
+          ariaLabel={t("自动清空剪贴板")}
+          value={settings.clipboardAutoClear}
+          onChange={(value) => void update({ clipboardAutoClear: value })}
+          options={[
+            { value: "30s", label: t("30 秒") },
+            { value: "60s", label: t("60 秒") },
+            { value: "5m", label: t("5 分钟") },
+            { value: "never", label: t("不清空") },
+          ]}
+        />
+      </div>
+      <div className="row">
+        <span className="row-label">{t("图像格式")}</span>
+        <Choices
+          ariaLabel={t("图像格式")}
+          value={settings.snapshotFormat}
+          onChange={(value) => void update({ snapshotFormat: value })}
+          options={[
+            { value: "png", label: "PNG" },
+            { value: "jpeg", label: "JPEG" },
+            { value: "webp", label: "WebP" },
+          ]}
+        />
+      </div>
+      <div className="row storage-path-row">
+        <span className="row-label">{t("保存快照到")}</span>
+        <span className="row-links">
+          <button
+            type="button"
+            className="storage-path mono small"
+            title={snapshotPath || undefined}
+            aria-label={t("打开快照文件夹：{path}", { path: snapshotPath || t("正在读取路径") })}
+            onClick={() => void openSnapshotFolder()}
+          >
+            {snapshotPath ? middleTruncatePath(snapshotPath, 30) : t("正在读取路径…")}
+          </button>
+          <button type="button" className="link" onClick={() => void pickDir("saveDir")}>{t("更改")}</button>
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** 录像存到哪、录不录声音。放在「截图与录制」右栏 */
+export function RecordingPanel() {
+  const { settings, notify, caps } = useApp();
+  const { t } = useI18n();
+  const { recordingPath, setRecordingPath } = useStoragePaths();
+  const { update, pickDir } = useStorageActions();
 
   async function openRecordingFolder() {
     try {
@@ -307,73 +374,25 @@ export function StoragePanel() {
 
   return (
     <section className="panel panel-storage">
-      <h2 className="panel-title">{t("剪贴板与保存")}</h2>
+      <h2 className="panel-title">{t("录制")}</h2>
       <div className="rows">
-        <div className="row">
-          <span className="row-label">{t("自动清空剪贴板")}</span>
-          <Choices
-            ariaLabel={t("自动清空剪贴板")}
-            value={settings.clipboardAutoClear}
-            onChange={(value) => void update({ clipboardAutoClear: value })}
-            options={[
-              { value: "30s", label: t("30 秒") },
-              { value: "60s", label: t("60 秒") },
-              { value: "5m", label: t("5 分钟") },
-              { value: "never", label: t("不清空") },
-            ]}
-          />
-        </div>
-        <div className="row">
-          <span className="row-label">{t("图像格式")}</span>
-          <Choices
-            ariaLabel={t("图像格式")}
-            value={settings.snapshotFormat}
-            onChange={(value) => void update({ snapshotFormat: value })}
-            options={[
-              { value: "png", label: "PNG" },
-              { value: "jpeg", label: "JPEG" },
-              { value: "webp", label: "WebP" },
-            ]}
-          />
-        </div>
-        <div className="row row-stack storage-path-row">
-          <div className="row-line">
-            <span className="row-label">{t("保存快照到")}</span>
-            <button type="button" className="link" onClick={() => void pickDir("saveDir")}>{t("更改")}</button>
-          </div>
-          <button
-            type="button"
-            className="storage-path mono small"
-            title={snapshotPath || undefined}
-            aria-label={t("打开快照文件夹：{path}", { path: snapshotPath || t("正在读取路径") })}
-            onClick={() => void openSnapshotFolder()}
-          >
-            {snapshotPath ? middleTruncatePath(snapshotPath) : t("正在读取路径…")}
-          </button>
-        </div>
-      </div>
-
-      <h2 className="panel-title panel-title-gap">{t("录制")}</h2>
-      <div className="rows">
-        <div className="row row-stack storage-path-row">
-          <div className="row-line">
-            <span className="row-label">{t("保存录像到")}</span>
-            <span className="row-links small">
-              <button type="button" className="link" onClick={() => void pickDir("recordingDir")}>{t("更改")}</button>
-              {settings.recordingDir && (
-                <button type="button" className="link" onClick={() => void update({ recordingDir: "" }, t("已恢复默认录像位置"))}>{t("恢复默认")}</button>
-              )}
-            </span>
-          </div>
-          <button
-            type="button"
-            className="storage-path mono small"
-            title={recordingPath || undefined}
-            aria-label={t("打开录像文件夹：{path}", { path: recordingPath || t("正在读取路径") })}
-            onClick={() => void openRecordingFolder()}
-          >
-            {recordingPath ? middleTruncatePath(recordingPath) : t("正在读取路径…")}
-          </button>
+        <div className="row storage-path-row">
+          <span className="row-label">{t("保存录像到")}</span>
+          <span className="row-links">
+            <button
+              type="button"
+              className="storage-path mono small"
+              title={recordingPath || undefined}
+              aria-label={t("打开录像文件夹：{path}", { path: recordingPath || t("正在读取路径") })}
+              onClick={() => void openRecordingFolder()}
+            >
+              {recordingPath ? middleTruncatePath(recordingPath, 30) : t("正在读取路径…")}
+            </button>
+            <button type="button" className="link" onClick={() => void pickDir("recordingDir")}>{t("更改")}</button>
+            {settings.recordingDir && (
+              <button type="button" className="link" onClick={() => void update({ recordingDir: "" }, t("已恢复默认录像位置"))}>{t("恢复默认")}</button>
+            )}
+          </span>
         </div>
         <div className="row">
           <label htmlFor="switch-system-audio" className="row-label">{t("同时录系统声音")}</label>
@@ -401,10 +420,15 @@ export function StoragePanel() {
 }
 
 export function ShortcutsPage() {
+  const { t } = useI18n();
   return (
-    <div className="page-grid page-grid-2">
-      <ShortcutsPanel />
-      <StoragePanel />
+    <div className="mw-page">
+      <Toolbar title={t("快捷键")} />
+      <div className="mw-scroll pane">
+        <div className="form form-narrow">
+          <ShortcutsPanel />
+        </div>
+      </div>
     </div>
   );
 }

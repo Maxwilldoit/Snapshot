@@ -65,6 +65,7 @@ describe("global shortcuts", () => {
       return undefined;
     });
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^快捷键/ }));
 
     const recordRow = await screen.findByRole("button", { name: "快捷键：窗口录制，当前按键：未设置" });
     await user.click(recordRow);
@@ -105,7 +106,7 @@ describe("capture feedback", () => {
       if (command === "get_shortcut_conflicts") return [];
       return undefined;
     });
-    await screen.findByRole("heading", { name: "全局快捷键" });
+    await screen.findByRole("heading", { name: "截图记录" });
     const timeout = vi.spyOn(window, "setTimeout");
     const shot = {
       shotId: "shot-1",
@@ -169,7 +170,7 @@ describe("capture feedback", () => {
       if (command === "get_shortcut_conflicts") return [];
       return undefined;
     });
-    await screen.findByRole("heading", { name: "全局快捷键" });
+    await screen.findByRole("heading", { name: "截图记录" });
 
     const shot = {
       shotId: "shot-a",

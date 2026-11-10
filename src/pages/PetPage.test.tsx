@@ -23,7 +23,9 @@ async function renderPetPage(handle: IPCHandler = () => undefined, settings: Set
   const { App } = await import("../App");
   const view = render(<StrictMode><App /></StrictMode>);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: /^桌面伴侣/ }));
+  // 侧栏「桌面伴侣」下每只一行；先点桌面上那只
+  await screen.findByRole("group", { name: "桌面伴侣" });
+  await user.click(petRow(settings.selectedAppearanceId));
   return { user, unmount: view.unmount, calls: (command: string) => ipc.mock.calls.filter(([name]) => name === command) };
 }
 
@@ -40,32 +42,39 @@ const shelfSettings: Settings = {
   ],
 };
 
-const shelfOrder = ["app-icon", "new", "twin-z", "twin-a", "old", "legacy-z", "legacy-a"];
+/** 后导入的在前，导入时间相同保留原顺序；前台应用图标固定在最后 */
+const shelfOrder = ["new", "twin-z", "twin-a", "old", "legacy-z", "legacy-a", "app-icon"];
 
-function shelfRadios() {
-  return within(screen.getByRole("radiogroup", { name: "选择伴侣" })).getAllByRole("radio");
+function petGroup() {
+  return screen.getByRole("group", { name: "桌面伴侣" });
 }
 
-function shelfIds() {
-  return shelfRadios().map((radio) => radio.closest<HTMLElement>("[data-flip-key]")?.dataset.flipKey);
+function sidebarIds() {
+  return Array.from(petGroup().querySelectorAll<HTMLElement>("[data-pet-id]")).map((row) => row.dataset.petId);
 }
 
-function shelfRadio(id: string) {
-  const radio = shelfRadios().find((item) => item.closest<HTMLElement>("[data-flip-key]")?.dataset.flipKey === id);
-  if (!radio) throw new Error(`形象架上找不到 ${id}`);
-  return radio;
+function petRow(id: string) {
+  const row = petGroup().querySelector<HTMLElement>(`[data-pet-id="${id}"]`);
+  if (!row) throw new Error(`侧栏里找不到 ${id}`);
+  return row;
 }
 
-describe("全部形象的固定位置", () => {
+/** 桌面上的那只：侧栏那一行带「在桌面上」的勾 */
+function deskIds() {
+  return sidebarIds().filter((id) => within(petRow(id!)).queryByLabelText("在桌面上"));
+}
+
+describe("侧栏里伴侣的固定位置", () => {
   it("按导入时间由新到旧排列，相同或缺省时间沿用原顺序，不受选中项和最近使用时间影响", async () => {
     await renderPetPage(undefined, shelfSettings);
 
-    expect(shelfIds()).toEqual(shelfOrder);
-    expect(shelfRadio("old").getAttribute("aria-checked")).toBe("true");
-    expect(within(screen.getByRole("radiogroup", { name: "选择伴侣" })).getAllByRole("radio", { name: "同名伙伴" })).toHaveLength(2);
+    expect(sidebarIds()).toEqual(shelfOrder);
+    expect(deskIds()).toEqual(["old"]);
+    expect(petRow("old").getAttribute("aria-current")).toBe("page");
+    expect(within(petGroup()).getAllByRole("button", { name: /^同名伙伴/ })).toHaveLength(2);
   });
 
-  it("按 id 切换同名形象，后端返回或广播新设置后位置不变，重挂载仍保持顺序", async () => {
+  it("按 id 查看、放到桌面；后端返回或广播新设置后位置不变，重挂载仍保持顺序", async () => {
     let saved = structuredClone(shelfSettings);
     let lastUsedAt = 30_000;
     const handle: IPCHandler = (command, payload) => {
@@ -82,13 +91,19 @@ describe("全部形象的固定位置", () => {
     const backendOrder = saved.petAssets.map((asset) => asset.id);
 
     for (const id of ["twin-a", "twin-z", "old", "app-icon"]) {
-      await user.click(shelfRadio(id));
-      await waitFor(() => expect(shelfRadio(id).getAttribute("aria-checked")).toBe("true"));
+      await user.click(petRow(id));
+      // 只是看一看，桌面上那只还没换
+      await waitFor(() => expect(petRow(id).getAttribute("aria-current")).toBe("page"));
+      if (id !== saved.selectedAppearanceId) {
+        expect(calls("select_pet_appearance").filter(([, payload]) => invokeArgs(payload).id === id)).toHaveLength(0);
+        await user.click(screen.getByRole("button", { name: "放到桌面" }));
+      }
+      await waitFor(() => expect(deskIds()).toEqual([id]));
+      expect(screen.getByText("在桌面上")).toBeTruthy();
 
       expect(saved.selectedAppearanceId).toBe(id);
       if (id !== "app-icon") expect(saved.petAssets.find((asset) => asset.id === id)?.lastUsedAt).toBe(lastUsedAt);
-      expect(shelfIds()).toEqual(shelfOrder);
-      expect(shelfRadios().filter((radio) => radio.getAttribute("aria-checked") === "true")).toEqual([shelfRadio(id)]);
+      expect(sidebarIds()).toEqual(shelfOrder);
       expect(saved.petAssets.map((asset) => asset.id)).toEqual(backendOrder);
     }
     expect(calls("select_pet_appearance").map(([, payload]) => invokeArgs(payload).id)).toEqual(["twin-a", "twin-z", "old", "app-icon"]);
@@ -101,22 +116,27 @@ describe("全部形象的固定位置", () => {
     };
     const { emit } = await import("@tauri-apps/api/event");
     await act(async () => emit("settings-changed", structuredClone(saved)));
-    expect(shelfRadio("twin-a").getAttribute("aria-checked")).toBe("true");
-    expect(shelfIds()).toEqual(shelfOrder);
+    expect(deskIds()).toEqual(["twin-a"]);
+    expect(sidebarIds()).toEqual(shelfOrder);
 
     unmount();
     await renderPetPage(handle, saved);
-    expect(shelfRadio("twin-a").getAttribute("aria-checked")).toBe("true");
-    expect(shelfIds()).toEqual(shelfOrder);
+    expect(deskIds()).toEqual(["twin-a"]);
+    expect(sidebarIds()).toEqual(shelfOrder);
   });
 });
+
+async function openCatalogItem(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "更多" }));
+  await user.click(await screen.findByRole("menuitem", { name: "浏览素材库…" }));
+}
 
 describe("桌面伴侣素材库入口", () => {
   it("只打开独立窗口，主页面不加载目录或展开素材卡片", async () => {
     const { user, calls } = await renderPetPage();
     expect(calls("fetch_pet_catalog")).toHaveLength(0);
-    await user.click(screen.getByRole("button", { name: /浏览素材库/ }));
-    await user.click(screen.getByRole("button", { name: /浏览素材库/ }));
+    await openCatalogItem(user);
+    await openCatalogItem(user);
     expect(calls("show_pet_catalog")).toHaveLength(2);
     expect(calls("fetch_pet_catalog")).toHaveLength(0);
     expect(screen.queryByRole("region", { name: "素材库" })).toBeNull();
@@ -125,18 +145,18 @@ describe("桌面伴侣素材库入口", () => {
 
   it("打开失败时在主页面显示原因", async () => {
     const { user } = await renderPetPage((command) => command === "show_pet_catalog" ? Promise.reject("窗口创建失败") : undefined);
-    await user.click(screen.getByRole("button", { name: /浏览素材库/ }));
+    await openCatalogItem(user);
     expect((await screen.findAllByText("打开素材库失败：窗口创建失败")).length).toBeGreaterThan(0);
   });
 
-  it("收到素材库导入的设置广播后更新形象架和当前伴侣", async () => {
+  it("收到素材库导入的设置广播后更新侧栏和当前伴侣", async () => {
     await renderPetPage();
     const { emit } = await import("@tauri-apps/api/event");
     await act(async () => emit("settings-changed", {
       ...base, selectedAppearanceId: "catalog-new",
       petAssets: [{ id: "catalog-new", name: "新伙伴", path: "pets/new.zip", entry: "idle.gif", animations: ["idle.gif"] }],
     }));
-    expect(screen.getByRole("radio", { name: "新伙伴" }).getAttribute("aria-checked")).toBe("true");
+    expect(deskIds()).toEqual(["catalog-new"]);
     expect(screen.getByRole("heading", { name: "新伙伴" })).toBeTruthy();
   });
 });

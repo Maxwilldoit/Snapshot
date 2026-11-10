@@ -195,7 +195,8 @@ const demoClipboard = demo
 const unavailable = { available: false };
 const capabilities: PlatformCapabilities = demo
   ? {
-      os: "windows",
+      // `?demo&os=macos` 看 macOS 的窗口按钮（侧栏左上角的红黄绿）
+      os: params.get("os") ?? "windows",
       displayServer: "desktop",
       recording: { available: true },
       recordingSystemAudio: { available: true },

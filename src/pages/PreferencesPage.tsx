@@ -8,6 +8,8 @@ import { usePresence } from "../lib/motion";
 import { ModelSettingsDialog } from "../components/ModelSettingsDialog";
 import { errorText, useApp } from "../app/context";
 import { RulesPanel } from "./RulesPanel";
+import { RecordingPanel, SnapshotStorageRows } from "./ShortcutsPage";
+import { Toolbar } from "../app/Shell";
 import { PET_SCALE } from "../lib/petSize";
 import { ensurePetAutoScale, persistPetBaseScale, readPetBaseScale, resetPetBaseScale, watchPetBaseScales } from "../lib/petScale";
 import type { Settings } from "../types";
@@ -25,7 +27,44 @@ function usePrefs() {
   };
 }
 
-/** 截屏时的声音、闪烁、截完做什么 */
+/** 截完做什么、存不存历史，以及怎么存（剪贴板、格式、位置） */
+export function SnapshotPanel() {
+  const { settings } = useApp();
+  const update = usePrefs();
+  const { t } = useI18n();
+  return (
+    <section className="panel">
+      <h2 className="panel-title">{t("截图")}</h2>
+      <div className="rows">
+        <div className="row">
+          <span className="row-label">{t("截完之后")}</span>
+          <Choices
+            ariaLabel={t("截完之后")}
+            value={settings.afterCapture}
+            onChange={(value) => void update({ afterCapture: value })}
+            options={[
+              { value: "clipboard", label: t("放进剪贴板") },
+              { value: "annotate", label: t("打开标注") },
+              { value: "saveas", label: t("仅保存") },
+            ]}
+          />
+        </div>
+        <div className="row">
+          <label className="row-label" htmlFor="pref-autoSaveLocal">{t("截图同时存进历史")}</label>
+          <Switch
+            id="pref-autoSaveLocal"
+            label={t("截图同时存进历史")}
+            value={settings.autoSaveLocal}
+            onChange={(value) => void update({ autoSaveLocal: value })}
+          />
+        </div>
+        <SnapshotStorageRows />
+      </div>
+    </section>
+  );
+}
+
+/** 截屏那一下：快门声、闪一下、带不带鼠标指针 */
 export function BehaviorPanel() {
   const { settings, caps, notify } = useApp();
   const update = usePrefs();
@@ -44,29 +83,13 @@ export function BehaviorPanel() {
 
   const toggles: Array<{ key: keyof Settings; label: string; disabled?: boolean }> = [
     { key: "flashOnCapture", label: t("截屏时闪一下") },
-    { key: "autoSaveLocal", label: t("截图同时存进历史") },
-    { key: "hideAfterCopy", label: t("复制后隐藏主窗口") },
     { key: "includeCursor", label: t("截图带上鼠标指针"), disabled: caps ? !caps.includeCursor.available : false },
-    { key: "launchOnBoot", label: t("开机时静默启动"), disabled: caps ? !caps.autostart.available : false },
   ];
 
   return (
     <section className="panel">
-      <h2 className="panel-title">{t("截屏与行为")}</h2>
+      <h2 className="panel-title">{t("截图时")}</h2>
       <div className="rows">
-        <div className="row">
-          <span className="row-label">{t("截完之后")}</span>
-          <Choices
-            ariaLabel={t("截完之后")}
-            value={settings.afterCapture}
-            onChange={(value) => void update({ afterCapture: value })}
-            options={[
-              { value: "clipboard", label: t("放进剪贴板") },
-              { value: "annotate", label: t("打开标注") },
-              { value: "saveas", label: t("仅保存") },
-            ]}
-          />
-        </div>
         <div className="row">
           <span className="sound-label">
             <span className="row-label">{t("快门声")}</span>
@@ -121,14 +144,17 @@ export function BehaviorPanel() {
   );
 }
 
-/** 桌宠在桌面上的大小 */
-export function PetPanel() {
+/**
+ * 桌宠在桌面上的大小和动作。大小、走动、随机动作、重力对所有形象都一样；
+ * 「100% 基准大小」是按形象单独存的，给了 assetId 就调那一只（桌面伴侣页正在看的），否则调桌面上那只。
+ */
+export function PetPanel({ assetId }: { assetId?: string } = {}) {
   const { settings, notify } = useApp();
   const { t } = useI18n();
   const update = usePrefs();
   // 拖动时滑块跟手：本地先变，每挪一格就存一次，桌宠收到设置变化当场跟着缩放
   const [scale, setScale] = useState(settings.petScale);
-  const selected = settings.petAssets.find((asset) => asset.id === settings.selectedAppearanceId);
+  const selected = settings.petAssets.find((asset) => asset.id === (assetId ?? settings.selectedAppearanceId));
   const [baseScale, setBaseScale] = useState(() => readPetBaseScale(selected));
   useEffect(() => setScale(settings.petScale), [settings.petScale]);
   useEffect(() => {
@@ -153,7 +179,7 @@ export function PetPanel() {
 
   return (
     <section className="panel">
-      <h2 className="panel-title">{t("桌面宠物")}</h2>
+      <h2 className="panel-title">{t("桌面")}</h2>
       <div className="rows">
         <div className="row">
           <label className="row-label" htmlFor="pref-petScale">{t("大小")}</label>
@@ -284,27 +310,60 @@ export function MachinePanel() {
   );
 }
 
-export function PreferencesPage() {
+/** 设置 · 截图与录制：左栏截图，右栏截图时和录制 */
+export function CapturePage() {
+  const { t } = useI18n();
   return (
-    <div className="page-grid page-grid-2">
-      <div className="page-col">
-        <LanguagePanel />
-        <BehaviorPanel />
-        <PetPanel />
-      </div>
-      <div className="page-col">
-        <MachinePanel />
-        <RulesPanel />
+    <div className="mw-page">
+      <Toolbar title={t("截图与录制")} />
+      <div className="mw-scroll pane">
+        <div className="form cols">
+          <div className="page-col">
+            <SnapshotPanel />
+          </div>
+          <div className="page-col">
+            <BehaviorPanel />
+            <RecordingPanel />
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
+/** 设置 · 通用：语言和启动、本机与模型在左，润色规则在右 */
+export function GeneralPage() {
+  const { t } = useI18n();
+  return (
+    <div className="mw-page">
+      <Toolbar title={t("通用")} />
+      <div className="mw-scroll pane">
+        <div className="form cols">
+          <div className="page-col">
+            <LanguagePanel />
+            <MachinePanel />
+          </div>
+          <div className="page-col">
+            <RulesPanel />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 界面语言、开机启动、复制后隐藏主窗口 */
 export function LanguagePanel() {
   const { preference, setLanguagePreference, t } = useI18n();
+  const { settings, caps } = useApp();
+  const update = usePrefs();
+  const toggles: Array<{ key: "launchOnBoot" | "hideAfterCopy"; label: string; disabled?: boolean }> = [
+    { key: "launchOnBoot", label: t("开机时静默启动"), disabled: caps ? !caps.autostart.available : false },
+    { key: "hideAfterCopy", label: t("复制后隐藏主窗口") },
+  ];
   return (
     <section className="panel">
-      <h2 className="panel-title">{t("界面语言")}</h2>
+      <h2 className="panel-title">{t("通用")}</h2>
       <div className="rows">
         <div className="row">
           <span className="row-label">{t("界面语言")}</span>
@@ -319,6 +378,18 @@ export function LanguagePanel() {
             ]}
           />
         </div>
+        {toggles.map((toggle) => (
+          <div className="row" key={toggle.key}>
+            <label className="row-label" htmlFor={`pref-${toggle.key}`}>{toggle.label}</label>
+            <Switch
+              id={`pref-${toggle.key}`}
+              label={toggle.label}
+              value={Boolean(settings[toggle.key])}
+              disabled={toggle.disabled}
+              onChange={(value) => void update({ [toggle.key]: value })}
+            />
+          </div>
+        ))}
       </div>
     </section>
   );

@@ -1,9 +1,11 @@
-/** 主窗口侧栏里的页面 */
+/** 主窗口侧栏里的页面：资料库（截图、Prompt 记录）、桌面伴侣、设置（截图与录制、快捷键、通用） */
 export type NavPage =
-  | "shortcuts"
   | "history"
+  | "prompts"
   | "pet"
-  | "prefs";
+  | "capture"
+  | "shortcuts"
+  | "general";
 
 export type ShortcutAction =
   | "snapshot"

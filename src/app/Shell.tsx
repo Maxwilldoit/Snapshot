@@ -1,48 +1,84 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { Check, Images, Keyboard, MessageSquareText, Plus, Settings2, SlidersHorizontal } from "lucide-react";
 import { usePresence } from "../lib/motion";
 import { useApp } from "./context";
-import { WindowTitleBar } from "../components/WindowTitleBar";
-import type { NavPage } from "../types";
+import { WindowControls } from "../components/WindowTitleBar";
+import { PetThumb } from "../components/PetMedia";
+import { CatShape } from "../components/ui/CatShape";
+import { CaptureTools } from "./CaptureTools";
+import { usePetImport } from "./usePetImport";
+import type { NavPage, PetAsset, PlatformCapabilities } from "../types";
 import { useI18n } from "../lib/i18n";
 
-export function TitleBar({ children, right, tall = false }: { children?: ReactNode; right?: ReactNode; tall?: boolean }) {
-  const { notify } = useApp();
+/** 没有系统标题栏：macOS 上画成侧栏左上角的红黄绿，其余平台是工具栏最右边的三个按钮 */
+export function isMacWindow(caps: PlatformCapabilities | null) {
+  if (caps?.os) return caps.os === "macos";
+  return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform ?? "");
+}
+
+/** 窗口按钮放在哪儿由平台决定：调用方只说「我是侧栏顶上」还是「我是工具栏末尾」 */
+export function WindowChrome({ placement }: { placement: "sidebar" | "toolbar" }) {
+  const { caps, notify } = useApp();
+  const { t } = useI18n();
+  const mac = isMacWindow(caps);
+  if (placement === "sidebar") {
+    return (
+      <div className="mw-side-top" data-tauri-drag-region>
+        {mac ? <WindowControls variant="mac" onError={(message) => notify(message, "error")} /> : (
+          <span className="mw-app-name" data-tauri-drag-region>{t("应用快照")}</span>
+        )}
+      </div>
+    );
+  }
+  return mac ? null : <WindowControls onError={(message) => notify(message, "error")} />;
+}
+
+/**
+ * 每页顶上那一条：左边是标题，中间放这一页自己的工具，右边固定是「截取」「录制」。
+ * 整条可以拖动窗口；按钮本身不拖。
+ */
+export function Toolbar({ title, lead, children, capture = true }: { title: ReactNode; lead?: ReactNode; children?: ReactNode; capture?: boolean }) {
   return (
-    <WindowTitleBar right={right} tall={tall} onError={(message) => notify(message, "error")}>
-      {children}
-    </WindowTitleBar>
+    <header className="mw-toolbar" data-tauri-drag-region>
+      {lead}
+      <h1 className="mw-title" data-tauri-drag-region>{title}</h1>
+      <span className="mw-fill" data-tauri-drag-region />
+      {children && <span className="mw-tools">{children}</span>}
+      {capture && <CaptureTools />}
+      <WindowChrome placement="toolbar" />
+    </header>
   );
 }
 
-type NavItem = { page: NavPage; label: string; trailing?: ReactNode };
+type NavItem = { page: NavPage; label: string; icon: ReactNode; trailing?: ReactNode };
 
-function useNavItems(): { work: NavItem[]; settings: NavItem[] } {
-  const { conflicts } = useApp();
-  const { t } = useI18n();
-  return {
-    work: [
-      {
-        page: "shortcuts",
-        label: t("快捷操作"),
-        trailing: conflicts.length ? <span className="signal small" aria-label={t("{count} 个冲突", { count: conflicts.length })}>{conflicts.length}</span> : null,
-      },
-      { page: "history", label: t("历史记录") },
-      { page: "pet", label: t("桌面伴侣") },
-    ],
-    settings: [
-      { page: "prefs", label: t("偏好设置") },
-    ],
-  };
+/** 侧栏里伴侣的顺序：后导入的在前；导入时间一样就照原顺序。前台应用图标总在最后 */
+export function sortedPets(assets: PetAsset[]) {
+  return [...assets].sort((a, b) => (b.importedAt ?? 0) - (a.importedAt ?? 0));
 }
 
-/** 当前页字下那道墨线。换页时它会从旧的一项滑到新的一项（view-transition-name: nav-mark） */
-export const NavMark = () => <span className="nav-mark" aria-hidden="true" />;
-
-/** 侧栏导航：只有字。当前页墨色加粗、字下一道线，其余灰字——不加底色 */
 export function SideNav() {
-  const { page, navigate } = useApp();
+  const { page, navigate, conflicts, settings, viewedPetId } = useApp();
   const { t } = useI18n();
-  const { work, settings } = useNavItems();
+  const { importing, pickFiles } = usePetImport();
+  const pets = useMemo(() => sortedPets(settings.petAssets), [settings.petAssets]);
+  const viewing = viewedPetId ?? settings.selectedAppearanceId;
+
+  const library: NavItem[] = [
+    { page: "history", label: t("截图记录"), icon: <Images aria-hidden="true" /> },
+    { page: "prompts", label: t("Prompt 记录"), icon: <MessageSquareText aria-hidden="true" /> },
+  ];
+  const prefs: NavItem[] = [
+    { page: "capture", label: t("截图与录制"), icon: <SlidersHorizontal aria-hidden="true" /> },
+    {
+      page: "shortcuts",
+      label: t("快捷键"),
+      icon: <Keyboard aria-hidden="true" />,
+      trailing: conflicts.length ? <span className="mw-nav-badge" aria-label={t("{count} 个冲突", { count: conflicts.length })}>{conflicts.length}</span> : null,
+    },
+    { page: "general", label: t("通用"), icon: <Settings2 aria-hidden="true" /> },
+  ];
+
   const item = (entry: NavItem) => (
     <button
       key={entry.page}
@@ -51,22 +87,63 @@ export function SideNav() {
       aria-current={page === entry.page ? "page" : undefined}
       onClick={() => navigate(entry.page)}
     >
-      <span className="nav-label">
-        {entry.label}
-        {page === entry.page && <NavMark />}
-      </span>
+      {entry.icon}
+      <span className="nav-label">{entry.label}</span>
       {entry.trailing}
     </button>
   );
+
+  const petRow = (asset: PetAsset | null) => {
+    const id = asset?.id ?? "app-icon";
+    const name = asset ? asset.name : t("前台应用图标");
+    const current = page === "pet" && viewing === id;
+    const onDesk = settings.selectedAppearanceId === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        data-pet-id={id}
+        className={`nav-item nav-pet ${current ? "is-on" : ""} ${asset?.missing ? "is-broken" : ""}`}
+        aria-current={current ? "page" : undefined}
+        title={asset?.source ? `${name}\n${asset.source}` : name}
+        onClick={() => navigate("pet", { petId: id })}
+      >
+        <span className="nav-avatar" aria-hidden="true">
+          {!asset ? <span className="app-glyph"><span /></span>
+            : asset.missing ? <CatShape height={16} outline />
+            : <PetThumb assetId={asset.id} entry={asset.entry} fallback={<CatShape height={16} outline />} />}
+        </span>
+        <span className="nav-label">{name}</span>
+        {onDesk && <Check className="nav-check" aria-label={t("在桌面上")} />}
+      </button>
+    );
+  };
+
   return (
     <nav className="side-nav" aria-label={t("主导航")}>
-      <div className="nav-group">{work.map(item)}</div>
-      <div className="nav-group">{settings.map(item)}</div>
+      <div className="nav-group">
+        <h2 className="nav-heading">{t("资料库")}</h2>
+        {library.map(item)}
+      </div>
+      <div className="nav-group" role="group" aria-label={t("桌面伴侣")}>
+        <h2 className="nav-heading">
+          {t("桌面伴侣")}
+          <button type="button" className="nav-add" aria-label={t("导入伴侣素材…")} title={t("导入伴侣素材…")} disabled={importing} onClick={() => void pickFiles()}>
+            <Plus aria-hidden="true" />
+          </button>
+        </h2>
+        {pets.map(petRow)}
+        {petRow(null)}
+      </div>
+      <div className="nav-group">
+        <h2 className="nav-heading">{t("设置")}</h2>
+        {prefs.map(item)}
+      </div>
     </nav>
   );
 }
 
-/** 没有猫的地方，一句话提示浮在左下角：普通的自己消失，出错的留着等你关 */
+/** 一句话提示浮在窗口底部正中：普通的自己消失，出错的留着等你关 */
 export function NoticeLine() {
   const { notice: live, dismissNotice } = useApp();
   const { t } = useI18n();

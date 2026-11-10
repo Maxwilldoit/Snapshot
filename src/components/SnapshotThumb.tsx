@@ -19,6 +19,7 @@ export function SnapshotThumb({
   label,
   thumbHeight = 76,
   maxWidth = 200,
+  boxWidth,
   selecting = false,
   selected = false,
   onPress,
@@ -29,13 +30,15 @@ export function SnapshotThumb({
   label: string;
   thumbHeight?: number;
   maxWidth?: number;
+  /** 给了就按这个宽度画（两端对齐的截图墙里每张的宽度由整行决定） */
+  boxWidth?: number;
   selecting?: boolean;
   selected?: boolean;
   onPress: (element: HTMLButtonElement, event: React.MouseEvent) => void;
 }) {
   const { t } = useI18n();
   const [failed, setFailed] = useState(false);
-  const w = thumbWidth(width, height, thumbHeight, maxWidth);
+  const w = boxWidth ?? thumbWidth(width, height, thumbHeight, maxWidth);
   return (
     <button
       type="button"

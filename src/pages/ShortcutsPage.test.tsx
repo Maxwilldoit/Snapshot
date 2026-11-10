@@ -57,8 +57,11 @@ async function renderApp(handle: IPCHandler = () => undefined, initial: Settings
   vi.resetModules();
   const { App } = await import("../App");
   render(<App />);
+  const user = userEvent.setup();
+  // 主窗口默认打开截图记录；快捷键在侧栏「设置 · 快捷键」
+  await user.click(await screen.findByRole("button", { name: /^快捷键/ }));
   const toggle = await screen.findByRole("switch", { name: "暂停全局快捷键" });
-  return { user: userEvent.setup(), toggle };
+  return { user, toggle };
 }
 
 async function recordBinding(user: ReturnType<typeof userEvent.setup>) {
@@ -233,6 +236,7 @@ describe("manual global shortcut pause", () => {
     const { loadSettings } = await import("../lib/backend");
     render(<App />);
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^快捷键/ }));
     const toggle = await screen.findByRole("switch", { name: "暂停全局快捷键" });
 
     await user.click(toggle);

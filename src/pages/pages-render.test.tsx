@@ -78,12 +78,15 @@ async function renderApp(handle: IPCHandler = handler) {
   const { App } = await import("../App");
   render(<App />);
   // 等设置加载完（加载态消失，出现侧边栏导航）
-  await screen.findByRole("button", { name: "快捷操作" });
+  await screen.findByRole("button", { name: "截图记录" });
 }
 
 describe("B2 拆页后逐页渲染", () => {
-  it("默认落在快捷操作页，能看到快捷键行", async () => {
+  it("默认落在截图记录页；快捷键行在「设置 · 快捷键」", async () => {
     await renderApp();
+    expect(await screen.findByRole("heading", { name: "截图记录" })).toBeTruthy();
+    expect(await screen.findByText("还没有截图")).toBeTruthy();
+    await userEvent.setup().click(screen.getByRole("button", { name: /^快捷键/ }));
     expect(
       await screen.findByRole("button", { name: "快捷键：窗口快照，当前按键：Alt+Shift+2" }),
     ).toBeTruthy();
@@ -102,6 +105,7 @@ describe("B2 拆页后逐页渲染", () => {
       return handler(command);
     });
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^截图与录制/ }));
 
     expect(await screen.findByText("保存快照到")).toBeTruthy();
     expect(screen.getByText("保存录像到")).toBeTruthy();
@@ -116,9 +120,12 @@ describe("B2 拆页后逐页渲染", () => {
   });
 
   it.each([
-    [/^历史记录/, "还没有历史记录"],
-    [/^桌面伴侣/, "全部形象"],
-    [/^偏好设置/, "截屏与行为"],
+    [/^截图记录/, "还没有截图"],
+    [/^Prompt 记录/, "还没有 Prompt 记录"],
+    [/^前台应用图标/, "自由走动"],
+    [/^截图与录制/, "截图时"],
+    [/^快捷键/, "全局快捷键"],
+    [/^通用/, "润色规则"],
   ])("导航到「%s」能渲染出该页独有内容", async (navLabel, marker) => {
     await renderApp();
     const user = userEvent.setup();
@@ -127,7 +134,7 @@ describe("B2 拆页后逐页渲染", () => {
     expect(await screen.findAllByText(marker, { exact: false })).not.toHaveLength(0);
   });
 
-  it("历史记录把快照和 Prompt 放在同一页，并可展开原文与润色文", async () => {
+  it("截图和 Prompt 记录分在资料库的两页，Prompt 可展开原文与润色文", async () => {
     const createdAt = new Date(2026, 9, 24, 9, 5).getTime();
     await renderApp((command) => {
       if (command === "list_snapshots") {
@@ -153,11 +160,15 @@ describe("B2 拆页后逐页渲染", () => {
       return handler(command);
     });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^历史记录/ }));
 
-    expect(await screen.findByText("09:05")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "放大：Codex" })).toBeTruthy();
+    // 截图页只放截图
+    expect(await screen.findByRole("button", { name: "放大：Codex" })).toBeTruthy();
+    expect(screen.queryByText("帮我把按钮改得更容易找到")).toBeNull();
     expect(screen.queryByRole("tablist", { name: "历史类型" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^Prompt 记录/ }));
+    expect(await screen.findByText("09:05")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "放大：Codex" })).toBeNull();
     const summary = screen.getAllByText("帮我把按钮改得更容易找到")[0].closest("summary");
     expect(summary).toBeTruthy();
     await user.click(summary!);
@@ -165,7 +176,7 @@ describe("B2 拆页后逐页渲染", () => {
     expect(screen.getAllByText("请提高主操作按钮的视觉层级，并明确其交互状态。")).toHaveLength(2);
   });
 
-  it("偏好设置里拖桌宠大小：存下百分比，旁边跟着显示", async () => {
+  it("桌面伴侣页里拖桌宠大小：存下百分比，旁边跟着显示", async () => {
     const calls: Array<{ command: string; payload?: InvokeArgs }> = [];
     await renderApp((command, payload) => {
       calls.push({ command, payload });
@@ -173,7 +184,7 @@ describe("B2 拆页后逐页渲染", () => {
       return handler(command);
     });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^偏好设置/ }));
+    await user.click(screen.getByRole("button", { name: /^前台应用图标/ }));
     const slider = await screen.findByRole("slider", { name: "大小" });
     fireEvent.change(slider, { target: { value: "150" } });
     expect(await screen.findByText("150%")).toBeTruthy();
@@ -203,8 +214,9 @@ describe("B2 拆页后逐页渲染", () => {
       if (command === "save_preferences") preferences(payload);
       return handler(command);
     });
-    await userEvent.setup().click(screen.getByRole("button", { name: "偏好设置" }));
-    const baseline = screen.getByRole("slider", { name: "100% 基准大小" });
+    // 侧栏里两只同名；点桌面上那只（whale）
+    await userEvent.setup().click(document.querySelector<HTMLElement>('[data-pet-id="whale"]')!);
+    const baseline = await screen.findByRole("slider", { name: "100% 基准大小" });
     expect(baseline).toHaveProperty("value", "200");
     fireEvent.change(baseline, { target: { value: "160" } });
     await waitFor(() => expect(baseline).toHaveProperty("value", "160"));
@@ -220,6 +232,8 @@ describe("B2 拆页后逐页渲染", () => {
     saved = { ...saved, selectedAppearanceId: "makima" };
     const { emit } = await import("@tauri-apps/api/event");
     await act(async () => { await emit("settings-changed", saved); });
+    // 桌面伴侣页按侧栏里点的那只调基准；换到 makima 再看
+    await userEvent.setup().click(document.querySelector<HTMLElement>('[data-pet-id="makima"]')!);
     expect(baseline).toHaveProperty("value", "100");
     expect(screen.getByRole("slider", { name: "大小" })).toHaveProperty("value", "100");
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("保存基准失败"); });
@@ -230,7 +244,7 @@ describe("B2 拆页后逐页渲染", () => {
     expect(saved.petScale).toBe(100);
   });
 
-  it("桌面宠物的自由走动、随机动作和重力分别保存", async () => {
+  it("桌面伴侣页的自由走动、随机动作和重力分别保存", async () => {
     const calls: Array<{ command: string; payload?: InvokeArgs }> = [];
     await renderApp((command, payload) => {
       calls.push({ command, payload });
@@ -238,7 +252,7 @@ describe("B2 拆页后逐页渲染", () => {
       return handler(command);
     });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^偏好设置/ }));
+    await user.click(screen.getByRole("button", { name: /^前台应用图标/ }));
 
     const wander = await screen.findByRole("switch", { name: "自由走动" });
     const random = screen.getByRole("switch", { name: "随机动作" });
@@ -261,10 +275,10 @@ describe("B2 拆页后逐页渲染", () => {
     );
   });
 
-  it("偏好设置只在快门声右侧保留一个试听按钮", async () => {
+  it("截图与录制只在快门声右侧保留一个试听按钮", async () => {
     await renderApp();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^偏好设置/ }));
+    await user.click(screen.getByRole("button", { name: /^截图与录制/ }));
 
     const shutter = await screen.findByRole("radiogroup", { name: "快门声" });
     expect(within(shutter).getAllByRole("radio").map((button) => button.textContent)).toEqual([
@@ -283,7 +297,7 @@ describe("B2 拆页后逐页渲染", () => {
   it("截图后的第三个行为是仅保存，不再显示另存为", async () => {
     await renderApp();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^偏好设置/ }));
+    await user.click(screen.getByRole("button", { name: /^截图与录制/ }));
 
     expect(await screen.findByRole("radio", { name: "仅保存" })).toBeTruthy();
     expect(screen.queryByRole("radio", { name: /另存为/ })).toBeNull();
@@ -294,13 +308,14 @@ describe("B2 拆页后逐页渲染", () => {
     await renderApp();
     const nav = screen.getByRole("navigation", { name: "主导航" });
     expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "快捷操作", "历史记录", "桌面伴侣", "偏好设置",
+      "截图记录", "Prompt 记录", "", "前台应用图标", "截图与录制", "快捷键", "通用",
     ]);
+    expect(within(nav).getByRole("button", { name: "导入伴侣素材…" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();
     expect(document.querySelector(".companion")).toBeNull();
 
     const user = userEvent.setup();
-    await user.click(within(nav).getByRole("button", { name: "偏好设置" }));
+    await user.click(within(nav).getByRole("button", { name: /^前台应用图标/ }));
     expect(await screen.findByRole("slider", { name: "大小" })).toBeTruthy();
     expect(screen.queryByRole("radiogroup", { name: "布局主题" })).toBeNull();
     expect(screen.queryByRole("radiogroup", { name: "颜色" })).toBeNull();
