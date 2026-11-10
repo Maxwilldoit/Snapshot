@@ -20,7 +20,7 @@ pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
 pub(crate) use icon::png_for_pid as app_icon_png;
 pub(crate) use permissions::require_screen_capture_access;
 pub(crate) use recorder::{start_recording, Recording};
-pub(crate) use window::capture_window_image;
+pub(crate) use window::{capture_window_image, list_windows};
 
 /// 本平台支持的全局快捷键动作，顺序即设置页的显示顺序
 pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[

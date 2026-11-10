@@ -22,6 +22,29 @@ struct CaptureMetadata {
     height: u32,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ListedWindow {
+    pub(crate) id: u32,
+    pub(crate) pid: u32,
+    pub(crate) app_name: String,
+    pub(crate) title: String,
+    pub(crate) area: u64,
+}
+
+/// 与截图使用同一份 ScreenCaptureKit 窗口列表，包括台前调度侧栏、其它空间的窗口。
+pub(crate) fn list_windows() -> Result<Vec<ListedWindow>, String> {
+    let mut command = Command::new(recorder_program());
+    command.arg("--list-windows");
+    let output = run_helper(command, Duration::from_secs(15))?;
+    decode_window_list_output(output)
+}
+
+fn decode_window_list_output(output: Output) -> Result<Vec<ListedWindow>, String> {
+    check_helper_status(&output)?;
+    serde_json::from_slice(&output.stdout).map_err(|_| "无感窗口采集组件返回了无效窗口列表".into())
+}
+
 pub(crate) fn capture_window_image(
     id: u32,
     include_cursor: bool,
@@ -86,7 +109,7 @@ fn read_bounded(reader: impl Read, limit: u64) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn decode_capture_output(output: Output) -> Result<(RgbaImage, String), String> {
+fn check_helper_status(output: &Output) -> Result<(), String> {
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         if let Some(message) = stdout.lines().find_map(|line| line.strip_prefix("ERROR ")) {
@@ -94,6 +117,11 @@ fn decode_capture_output(output: Output) -> Result<(RgbaImage, String), String> 
         }
         return Err("无感窗口采集失败，请检查屏幕录制权限后重试".into());
     }
+    Ok(())
+}
+
+fn decode_capture_output(output: Output) -> Result<(RgbaImage, String), String> {
+    check_helper_status(&output)?;
     let newline = output
         .stdout
         .iter()
@@ -142,6 +170,45 @@ mod tests {
             stdout,
             stderr: Vec::new(),
         }
+    }
+
+    #[test]
+    fn background_window_list_preserves_native_identifiers_and_metadata() {
+        let output = Output {
+            status: ExitStatus::from_raw(0),
+            stdout: serde_json::to_vec(&serde_json::json!([{
+                "id": 7046, "pid": 59230, "appName": "Code",
+                "title": "测试\n— experiment5", "area": 23_345,
+            }]))
+            .unwrap(),
+            stderr: Vec::new(),
+        };
+        let windows = decode_window_list_output(output).unwrap();
+        assert_eq!(windows.len(), 1);
+        let window = &windows[0];
+        assert_eq!((window.id, window.pid, window.area), (7046, 59230, 23_345));
+        assert_eq!(window.app_name, "Code");
+        assert_eq!(window.title, "测试\n— experiment5");
+    }
+
+    #[test]
+    fn empty_window_lists_are_valid_but_errors_and_invalid_lists_are_not_empty_successes() {
+        let output = |success, stdout: &[u8]| Output {
+            status: ExitStatus::from_raw(if success { 0 } else { 256 }),
+            stdout: stdout.to_vec(),
+            stderr: Vec::new(),
+        };
+        assert!(decode_window_list_output(output(true, b"[]"))
+            .unwrap()
+            .is_empty());
+        for invalid in [b"".as_slice(), b"{}", b"[{}]", b"[", b"ERROR failed\n"] {
+            assert!(decode_window_list_output(output(true, invalid)).is_err());
+        }
+        assert_eq!(
+            decode_window_list_output(output(false, "ERROR 需要屏幕录制权限\n".as_bytes()))
+                .unwrap_err(),
+            "需要屏幕录制权限"
+        );
     }
 
     #[test]

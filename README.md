@@ -84,6 +84,8 @@ The packages are not code-signed or notarized. On macOS, Control-click the app a
 
 macOS requires Screen Recording permission to list windows, capture, and record, Accessibility permission to restore minimized windows, and Microphone permission for audio recording. If the window picker requests access, use **Open System Settings** to allow Snapshot under **Privacy & Security → Screen Recording**, then choose **Reload windows**. If access is already enabled but windows still cannot be read, quit and reopen Snapshot. Missing access is shown as a permission request rather than an empty window list.
 
+If access is still required after updating and restarting, an old ad-hoc signature may no longer match the saved authorization. Select the old Snapshot entry in Screen Recording settings, remove it with **−**, then use **+** to add `/Applications/snapshot.app` and enable access. Quit and reopen Snapshot. There is no need to reset permissions for other apps.
+
 ### Linux dependencies
 
 Windows and macOS need no additional runtime tools. Install these Linux tools as needed:
@@ -133,12 +135,14 @@ npm run tauri dev
 npm run tauri build
 ```
 
+Local macOS `build` / `bundle` commands use the single valid **Apple Development** identity in Keychain to keep the authorization identity stable across updates. If none or several exist, the build stops and asks you to select one. Set `APPLE_SIGNING_IDENTITY="certificate name or fingerprint" npm run tauri build` to use another installed identity. Do not re-sign the resulting bundle with `codesign --sign -`. CI builds and explicit `APPLE_SIGNING_IDENTITY=-` can still produce ad-hoc bundles, but replacing an installed app may require reauthorization as described above; these bundles are not notarized.
+
 On Debian or Ubuntu, `sudo bash scripts/linux/install-deps.sh` installs the required build and runtime packages.
 
 ## Validation
 
 ```bash
-npm test          # translation coverage + frontend tests
+npm test          # macOS signing selection + translation coverage + frontend tests
 npm run build     # TypeScript and production frontend build
 npm audit --audit-level=moderate
 

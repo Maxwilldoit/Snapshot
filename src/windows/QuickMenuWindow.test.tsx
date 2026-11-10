@@ -77,6 +77,7 @@ describe("快捷菜单：macOS 屏幕录制授权", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(permissionError.message);
     expect(screen.queryByText("没有找到可用的窗口")).toBeNull();
     expect(screen.getByText(/若已开启仍无法读取/)).toBeTruthy();
+    expect(screen.getByText(/移除旧的应用快照，再添加「应用程序」中的 snapshot.app/)).toBeTruthy();
     expect(calls.some((call) => call.command === "authorize_screen_capture")).toBe(false);
     await user.click(screen.getByRole("button", { name: "打开系统设置" }));
     await waitFor(() => expect(calls.some((call) => call.command === "authorize_screen_capture")).toBe(true));

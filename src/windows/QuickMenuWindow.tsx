@@ -570,6 +570,7 @@ export function QuickMenuWindow() {
                     <div className="palette-permission">
                       <p className="small" role="alert">{t("需要「屏幕录制」权限才能读取和截取窗口")}</p>
                       <p className="small ink-2">{t("请在系统设置 → 隐私与安全性 → 屏幕录制中允许应用快照，然后重新读取。若已开启仍无法读取，请退出并重新打开应用。")}</p>
+                      <p className="small ink-2">{t("若更新后已开启权限并重启仍提示授权，请在屏幕录制设置中移除旧的应用快照，再添加「应用程序」中的 snapshot.app 并开启权限。")}</p>
                       <div className="palette-permission-actions">
                         <button type="button" className="btn btn-small" disabled={pickerLoading} onClick={() => void authorizeCapture()}>{t("打开系统设置")}</button>
                         <button type="button" className="text-btn small" disabled={pickerLoading} onClick={() => void openPicker(pickerMode)}>{t("重新读取")}</button>

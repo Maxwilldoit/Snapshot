@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 证书签名启用 Hardened Runtime 后，录制组件仍需能请求麦克风授权。 -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

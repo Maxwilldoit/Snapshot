@@ -37,6 +37,7 @@ export const windowsEnglish: Record<string, string> = {
   "没有找到可用的窗口": "No windows available",
   "需要「屏幕录制」权限才能读取和截取窗口": "Screen Recording permission is required to list and capture windows.",
   "请在系统设置 → 隐私与安全性 → 屏幕录制中允许应用快照，然后重新读取。若已开启仍无法读取，请退出并重新打开应用。": "Allow Snapshot in System Settings → Privacy & Security → Screen Recording, then reload. If access is already enabled but windows are still unavailable, quit and reopen Snapshot.",
+  "若更新后已开启权限并重启仍提示授权，请在屏幕录制设置中移除旧的应用快照，再添加「应用程序」中的 snapshot.app 并开启权限。": "If access is enabled but still required after updating and restarting, remove the old Snapshot entry from Screen Recording settings, then add snapshot.app from Applications and enable access.",
   "打开系统设置": "Open System Settings",
   "重新读取": "Reload windows",
   "已最小化": "Minimized",

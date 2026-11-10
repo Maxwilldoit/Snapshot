@@ -135,10 +135,7 @@ func screenshotConfiguration(width: Int, height: Int, includeCursor: Bool) -> SC
 
 @MainActor
 func runScreenshot(arguments: ScreenshotArguments) async throws {
-    guard CGPreflightScreenCaptureAccess() else {
-        throw RecorderError(message: "需要「屏幕录制」权限才能读取和截取窗口")
-    }
-    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+    let content = try await shareableWindowContent()
     guard let window = content.windows.first(where: { $0.windowID == arguments.windowID }) else {
         throw RecorderError(message: "目标窗口已经关闭")
     }

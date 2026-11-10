@@ -2,6 +2,7 @@
 //
 // 协议：
 //   snapshot-recorder --probe
+//   snapshot-recorder --list-windows
 //   snapshot-recorder --window-id <CGWindowID> --output <file.mp4> [--include-cursor]
 //   snapshot-recorder --screenshot --window-id <CGWindowID> [--include-cursor]
 //
@@ -545,7 +546,12 @@ struct SnapshotRecorder {
             application.setActivationPolicy(.prohibited)
             application.finishLaunching()
 
-            if CommandLine.arguments.contains("--screenshot") {
+            if CommandLine.arguments.dropFirst().first == "--list-windows" {
+                guard CommandLine.arguments.count == 2 else {
+                    throw RecorderError(message: "--list-windows 不接受其它参数")
+                }
+                try await runWindowList()
+            } else if CommandLine.arguments.contains("--screenshot") {
                 try await runScreenshot(arguments: ScreenshotArguments.parse(CommandLine.arguments))
             } else {
                 let arguments = try Arguments.parse(CommandLine.arguments)

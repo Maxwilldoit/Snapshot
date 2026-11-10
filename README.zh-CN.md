@@ -84,6 +84,8 @@
 
 macOS 读取窗口列表、截图和录制需要“屏幕录制”权限，还原最小化窗口需要“辅助功能”权限，录音需要麦克风权限。窗口选择器提示缺少权限时，点击 **打开系统设置**，在 **隐私与安全性 → 屏幕录制** 中允许应用快照，然后点击 **重新读取**。若权限已开启仍无法读取，请退出并重新打开应用。缺少权限会显示授权说明，不再误报为没有可用窗口。
 
+若更新后已开启权限并重启仍提示授权，可能是旧版 ad-hoc 签名对应的授权记录失效：在屏幕录制设置中选中旧的应用快照，点 **−** 移除，再点 **+** 添加 `/Applications/snapshot.app` 并开启权限，然后退出并重新打开应用。无需清空所有应用的权限。
+
 ### Linux 运行依赖
 
 Windows 和 macOS 不需要额外运行工具。Linux 可按需安装：
@@ -132,12 +134,14 @@ npm run tauri dev
 npm run tauri build
 ```
 
+macOS 本机 `build` / `bundle` 默认使用钥匙串中唯一有效的 **Apple Development** 证书签名，以保持更新前后的授权身份一致；证书缺失或存在多个时会停止并要求明确指定。可通过 `APPLE_SIGNING_IDENTITY="证书名称或指纹" npm run tauri build` 指定其它已安装的签名证书。不要对已签名包再执行 `codesign --sign -`。CI 与显式 `APPLE_SIGNING_IDENTITY=-` 仍可生成 ad-hoc 包，但替换后可能需要按上述步骤重新授权；此类包未公证。
+
 Debian 或 Ubuntu 可运行 `sudo bash scripts/linux/install-deps.sh` 安装构建与运行依赖。
 
 ## 验证
 
 ```bash
-npm test          # 本地化文案覆盖检查 + 前端测试
+npm test          # macOS 签名选择测试 + 本地化文案覆盖检查 + 前端测试
 npm run build     # TypeScript 检查和生产构建
 npm audit --audit-level=moderate
 

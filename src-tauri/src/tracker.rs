@@ -70,6 +70,7 @@ fn content_window_area(window: &Window) -> Option<u64> {
 
 /// 最小化窗口在 Windows 上会报告成任务栏条目大小的矩形，不能套用内容窗口的
 /// 80 像素下限；它仍然是可以还原并录制/截图的目标。
+#[cfg(any(not(target_os = "macos"), test))]
 fn capturable_window_area_from(area: Option<u64>, minimized: bool) -> Option<u64> {
     if minimized {
         Some(u64::MAX)
@@ -161,6 +162,33 @@ fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>
     #[cfg(target_os = "macos")]
     os::require_screen_capture_access().map_err(WindowListError::ScreenCapturePermission)?;
     let main = main_capture_window(app);
+    #[cfg(target_os = "macos")]
+    let mut result = os::list_windows()
+        .map_err(WindowListError::Enumeration)?
+        .into_iter()
+        .filter(|window| {
+            window.pid != std::process::id()
+                || main
+                    .as_ref()
+                    .is_some_and(|main| main.matches(window.id, window.pid, &window.title))
+        })
+        .map(|window| {
+            (
+                window.area,
+                CapturableWindow {
+                    id: window.id,
+                    pid: window.pid,
+                    app_name: window.app_name,
+                    title: window.title,
+                    // ScreenCaptureKit 的 off-screen 包括台前调度/其它空间，不能当成最小化。
+                    minimized: false,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    // xcap 的 macOS 枚举及其每个元数据 getter 都限定为 on-screen，
+    // 无法靠在它返回的列表上追加过滤找回后台窗口。Windows/Linux 保持原实现。
+    #[cfg(not(target_os = "macos"))]
     let mut result = Window::all()
         .map_err(|error| WindowListError::Enumeration(error.to_string()))?
         .into_iter()
