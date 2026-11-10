@@ -22,6 +22,11 @@ export const shortcutsEnglish: Record<string, string> = {
   "暂停全局快捷键": "Pause global shortcuts",
   "未启用": "Inactive",
   "启用中": "Active",
+  "启用全局快捷键": "Enable global shortcuts",
+  "已关闭：下面的快捷键都不响应，按键让给其他程序。设好的组合会保留。": "Off: the shortcuts below don't respond and the keys are left to other apps. Your combinations are kept.",
+  "在任何应用里都能用下面的组合键。": "Use these key combinations from any app.",
+  "点按录制": "Click to record",
+  "按下快捷键…": "Type shortcut…",
 
   "快照保存位置已更改": "Capture save location updated",
   "录像保存位置已更改": "Recording save location updated",

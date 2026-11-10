@@ -360,16 +360,42 @@ html[data-window="main"] .keys { gap: 3px; }
 html[data-window="main"] .keys.is-struck .kbd { color: var(--red); }
 html[data-window="main"] .kbd-slot { border: 1px dashed var(--accent); border-radius: 5px; }
 
-/* 快捷键行：整行是「录快捷键」的按钮，清除按钮悬停时才显出来 */
-html[data-window="main"] .mw .key-row { display: flex; align-items: center; border-bottom: 0; }
-html[data-window="main"] .mw .key-row-main { min-height: 40px; margin: 0; padding: 6px 12px; border-radius: 0; }
-html[data-window="main"] .mw .key-row.is-recording .key-row-main { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-html[data-window="main"] .mw .key-row-clear { position: static; flex: 0 0 auto; margin-right: 12px; transform: none; color: var(--text3); font-size: 12px; }
-html[data-window="main"] .mw .key-row-clear:hover { color: var(--red); }
-html[data-window="main"] .mw .pause-label { color: var(--text1); }
-html[data-window="main"] .mw .pause-state { color: var(--text3); font-size: 11px; }
-html[data-window="main"] .mw .rows > .key-row:first-child .key-row-main { border-radius: 8px 8px 0 0; }
-html[data-window="main"] .mw .rows > .key-row:last-child .key-row-main { border-radius: 0 0 8px 8px; }
+/* 快捷键：顶上一张卡片是总开关，下面两组，每行右边是同一种录制框（点一下开始录，Esc 取消） */
+html[data-window="main"] .mw .shortcuts-panel { display: flex; flex-direction: column; gap: 22px; }
+html[data-window="main"] .mw .panel-shortcuts { transition: opacity 0.2s; }
+html[data-window="main"] .mw .panel-shortcuts.is-off { opacity: 0.5; }
+html[data-window="main"] .mw .shortcut-row { align-items: center; }
+html[data-window="main"] .mw .shortcut-text { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+html[data-window="main"] .mw .shortcut-text > .small { font-size: 11px; line-height: 1.4; }
+html[data-window="main"] .mw .key-field-wrap { position: relative; display: inline-flex; flex: 0 0 auto; }
+html[data-window="main"] .mw .key-field {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 116px; height: 24px; padding: 0 10px;
+  border: 0; border-radius: 6px; background: var(--btn); color: var(--text1); font-size: 12px;
+  box-shadow: 0 0 0 0.5px var(--btn-line), 0 0.5px 1px rgba(0, 0, 0, 0.05); cursor: default;
+  transition: box-shadow 0.15s, background-color 0.15s;
+}
+html[data-window="main"] .mw .key-field-wrap.has-value .key-field { padding-right: 26px; }
+html[data-window="main"] .mw .key-field:hover:not(:disabled) { background: color-mix(in srgb, var(--btn) 94%, var(--text1)); }
+html[data-window="main"] .mw .key-field:focus-visible { outline: none; box-shadow: 0 0 0 0.5px var(--accent), 0 0 0 3.5px color-mix(in srgb, var(--accent) 35%, transparent); }
+html[data-window="main"] .mw .key-field.is-recording,
+html[data-window="main"] .mw .key-field.is-recording:hover {
+  background: var(--win); color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+html[data-window="main"] .mw .key-field:disabled { cursor: default; }
+html[data-window="main"] .mw .key-field-hint { color: var(--text3); white-space: nowrap; }
+html[data-window="main"] .mw .key-field.is-recording .key-field-hint { color: var(--accent); }
+html[data-window="main"] .mw .key-field .keys { gap: 2px; }
+html[data-window="main"] .mw .key-field .kbd {
+  min-width: 0; height: auto; padding: 0 1px; border: 0; background: none; box-shadow: none;
+  font-size: 12.5px; font-weight: 500; letter-spacing: 0.02em; color: inherit;
+}
+html[data-window="main"] .mw .key-field .keys.is-struck .kbd { color: var(--red); text-decoration: line-through; }
+html[data-window="main"] .mw .key-field-clear {
+  position: absolute; top: 50%; right: 5px; display: grid; place-items: center; width: 16px; height: 16px; padding: 0;
+  border: 0; border-radius: 50%; background: var(--fill2); color: var(--text2); transform: translateY(-50%);
+}
+html[data-window="main"] .mw .key-field-clear:hover:not(:disabled) { background: var(--text3); color: var(--win); }
 
 /* 润色规则 */
 html[data-window="main"] .mw .rules { position: relative; overflow: hidden; }
@@ -467,3 +493,7 @@ html[data-window="main"][data-vt="page"]::view-transition-group(page) { backgrou
 /* 换页：原生瞬切感，只做极短淡化，不位移 */
 html[data-window="main"][data-vt="page"]::view-transition-old(page) { animation: vt-fade-out 80ms linear both; }
 html[data-window="main"][data-vt="page"]::view-transition-new(page) { animation: vt-fade-in 100ms linear both; }
+
+/* 浅色侧栏再提亮一点，减小与右侧纯白的反差 */
+html[data-window="main"]:not([data-theme="dark"]) { --side: #f3f3f5; }
+html[data-window="main"]:not([data-theme="dark"]) .mw.is-mac .sidebar { background: rgba(255, 255, 255, 0.5); }

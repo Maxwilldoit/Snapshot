@@ -28,6 +28,12 @@ const ACTION_LABELS: Record<ShortcutAction, { name: string }> = {
   palette: { name: "呼出快捷菜单" },
 };
 
+/** 两组：截图录制一组，Prompt 一组。没列进来的动作（老设置里多出来的）放到第一组末尾 */
+const GROUPS: Array<{ title: string; actions: ShortcutAction[] }> = [
+  { title: "截图与录制", actions: ["snapshot", "fullscreen", "scrolling", "record"] },
+  { title: "Prompt", actions: ["polish", "prompts", "palette"] },
+];
+
 const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
 
 function pressedModifiers(event: React.KeyboardEvent): string[] {
@@ -166,90 +172,101 @@ export function ShortcutsPanel() {
     const conflicted = Boolean(binding.accelerator && binding.accelerator === saved && conflicts.includes(binding.accelerator));
     const unavailable = binding.action === "record" && caps && !caps.recording.available;
     const rejection = rejected?.action === binding.action ? rejected.key : null;
+    const locked = saving || shortcutsPaused;
     return (
-      <div key={binding.action} className={`key-row ${isRecording ? "is-recording" : ""}`}>
-        <button
-          type="button"
-          className="key-row-main"
-          aria-label={t("快捷键：{name}，当前按键：{keys}", {
-            name: labelName,
-            keys: binding.accelerator || t("未设置"),
-          })}
-          disabled={saving}
-          onClick={() => {
-            // 这一行是「录快捷键」的选中态，不是执行功能：点它开始录，再点一次取消
-            setRejected(null);
-            if (isRecording) stopRecording();
-            else setRecording(binding.action);
-          }}
-          onKeyDown={(event) => onRowKeyDown(binding.action, event)}
-          onKeyUp={(event) => onRowKeyUp(binding.action, event)}
-          onBlur={() => isRecording && stopRecording()}
-        >
-          <span className="key-row-text">
-            <span className="key-row-name">
-              <span className={isRecording ? "strong" : ""}>{labelName}</span>
+      <div key={binding.action} className={`row shortcut-row ${isRecording ? "is-recording" : ""}`}>
+        <span className="shortcut-text">
+          <span className="row-label">{labelName}</span>
+          {conflicted && <span className="signal small">{t("没注册上，这组键已被其他程序占用")}</span>}
+          {unavailable && !conflicted && <span className="quiet small">{t("不可用")}</span>}
+          {rejection && (
+            <span className="signal small">
+              {t("只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个", { rejection })}
             </span>
-            {conflicted && <span className="signal small">{t("没注册上，这组键已被其他程序占用")}</span>}
-            {unavailable && !conflicted && <span className="quiet small">{t("不可用")}</span>}
-            {rejection && (
-              <span className="signal small">
-                {t("只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个", { rejection })}
-              </span>
-            )}
-          </span>
-          <span className="key-row-value">
+          )}
+        </span>
+        <span className={`key-field-wrap ${binding.accelerator && !isRecording ? "has-value" : ""}`}>
+          <button
+            type="button"
+            className={`key-field ${isRecording ? "is-recording" : ""} ${binding.accelerator ? "" : "is-empty"}`}
+            aria-label={t("快捷键：{name}，当前按键：{keys}", {
+              name: labelName,
+              keys: binding.accelerator || t("未设置"),
+            })}
+            aria-pressed={isRecording}
+            disabled={locked}
+            onClick={() => {
+              // 点框开始录，再点一次（或 Esc、点别处）取消
+              setRejected(null);
+              if (isRecording) stopRecording();
+              else setRecording(binding.action);
+            }}
+            onKeyDown={(event) => onRowKeyDown(binding.action, event)}
+            onKeyUp={(event) => onRowKeyUp(binding.action, event)}
+            onBlur={() => isRecording && stopRecording()}
+          >
             {isRecording ? (
-              <span className="keys-pending">
-                {held.length > 0 && <Keys value={held.join("+")} />}
-                <span className="kbd-slot" aria-hidden="true" />
-              </span>
+              held.length > 0 ? <Keys value={held.join("+")} /> : <span className="key-field-hint">{t("按下快捷键…")}</span>
             ) : binding.accelerator ? (
               <Keys value={binding.accelerator} struck={conflicted} />
             ) : (
-              <span className="quiet small">{t("未设置")}</span>
+              <span className="key-field-hint">{t("点按录制")}</span>
             )}
-          </span>
-        </button>
-        {!isRecording && binding.accelerator && (
-          <button
-            type="button"
-            className="key-row-clear"
-            aria-label={t("清除「{name}」的快捷键", { name: labelName })}
-            disabled={saving}
-            onClick={() => changeBinding(binding.action, null)}
-          >
-            {t("清除")}
           </button>
-        )}
+          {!isRecording && binding.accelerator && (
+            <button
+              type="button"
+              className="key-field-clear"
+              aria-label={t("清除「{name}」的快捷键", { name: labelName })}
+              title={t("清除")}
+              disabled={locked}
+              onClick={() => changeBinding(binding.action, null)}
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 1.5l5 5M6.5 1.5l-5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+            </button>
+          )}
+        </span>
       </div>
     );
   };
 
+  const listed = new Set(GROUPS.flatMap((group) => group.actions));
+  const groups = GROUPS.map((group, index) => ({
+    title: group.title,
+    rows: [
+      ...group.actions.flatMap((action) => shortcuts.filter((item) => item.action === action)),
+      ...(index === 0 ? shortcuts.filter((item) => !listed.has(item.action)) : []),
+    ],
+  })).filter((group) => group.rows.length > 0);
+
   return (
-    <section className="panel panel-shortcuts">
-      <div className="panel-head">
-        <h2 className="panel-title">{t("全局快捷键")}</h2>
-      </div>
-      <div className="rows">
-        <div className="row">
-          <span className="pause-setting">
-            <label htmlFor="switch-shortcuts-paused" className="row-label pause-label">{t("暂停全局快捷键")}</label>
-            <span className="pause-state small" role="status">
-              {shortcutsPaused ? t("未启用") : t("启用中")}
-            </span>
-          </span>
-          <Switch
-            id="switch-shortcuts-paused"
-            label={t("暂停全局快捷键")}
-            value={shortcutsPaused}
-            disabled={togglingPause || saving}
-            onChange={(value) => void togglePause(value)}
-          />
+    <div className="shortcuts-panel">
+      <section className="panel panel-shortcuts-toggle">
+        <div className="rows">
+          <div className="row">
+            <label htmlFor="switch-shortcuts-enabled" className="row-label">{t("启用全局快捷键")}</label>
+            <Switch
+              id="switch-shortcuts-enabled"
+              label={t("启用全局快捷键")}
+              value={!shortcutsPaused}
+              disabled={togglingPause || saving}
+              onChange={(enabled) => void togglePause(!enabled)}
+            />
+          </div>
         </div>
-        {shortcuts.map(renderRow)}
-      </div>
-    </section>
+        <p className="group-note">
+          {shortcutsPaused
+            ? t("已关闭：下面的快捷键都不响应，按键让给其他程序。设好的组合会保留。")
+            : t("在任何应用里都能用下面的组合键。")}
+        </p>
+      </section>
+      {groups.map((group) => (
+        <section key={group.title} className={`panel panel-shortcuts ${shortcutsPaused ? "is-off" : ""}`} aria-disabled={shortcutsPaused || undefined}>
+          <h2 className="panel-title">{t(group.title)}</h2>
+          <div className="rows">{group.rows.map(renderRow)}</div>
+        </section>
+      ))}
+    </div>
   );
 }
 

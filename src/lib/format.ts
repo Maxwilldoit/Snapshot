@@ -16,17 +16,31 @@ export function normalizeKey(key: string) {
 
 const isMac = () => typeof navigator !== "undefined" && navigator.platform.includes("Mac");
 
-/** "CommandOrControl+Shift+A" → ["Ctrl", "Shift", "A"]（mac 上是 ⌘） */
+/** mac 上修饰键的固定顺序（和系统菜单一致） */
+const MAC_MODIFIER_ORDER = ["⌃", "⌥", "⇧", "⌘"];
+
+/** "CommandOrControl+Shift+A" → ["Ctrl", "Shift", "A"]；mac 上用系统符号并按 ⌃⌥⇧⌘ 排：["⇧", "⌘", "A"] */
 export function shortcutKeys(value: string | null): string[] {
   if (!value) return [];
-  return value.split("+").map((key) => {
+  const mac = isMac();
+  const keys = value.split("+").map((key) => {
     const lower = key.trim().toLowerCase();
-    if (lower === "commandorcontrol" || lower === "cmdorctrl") return isMac() ? "⌘" : "Ctrl";
-    if (lower === "control" || lower === "ctrl") return "Ctrl";
-    if (lower === "alt" || lower === "option") return isMac() ? "⌥" : "Alt";
-    if (lower === "shift") return "Shift";
+    if (lower === "commandorcontrol" || lower === "cmdorctrl") return mac ? "⌘" : "Ctrl";
+    if (lower === "control" || lower === "ctrl") return mac ? "⌃" : "Ctrl";
+    if (lower === "alt" || lower === "option") return mac ? "⌥" : "Alt";
+    if (lower === "shift") return mac ? "⇧" : "Shift";
+    if (mac && (lower === "command" || lower === "cmd" || lower === "meta" || lower === "super")) return "⌘";
     return key.trim();
   });
+  if (!mac) return keys;
+  const rank = (key: string) => {
+    const index = MAC_MODIFIER_ORDER.indexOf(key);
+    return index < 0 ? MAC_MODIFIER_ORDER.length : index;
+  };
+  return keys
+    .map((key, index) => ({ key, index }))
+    .sort((a, b) => rank(a.key) - rank(b.key) || a.index - b.index)
+    .map((item) => item.key);
 }
 
 export function formatBytes(bytes: number): string {

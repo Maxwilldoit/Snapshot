@@ -31,4 +31,15 @@ describe("format helpers", () => {
     expect(formatWhen(Date.now() - 60_000)).toBe("1 分钟前");
     expect(formatWhen(Date.now() - 3_600_000)).toBe("1 小时前");
   });
+
+  it("uses macOS modifier symbols in the system order on a Mac", () => {
+    const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    try {
+      expect(shortcutKeys("CommandOrControl+Shift+P")).toEqual(["⇧", "⌘", "P"]);
+      expect(shortcutKeys("CommandOrControl+Alt+Shift+2")).toEqual(["⌥", "⇧", "⌘", "2"]);
+      expect(shortcutKeys("Control+Alt+K")).toEqual(["⌃", "⌥", "K"]);
+    } finally {
+      platform.mockRestore();
+    }
+  });
 });
