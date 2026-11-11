@@ -4,55 +4,19 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Snapshot is a cross-platform desktop utility for capturing application windows, recording them to MP4, annotating screenshots, storing reusable prompts, and rewriting prompts. A desktop companion keeps the most common actions within reach, while a launchpad on Windows and Linux provides quick access to installed applications.
-
-Built with Tauri 2, React, and native platform APIs for Windows, macOS, and Linux. The interface supports English and Simplified Chinese, follows the system language by default, and can be changed at any time in Preferences.
-
-## Interface
-
-| Companion | Shortcuts and storage |
-|---|---|
-| <img src="docs/screenshots/en/companion.png" alt="Makima desktop companion in the English interface"> | <img src="docs/screenshots/en/shortcuts.png" alt="Shortcuts and clipboard settings in the English interface"> |
-
-### Makima's actions
-
-The Makima companion comes from the [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md). Click the companion to play the next action once; it fades back to idle after one full GIF loop. Drag it sideways to walk.
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/makima/idle.gif" width="108" alt="Idle"><br>Idle</td>
-    <td align="center"><img src="docs/screenshots/makima/wave.gif" width="108" alt="Wave"><br>Wave</td>
-    <td align="center"><img src="docs/screenshots/makima/think.gif" width="108" alt="Thinking"><br>Thinking</td>
-    <td align="center"><img src="docs/screenshots/makima/peek.gif" width="108" alt="Peeking"><br>Peeking</td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/makima/jump.gif" width="108" alt="Jump"><br>Jump</td>
-    <td align="center"><img src="docs/screenshots/makima/walk-left.gif" width="108" alt="Walk left"><br>Walk left</td>
-    <td align="center"><img src="docs/screenshots/makima/walk-right.gif" width="108" alt="Walk right"><br>Walk right</td>
-    <td align="left" valign="middle"><strong>Feedback</strong><br>Four dedicated actions below.</td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/makima/feedback-success.gif" width="108" alt="Success"><br>Success</td>
-    <td align="center"><img src="docs/screenshots/makima/feedback-failure.gif" width="108" alt="Failure"><br>Failure</td>
-    <td align="center"><img src="docs/screenshots/makima/feedback-recording.gif" width="108" alt="Recording"><br>Recording</td>
-    <td align="center"><img src="docs/screenshots/makima/feedback-paused.gif" width="108" alt="Paused"><br>Paused</td>
-  </tr>
-</table>
+Capture a window, copy or annotate it, and find it again in History.
+Snapshot also records windows, rewrites and stores prompts, and provides a desktop companion.
+Built with Tauri 2, React, and native adapters for Windows, macOS, and Linux.
 
 ## Features
 
-- **Window capture**: capture a selected window or the full screen. Send it to the clipboard, open it for annotation, or save it directly to History. Linux X11 also supports scrolling capture.
-- **Window recording**: record a selected window to MP4, with optional system audio and microphone input.
-- **Unified history**: screenshots and prompt rewrites appear together in chronological order. Snapshot previews can be copied or annotated; prompt entries retain the original, result, rule, and time. Neither kind has an automatic item limit.
-- **Prompt rewriting**: use an OpenAI-compatible endpoint and custom rules. API keys are stored in the operating system credential store, never in the settings file.
-- **Prompt library**: save reusable prompts independently from rewriting rules and history. Open the library from the companion's quick menu or its global shortcut, then copy any saved prompt without closing the window.
-- **Desktop companion**: display the active application's icon or an animated GIF/WebM. It can roam the current display, play actions while idle, and drop back to the taskbar after dragging. Right-click for quick actions; on Windows and Linux, double-click to open the launchpad. On Windows, the companion steps aside when another app covers the same display in fullscreen.
-- **Launchpad (Windows and Linux)**: application catalog caching, icon warming, search, folders, and multi-page navigation keep application launching responsive. macOS does not create or preload a launchpad.
-- **Global shortcuts**: bind capture, recording, prompt rewriting, the Prompt library, and the quick menu. Pause every global shortcut without losing saved bindings; the paused state persists across restarts.
-- **Appearance**: four layout styles, light and dark themes, system-aware color, and reduced-motion support.
+- **Screenshots**: capture windows or the full screen; copy, annotate, or save only to History. Linux X11 also supports scrolling screenshots.
+- **Recording**: record a selected window to MP4, with optional system audio and microphone input.
+- **History**: screenshots and prompt rewrites have separate, searchable pages. Prompt entries retain the original, result, rule, and time.
+- **Prompts**: rewrite clipboard text using an OpenAI-compatible endpoint and reusable rules. API keys stay in the operating system credential store. A separate Prompt library stores text you want to reuse.
+- **Companion**: show the active app icon or import GIF/WebM actions. Optional roaming, random actions, gravity, and a right-click quick menu keep tools within reach. Windows and Linux also provide a launchpad.
+- **Shortcuts**: bind common actions or pause global shortcuts without losing saved bindings.
+- **Interface**: English and Simplified Chinese, with system light/dark appearance. Change language in General.
 
 ## Platform support
 
@@ -101,19 +65,11 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 
 ## Use
 
-**Quick actions.** Right-click the companion or press the quick-menu shortcut. The menu can capture a window, capture the full screen, record, open the Prompt library, or rewrite the prompt currently on the clipboard. Arrow keys move through actions, Enter runs one, and Escape closes the menu.
-
-**Capture.** A capture goes to the clipboard by default and is cleared after 60 seconds unless something else replaces it. Preferences can instead open the annotation window or save only to History. Clipboard timing, image format, and folders are configured under **Shortcuts → Clipboard and saving**.
-
-**Recording.** Window recordings are saved as MP4 in Downloads by default. Change the folder and audio inputs under **Shortcuts → Recording**. System audio and microphone options are independent.
-
-**Prompt rewriting.** Configure the API URL and model under **Preferences → System and model**, then edit reusable rules under **Rewrite rules**. Start a rewrite from the quick menu or its global shortcut. Successful results, along with the original text, are added to History.
-
-**Prompt library.** Open it from the companion's quick menu or its global shortcut (default `Ctrl/Cmd+Shift+P`). Create and edit entries, search titles or content, and copy any prompt without closing the library. These saved prompts are separate from rewrite rules and rewrite history.
-
-**Companion and launchpad.** Import a ZIP of GIF/WebM actions or a single GIF/WebM file from the Companion page. Under **Preferences → Desktop companion**, enable **Free roam** or **Random actions** for autonomous behavior, and **Gravity** to make a dragged companion fall back to the work-area floor. Click once to play another action. On Windows and Linux, double-click to open the launchpad, which supports search, folders, drag-and-drop organization, and paged navigation. macOS has no launchpad, so clicks switch actions immediately without waiting for a double-click. Published companions can also be installed from the built-in [Pets library](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md).
-
-**Language and appearance.** Choose **System**, **Simplified Chinese**, or **English** under **Preferences → Interface language**. The Themes page controls layout, color, and motion.
+- **Capture**: use the capture control, the companion's quick menu, or a global shortcut. In **Capture & Recording**, choose clipboard, annotation, or save-only behavior, and configure History, clipboard clearing, image format, and folders. Clipboard images clear after 60 seconds by default, unless replaced by something else.
+- **Record**: choose a window from the recording menu. MP4 files go to Downloads by default; change the folder in **Capture & Recording**. Recordings are stored separately from screenshot History.
+- **Rewrite prompts**: configure the model and rules in **General**, then rewrite clipboard text from the quick menu or its shortcut. Results appear in **Prompt History**.
+- **Reuse prompts**: open the Prompt library from Prompt History, the quick menu, or its shortcut (default `Ctrl/Cmd+Shift+P`). Search, edit, and copy entries without closing the window.
+- **Companion**: import a GIF/WebM or ZIP from the sidebar, select a companion, and configure its desktop behavior on its page. On Windows and Linux, double-click it for the launchpad; macOS uses single clicks for actions.
 
 ## Companion assets
 
@@ -130,7 +86,8 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 Requirements: Node.js 22, Rust 1.98.1, the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform, and a Swift toolchain on macOS for the ScreenCaptureKit recorder.
 
 ```bash
-npm install
+nvm use
+npm ci
 npm run tauri dev
 npm run tauri build
 ```
@@ -142,17 +99,18 @@ On Debian or Ubuntu, `sudo bash scripts/linux/install-deps.sh` installs the requ
 ## Validation
 
 ```bash
-npm test          # macOS signing selection + translation coverage + frontend tests
-npm run build     # TypeScript and production frontend build
+nvm use
+npm ci
+npm run check              # frontend tests, translations, build, Rust fmt/Clippy/tests
+npm run check:frontend     # frontend portion only
+npm run check:rust         # Rust portion only; prepares the macOS recorder when needed
+npm run check:unused       # Knip dead-code report
 npm audit --audit-level=moderate
-
-cd src-tauri
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
 ```
 
-CI also runs RustSec and npm dependency audits. It runs the frontend suite and Rust checks on Windows, macOS, Ubuntu 22.04, and Ubuntu 24.04 through [check.yml](.github/workflows/check.yml). Release packages are built and smoke-tested by [release.yml](.github/workflows/release.yml) and [linux-packages.yml](.github/workflows/linux-packages.yml).
+CI uses the same check entry points on macOS, Windows, Ubuntu 22.04, and Ubuntu 24.04, plus dependency audits. Browser preview (`npm run dev`, optionally `?demo`) uses mock data; native capture, recording, and permissions require platform smoke checks.
+
+See [AGENTS.md](AGENTS.md) for the code map, [DESIGN.md](DESIGN.md) for interface rules, and [docs/SIMPLIFY.md](docs/SIMPLIFY.md) for current simplification checkpoints and recovery commands.
 
 ## Project structure
 

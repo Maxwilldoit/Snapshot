@@ -4,55 +4,19 @@
 
 简体中文 | [English](README.md)
 
-应用快照是一款跨平台桌面工具，用于截取应用窗口、录制窗口视频、标注截图、保存常用 Prompt 和润色 Prompt。桌面伴侣提供常用操作的快捷入口，Windows 和 Linux 端的启动台则用于快速查找和启动已安装的应用。
-
-应用基于 Tauri 2、React 和各平台原生接口构建，支持 Windows、macOS 和 Linux。界面提供简体中文和英文，默认跟随系统语言，也可以在偏好设置中随时切换。
-
-## 界面
-
-| 桌面伴侣 | 快捷操作与保存 |
-|---|---|
-| <img src="docs/screenshots/zh-CN/companion.png" alt="中文界面中的 Makima 桌面伴侣"> | <img src="docs/screenshots/zh-CN/shortcuts.png" alt="中文界面中的快捷操作与剪贴板设置"> |
-
-### Makima 的动作
-
-来自 [Pets 素材库](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md)的「玛奇玛 · 像素」。单击桌宠依次播放下一个动作；一轮 GIF 播放完后再叠化回待机，向左右拖动时行走。
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/makima/idle.gif" width="108" alt="待机"><br>待机</td>
-    <td align="center"><img src="docs/screenshots/makima/wave.gif" width="108" alt="招手"><br>招手</td>
-    <td align="center"><img src="docs/screenshots/makima/think.gif" width="108" alt="思考"><br>思考</td>
-    <td align="center"><img src="docs/screenshots/makima/peek.gif" width="108" alt="探头"><br>探头</td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/makima/jump.gif" width="108" alt="跳跃"><br>跳跃</td>
-    <td align="center"><img src="docs/screenshots/makima/walk-left.gif" width="108" alt="向左走"><br>向左走</td>
-    <td align="center"><img src="docs/screenshots/makima/walk-right.gif" width="108" alt="向右走"><br>向右走</td>
-    <td align="left" valign="middle"><strong>事件反馈</strong><br>四个独立动作见下。</td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/makima/feedback-success.gif" width="108" alt="成功"><br>成功</td>
-    <td align="center"><img src="docs/screenshots/makima/feedback-failure.gif" width="108" alt="失败"><br>失败</td>
-    <td align="center"><img src="docs/screenshots/makima/feedback-recording.gif" width="108" alt="录制中"><br>录制中</td>
-    <td align="center"><img src="docs/screenshots/makima/feedback-paused.gif" width="108" alt="已暂停"><br>已暂停</td>
-  </tr>
-</table>
+截取窗口，复制或标注，再从历史记录里找回来。
+应用快照也支持窗口录屏、Prompt 润色与保存，以及桌面伴侣。
+基于 Tauri 2、React 和 Windows、macOS、Linux 原生适配器构建。
 
 ## 功能
 
-- **窗口截图**：截取指定窗口或全屏。结果可放进剪贴板、打开标注，或直接保存到历史记录。Linux X11 另支持滚动长截图。
-- **窗口录制**：将所选窗口录制成 MP4，可选系统声音和麦克风。
-- **统一历史**：截图和 Prompt 润色记录按时间统一排列。截图可预览、复制和标注；Prompt 记录保留原文、结果、规则和时间。两类记录都不设自动保留上限。
-- **Prompt 润色**：支持 OpenAI 兼容接口和自定义规则。API Key 保存在系统凭据库中，不写入设置文件。
-- **Prompt 库**：独立保存常用 Prompt，不复用润色规则，也不进入润色历史。可从桌宠快捷菜单或全局快捷键打开，并在不关闭窗口的情况下复制任意一条。
-- **桌面伴侣**：显示当前应用图标或动画 GIF/WebM。可沿当前屏幕自由走动、空闲时随机播放动作，并在拖动松手后落回任务栏上沿。左键切换动作，右键打开快捷菜单；Windows 和 Linux 端双击打开启动台。Windows 下遇到全屏应用时会自动避让。
-- **启动台（Windows 和 Linux）**：应用目录和图标在后台预缓存，支持搜索、文件夹、拖动排序和分页浏览。macOS 不创建或预加载启动台。
-- **全局快捷键**：可绑定截图、录制、Prompt 润色、Prompt 库和快捷菜单。暂停全局快捷键后绑定仍会保留，重启应用也不会丢失。
-- **外观**：提供四种布局、浅色与深色主题、跟随系统和减少动效选项。
+- **截图**：截取窗口或全屏，复制、打开标注或仅保存到历史。Linux X11 还支持长截图。
+- **录屏**：将选中的窗口录制为 MP4，可选系统声音和麦克风。
+- **历史记录**：截图与 Prompt 润色各有独立、可搜索的页面；Prompt 记录保留原文、结果、规则和时间。
+- **Prompt**：使用 OpenAI 兼容接口与可复用规则润色剪贴板文本；API Key 保存在系统凭证库。独立的 Prompt 库保存常用文本。
+- **桌面伴侣**：显示前台应用图标或导入 GIF/WebM 动作，支持自由走动、随机动作、重力和右键快捷菜单。Windows、Linux 另有启动台。
+- **快捷键**：绑定常用操作，或暂停全局快捷键并保留绑定。
+- **界面**：中英文、跟随系统的浅色与深色外观；语言在通用页切换。
 
 ## 平台支持
 
@@ -101,19 +65,11 @@ Windows 和 macOS 不需要额外运行工具。Linux 可按需安装：
 
 ## 使用
 
-**快捷操作。** 右键桌面伴侣，或按下快捷菜单快捷键。菜单可截取窗口、截取全屏、录制窗口、打开 Prompt 库，或润色剪贴板里的 Prompt。方向键选择，回车执行，Esc 关闭。
-
-**截图。** 默认放进剪贴板，并在 60 秒后自动清空；期间复制了其它内容则不会误清。偏好设置中可以改为打开标注或仅保存到历史。自动清空时间、图片格式和保存目录位于 **快捷操作 → 剪贴板与保存**。
-
-**录制。** 窗口录像默认保存为 MP4，位于“下载”目录。保存位置以及系统声音、麦克风开关位于 **快捷操作 → 录制**，两个音频来源可以分别启用。
-
-**Prompt 润色。** 在 **偏好设置 → 本机与模型** 中填写接口地址和模型，在 **润色规则** 中维护可复用规则。通过快捷菜单或全局快捷键开始润色，成功结果会连同原文、规则和时间进入历史记录。
-
-**Prompt 库。** 从桌宠快捷菜单或全局快捷键打开（默认 `Ctrl/Cmd+Shift+P`）。可以新建、编辑和搜索，并直接复制任意一条 Prompt，复制后窗口不会关闭。这里的 Prompt 与润色规则、润色历史相互独立。
-
-**桌面伴侣与启动台。** 在桌面伴侣页导入 GIF/WebM 压缩包或单个 GIF/WebM。在 **偏好设置 → 桌面宠物** 中可以开启 **自由走动**、**随机动作** 和 **重力**；开启重力后，拖动松手会让伴侣落回当前工作区底部。单击播放下一个动作；Windows 和 Linux 端双击打开启动台，支持搜索、文件夹、拖动整理和分页。macOS 端没有启动台，点击会立即切换动作，不等待双击。也可以直接从内置的 [Pets 素材库](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md) 安装已发布的伴侣。
-
-**语言与外观。** 在 **偏好设置 → 界面语言** 中选择 **跟随系统**、**简体中文** 或 **English**。布局、颜色和动效在主题库中调整。
+- **截图**：使用截图按钮、伴侣快捷菜单或全局快捷键。在 **截图与录制** 中选择复制、打开标注或仅保存，并配置历史、剪贴板清空时间、格式和目录。默认 60 秒后清空截图剪贴板；期间复制其它内容则不会误清。
+- **录屏**：在录屏菜单里选择窗口。MP4 默认保存到下载目录，在 **截图与录制** 中修改位置。录屏文件与截图历史分开保存。
+- **润色 Prompt**：在 **通用** 中配置模型和规则，再从快捷菜单或快捷键润色剪贴板文本。结果进入 **Prompt 记录**。
+- **复用 Prompt**：从 Prompt 记录、快捷菜单或快捷键（默认 `Ctrl/Cmd+Shift+P`）打开 Prompt 库，搜索、编辑和复制，复制后窗口保持打开。
+- **伴侣**：从侧栏导入 GIF/WebM 或 ZIP，选择伴侣后在对应页面调整桌面行为。Windows 和 Linux 双击伴侣打开启动台；macOS 单击切换动作。
 
 ## 伴侣素材
 
@@ -129,7 +85,8 @@ Windows 和 macOS 不需要额外运行工具。Linux 可按需安装：
 需要 Node.js 22、Rust 1.98.1、对应平台的 [Tauri 2 构建依赖](https://v2.tauri.app/start/prerequisites/)；macOS 还需要 Swift 工具链来构建 ScreenCaptureKit 录制组件。
 
 ```bash
-npm install
+nvm use
+npm ci
 npm run tauri dev
 npm run tauri build
 ```
@@ -141,17 +98,18 @@ Debian 或 Ubuntu 可运行 `sudo bash scripts/linux/install-deps.sh` 安装构�
 ## 验证
 
 ```bash
-npm test          # macOS 签名选择测试 + 本地化文案覆盖检查 + 前端测试
-npm run build     # TypeScript 检查和生产构建
+nvm use
+npm ci
+npm run check              # 前端测试、翻译、构建、Rust fmt/Clippy/test
+npm run check:frontend     # 只跑前端部分
+npm run check:rust         # 只跑 Rust 部分，macOS 自动准备录制组件
+npm run check:unused       # Knip 死代码报告
 npm audit --audit-level=moderate
-
-cd src-tauri
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
 ```
 
-CI 还会运行 RustSec 与 npm 依赖审计，并在 Windows、macOS、Ubuntu 22.04 和 Ubuntu 24.04 上执行 [check.yml](.github/workflows/check.yml)。安装包由 [release.yml](.github/workflows/release.yml) 与 [linux-packages.yml](.github/workflows/linux-packages.yml) 构建并完成安装启动检查。
+CI 在 macOS、Windows、Ubuntu 22.04 和 24.04 复用同一检查入口，另做依赖审计。`npm run dev` 的浏览器预览使用模拟数据，可加 `?demo`；真实截图、录屏和权限需要单独验证。
+
+代码地图见 [AGENTS.md](AGENTS.md)，界面规则见 [DESIGN.md](DESIGN.md)，本轮简化的检查点和回退命令见 [docs/SIMPLIFY.md](docs/SIMPLIFY.md)。
 
 ## 目录结构
 

@@ -29,9 +29,7 @@ jobs:
       - run: npm ci
       - name: npm dependency audit
         run: npm audit --audit-level=moderate
-      - run: npm test
-      # tsc + vite build，前端类型错误在这里就拦住
-      - run: npm run build
+      - run: npm run check:frontend
 
   rust:
     strategy:
@@ -50,6 +48,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       # Keep in sync with rust-toolchain.toml.
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -59,26 +60,11 @@ jobs:
           workspaces: src-tauri
           # 两个 Ubuntu 版本都是 Linux，不分开会互相拿到对方链着另一套系统库的缓存
           key: ${{ matrix.runner }}
-      - name: cargo fmt
-        working-directory: src-tauri
-        run: cargo fmt --check
-      # 直接用仓库里给 Linux 用户的那份依赖脚本，顺带保证它在干净机器上是有效的
+      # 与本地 check:rust 使用相同的格式、Clippy 和测试入口；四个 runner 都保留。
       - name: System deps
         if: runner.os == 'Linux'
         run: bash scripts/linux/install-deps.sh
-      # tauri-build 会校验 externalBin 声明的 sidecar 是否存在，macOS 上要先备好
-      - name: Prepare sidecars
-        if: matrix.name == 'macos'
-        run: npm run prepare:sidecars
-      - name: cargo check
-        working-directory: src-tauri
-        run: cargo check --all-targets
-      - name: cargo clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
-      - name: cargo test
-        working-directory: src-tauri
-        run: cargo test
+      - run: npm run check:rust
 
   security:
     runs-on: ubuntu-24.04

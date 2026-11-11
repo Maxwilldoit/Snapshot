@@ -11,7 +11,12 @@
     "test": "node --test scripts/tests/macos-signing.mjs && node scripts/check-i18n.mjs && vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "tauri": "node scripts/tauri.mjs"
+    "tauri": "node scripts/tauri.mjs",
+    "check": "node scripts/check.mjs",
+    "check:frontend": "node scripts/check.mjs frontend",
+    "check:rust": "node scripts/check.mjs rust",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "check:unused": "knip --no-progress"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
@@ -28,6 +33,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.2.1",
     "jsdom": "^31.0.0",
+    "knip": "6.45.1",
     "typescript": "~7.0.2",
     "vite": "^8.3.6",
     "vitest": "^5.0.5"
