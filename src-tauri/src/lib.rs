@@ -366,6 +366,7 @@ pub fn run() {
             snapshot_index_lock: Mutex::new(()),
         })
         .setup(move |app| {
+            clipboard::keep_alive();
             let state = app.state::<AppState>();
             let settings = state.settings.lock().clone();
             let tracker = state.tracker.clone();

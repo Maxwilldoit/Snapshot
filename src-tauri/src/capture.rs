@@ -304,12 +304,18 @@ fn save_image_as_dialog(
     use tauri_plugin_dialog::DialogExt;
     let (format, ext) = snapshots::snapshot_format_parts(format_setting);
     let suggested = format!("snapshot-{}.{}", Local::now().format("%Y%m%d-%H%M%S"), ext);
-    let picked = app
+    #[allow(unused_mut)]
+    let mut dialog = app
         .dialog()
         .file()
         .set_file_name(&suggested)
-        .add_filter("Image", &[ext, "png", "jpg", "webp"])
-        .blocking_save_file();
+        .add_filter("Image", &[ext, "png", "jpg", "webp"]);
+    // Linux：标注窗口是置顶的，不挂父窗口的话 GTK 保存对话框会被压在它下面
+    #[cfg(target_os = "linux")]
+    if let Some(window) = app.get_webview_window("annotate") {
+        dialog = dialog.set_parent(&window);
+    }
+    let picked = dialog.blocking_save_file();
     let Some(file_path) = picked else {
         return Ok(false); // 用户取消另存，保留标注画布。
     };
@@ -374,7 +380,9 @@ pub(crate) fn open_annotate_window(
 }
 
 /// 截图尺寸是物理像素，窗口尺寸是逻辑像素。按 DPI 换算后再限制到工作区，
-/// 否则高分屏上大图会把工具栏推到屏幕外。
+/// 否则高分屏上大图会把工具栏推到屏幕外。放不下时按图片比例整体缩小，
+/// 窗口和画布同比例，不会一边贴紧、另一边留出大片空白。
+/// 前端：52px 工具栏（macOS 上红黄绿叠在里面）+ 画布四周各 16px。
 fn annotate_window_logical_size(
     image_width: u32,
     image_height: u32,
@@ -382,21 +390,27 @@ fn annotate_window_logical_size(
     work_width: u32,
     work_height: u32,
 ) -> (f64, f64) {
-    const MIN_WIDTH: f64 = 480.0;
-    const MIN_HEIGHT: f64 = 360.0;
+    const MIN_WIDTH: f64 = 720.0; // 工具栏（工具、颜色、撤销、导出）一行放得下
+    const MIN_HEIGHT: f64 = 320.0;
     const MAX_WIDTH: f64 = 1280.0;
     const MAX_HEIGHT: f64 = 900.0;
-    const MARGIN: f64 = 24.0;
-    const CHROME_HEIGHT: f64 = 112.0;
+    const SCREEN_MARGIN: f64 = 24.0;
+    const PADDING: f64 = 16.0;
+    const TOOLBAR_HEIGHT: f64 = 52.0;
 
     let scale = scale.max(0.1);
-    let max_width = (work_width as f64 / scale - MARGIN * 2.0).clamp(MIN_WIDTH, MAX_WIDTH);
-    let max_height = (work_height as f64 / scale - MARGIN * 2.0).clamp(MIN_HEIGHT, MAX_HEIGHT);
-    let desired_width = image_width as f64 / scale + MARGIN;
-    let desired_height = image_height as f64 / scale + CHROME_HEIGHT;
+    let max_width = (work_width as f64 / scale - SCREEN_MARGIN * 2.0).clamp(MIN_WIDTH, MAX_WIDTH);
+    let max_height = (work_height as f64 / scale - SCREEN_MARGIN * 2.0).clamp(MIN_HEIGHT, MAX_HEIGHT);
+    let chrome_width = PADDING * 2.0;
+    let chrome_height = TOOLBAR_HEIGHT + PADDING * 2.0;
+    let image_width = (image_width as f64 / scale).max(1.0);
+    let image_height = (image_height as f64 / scale).max(1.0);
+    let fit = ((max_width - chrome_width) / image_width)
+        .min((max_height - chrome_height) / image_height)
+        .min(1.0);
     (
-        desired_width.clamp(MIN_WIDTH, max_width),
-        desired_height.clamp(MIN_HEIGHT, max_height),
+        (image_width * fit + chrome_width).round().clamp(MIN_WIDTH, max_width),
+        (image_height * fit + chrome_height).round().clamp(MIN_HEIGHT, max_height),
     )
 }
 
@@ -454,30 +468,27 @@ pub(crate) fn annotate_copy(
             .snapshot(snapshot_id.clone()),
     );
     clipboard::copy_image(&app, &state, image, "标注图", snapshot_id)?;
-    hide_annotate_window(&app, &state);
+    // 窗口由前端在按钮打勾、提示停留片刻后收起（annotate_close），这里不立刻隐藏
     Ok(format!(
         "已复制标注图，{}",
         snapshots::format_clear_label(&settings.clipboard_auto_clear)
     ))
 }
 
+/// 另存为。返回 `None` 表示用户在对话框里取消了：标注保留、窗口不收起。
+/// 必须是 async：同步命令跑在主线程，Linux 上 `blocking_save_file` 会等主线程弹 GTK 对话框而卡死。
 #[tauri::command]
-pub(crate) fn annotate_save(
+pub(crate) async fn annotate_save(
     app: AppHandle,
     state: State<'_, AppState>,
     image_data: String,
-) -> Result<String, String> {
+) -> Result<Option<String>, String> {
     let image = decode_png_base64(&image_data)?;
     let format = state.settings.lock().snapshot_format.clone();
     if !save_image_as_dialog(&app, &image, &format)? {
-        return Ok(ui_text(
-            "已取消另存，标注仍保留",
-            "Save canceled. Your annotations are still here.",
-        )
-        .into());
+        return Ok(None);
     }
-    hide_annotate_window(&app, &state);
-    Ok(ui_text("已保存标注图", "Annotated image saved").into())
+    Ok(Some(ui_text("已保存标注图", "Annotated image saved").into()))
 }
 
 #[tauri::command]
@@ -494,7 +505,6 @@ pub(crate) fn annotate_save_copy(
     };
     snapshots::store_snapshot(&state, &image, &title)?;
     let _ = app.emit("snapshots-changed", ());
-    hide_annotate_window(&app, &state);
     Ok(ui_text(
         "标注副本已保存到历史记录",
         "Annotated copy saved to history",
@@ -647,13 +657,37 @@ mod annotate_window_tests {
 
     #[test]
     fn ordinary_capture_keeps_room_for_the_toolbar_and_small_images_are_compact() {
+        // 1:1 放得下：图片 + 四周 16px + 52px 工具栏，不多留空
         let (width, height) = annotate_window_logical_size(1200, 700, 1.0, 1920, 1040);
-        assert_eq!(width, 1224.0);
-        assert_eq!(height, 812.0);
+        assert_eq!(width, 1232.0);
+        assert_eq!(height, 784.0);
+        // Retina 截图按逻辑像素算
+        assert_eq!(
+            annotate_window_logical_size(1292, 836, 2.0, 2940, 1840),
+            (720.0, 502.0)
+        );
+        assert_eq!(
+            annotate_window_logical_size(1600, 1000, 2.0, 2940, 1840),
+            (832.0, 584.0)
+        );
 
         assert_eq!(
             annotate_window_logical_size(100, 80, 1.0, 1920, 1040),
-            (480.0, 360.0)
+            (720.0, 320.0)
+        );
+    }
+
+    #[test]
+    fn oversized_capture_shrinks_with_its_own_aspect_ratio() {
+        // 3:1 的宽图放不下 1280 宽：整体缩小，窗口高度跟着变矮，而不是撑满 900 高再留白
+        let (width, height) = annotate_window_logical_size(3000, 1000, 1.0, 2560, 1440);
+        assert_eq!(width, 1280.0);
+        let image_height = height - 52.0 - 32.0;
+        assert!((((width - 32.0) / image_height) - 3.0).abs() < 0.02, "画布比例应保持 3:1");
+        // 很窄的竖长图：高度到顶，宽度只留到工具栏放得下的最小宽度
+        assert_eq!(
+            annotate_window_logical_size(800, 2400, 1.0, 2560, 1440),
+            (720.0, 900.0)
         );
     }
 }

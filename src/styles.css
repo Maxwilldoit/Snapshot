@@ -297,21 +297,128 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 @keyframes pet-crossfade-out { to { opacity: 0; } }
 
 /* ---------- 截后标注窗口 ---------- */
+/* 和 v12 主窗口同一套颜色（main-window.css 里 html[data-window="annotate"] 的变量）：
+   上面一条 52px 的统一工具栏（macOS 红黄绿叠在左边），下面是「预览」式的灰底画布。 */
 
-.annotate-root { display: flex; flex-direction: column; height: 100vh; background: var(--overlay); color: var(--overlay-ink); }
-.annotate-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border-bottom: 1px solid color-mix(in srgb, var(--overlay-ink) 12%, transparent); }
-.annotate-title { max-width: 28vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
-.annotate-tools, .annotate-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.annotate-tools { margin-right: auto; }
-.annotate-tools button, .annotate-actions button {
-  height: 28px; padding: 0 12px; border: 1px solid color-mix(in srgb, var(--overlay-ink) 22%, transparent);
-  border-radius: 3px; background: none; color: inherit;
+.annotate-root {
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  background: var(--stage); color: var(--text1); font-family: var(--font-sans); font-size: 13px;
+  -webkit-font-smoothing: antialiased; user-select: none;
 }
-.annotate-tools button.is-active { border-color: var(--overlay-ink); font-weight: 600; }
-.annotate-actions .primary-button { border-color: var(--overlay-ink); background: var(--overlay-ink); color: var(--overlay); font-weight: 600; }
-.annotate-stage { flex: 1; min-height: 0; display: grid; place-items: center; overflow: auto; padding: 12px; }
-.annotate-canvas { max-width: 100%; max-height: calc(100vh - 140px); object-fit: contain; cursor: crosshair; touch-action: none; }
-.annotate-status { padding: 8px 12px; border-top: 1px solid color-mix(in srgb, var(--overlay-ink) 12%, transparent); color: var(--overlay-ink-2); font-size: 12px; }
+.annotate-toolbar {
+  display: flex; align-items: center; gap: 4px; flex: 0 0 52px; height: 52px; padding: 0 12px 0 16px;
+  background: var(--win); border-bottom: 0.5px solid var(--sep);
+}
+.annotate-root.is-mac .annotate-toolbar { padding-left: 84px; }
+.annotate-group { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+/* 选中工具的底色是一块滑块，切换时滑过去（160ms），不是逐个按钮闪 */
+.annotate-group.is-tools { position: relative; }
+.annotate-group.is-tools > .an-btn { position: relative; z-index: 1; }
+.annotate-pill {
+  position: absolute; top: 50%; left: 0; z-index: 0; height: 26px; margin-top: -13px; border-radius: 6px;
+  background: var(--fill2); pointer-events: none;
+}
+.annotate-pill.is-moving { transition: transform 160ms cubic-bezier(0.25, 0.8, 0.3, 1), width 160ms cubic-bezier(0.25, 0.8, 0.3, 1); }
+.annotate-group.is-actions { gap: 4px; }
+.annotate-group .annotate-sep { margin: 0 4px; }
+.annotate-sep { flex: 0 0 auto; width: 0.5px; height: 18px; margin: 0 6px; background: var(--sep); }
+.annotate-fill { flex: 1 1 auto; align-self: stretch; min-width: 8px; }
+/* 导出 / 「已复制」确认的这一下：照常显示，只是不接受点击 */
+.annotate-root.is-busy .annotate-toolbar, .annotate-root.is-busy .annotate-canvas { pointer-events: none; }
+.an-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 26px; padding: 0 10px;
+  border: 0; border-radius: 6px; background: none; color: var(--text1); font: inherit; white-space: nowrap; cursor: default;
+  transition: background-color 120ms ease-out, color 120ms ease-out, opacity 120ms ease-out, filter 120ms ease-out;
+}
+.an-btn:hover:not(:disabled) { background: var(--fill); }
+.an-btn:active:not(:disabled) { background: var(--fill2); }
+.an-btn:disabled { opacity: 0.35; }
+.an-btn:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: 0; }
+.an-btn.is-icon { width: 30px; padding: 0; }
+.an-btn svg { width: 16px; height: 16px; stroke-width: 1.6; }
+.an-btn svg.an-glyph { stroke-width: initial; }
+.an-btn.is-on { background: var(--fill2); color: var(--accent); }
+/* 有滑块时选中按钮自己不再铺底色，悬停也不叠一层 */
+.annotate-group.is-tools > .an-btn.is-on, .annotate-group.is-tools > .an-btn.is-on:hover:not(:disabled) { background: none; }
+.annotate-group.is-tools > .an-btn:active:not(:disabled) svg { transform: scale(0.92); }
+.an-btn svg { transition: transform 90ms ease-out; }
+/* 复制/保存成功：图标换成对勾轻轻落定，按钮保持原宽 */
+.an-btn.is-done { opacity: 1 !important; }
+.an-btn.is-icon.is-done { color: var(--accent); }
+.an-check { animation: an-check-in 180ms cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+@keyframes an-check-in { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: none; } }
+.an-btn.is-primary { min-width: 64px; padding: 0 14px; background: var(--accent); color: #fff; font-weight: 500; }
+.an-btn.is-primary .an-check { width: 14px; height: 14px; stroke-width: 2.4; margin-left: -2px; }
+.an-btn.is-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+/* 颜色和粗细：按钮里是当前颜色的圆点（大小表示粗细），点开是 6 个预设色 + 细/中/粗 */
+.annotate-style { position: relative; flex: 0 0 auto; }
+.an-swatch { display: block; border-radius: 50%; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.28), inset 0 0 0 0.5px rgba(255, 255, 255, 0.2); }
+.an-swatch.is-size-0 { width: 10px; height: 10px; }
+.an-swatch.is-size-1 { width: 13px; height: 13px; }
+.an-swatch.is-size-2 { width: 16px; height: 16px; }
+.annotate-pop {
+  position: absolute; top: calc(100% + 8px); left: 50%; z-index: 5; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 10px; padding: 10px;
+  border-radius: 10px; background: var(--pop); box-shadow: var(--shadow-dialog);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+  transform-origin: 50% -8px; animation: an-pop-in 120ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+/* 从按钮下方长出来，收起时缩回去 */
+.annotate-pop.is-closing { pointer-events: none; animation: an-pop-out 110ms ease-in both; }
+@keyframes an-pop-in { from { opacity: 0; transform: translateX(-50%) scale(0.94); } to { opacity: 1; transform: translateX(-50%); } }
+@keyframes an-pop-out { from { opacity: 1; transform: translateX(-50%); } to { opacity: 0; transform: translateX(-50%) scale(0.96); } }
+/* 不支持背景模糊（部分 Linux WebKitGTK）时用不透明底色，文字不会糊在画面上 */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .annotate-pop { background: var(--win); }
+}
+.annotate-swatches { display: flex; gap: 8px; }
+.annotate-swatch {
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; cursor: default;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); transition: box-shadow 120ms ease-out, transform 90ms ease-out;
+}
+.annotate-swatch:active { transform: scale(0.9); }
+.annotate-swatch.is-on { box-shadow: 0 0 0 2px var(--pop), 0 0 0 3.5px var(--accent); }
+.annotate-sizes { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--fill); }
+.annotate-size {
+  display: grid; place-items: center; flex: 1 1 0; height: 24px; padding: 0; border: 0; border-radius: 5px;
+  background: none; color: var(--text1); cursor: default; transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.annotate-size span { border-radius: 50%; background: currentColor; }
+.annotate-size.is-on { background: var(--btn); box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.18); }
+.annotate-stage {
+  position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;
+  padding: 16px; overflow: hidden;
+}
+.annotate-canvas {
+  display: block; max-width: 100%; max-height: 100%; border-radius: 2px; cursor: crosshair; touch-action: none;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 2px 10px -2px rgba(0, 0, 0, 0.16);
+}
+.annotate-canvas.is-empty { visibility: hidden; animation: none; }
+/* 图片加载好后轻轻落定：尺寸一开始就是最终的，只动透明度和一点点缩放，不会跳版 */
+.annotate-canvas:not(.is-empty) { animation: an-settle 150ms cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+@keyframes an-settle { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: none; } }
+/* 正在输入的文字：直接用标注的字体和颜色写在图上，虚线框提示还在编辑 */
+.annotate-text {
+  position: absolute; z-index: 2; min-width: 24px; margin: 0; padding: 0; border: 0; overflow: hidden; resize: none;
+  background: transparent; outline: 1px dashed color-mix(in srgb, var(--accent) 80%, transparent); outline-offset: 3px;
+  white-space: pre; caret-color: currentColor; user-select: text; animation: an-fade-in 90ms ease-out both;
+  text-shadow: 0 0 1px #fff, 0 0 1px #fff, 0 0 2px #fff, 0 0 2px #fff;
+}
+.annotate-text.is-light { text-shadow: 0 0 1px #000, 0 0 1px #000, 0 0 2px #000, 0 0 2px #000; }
+.annotate-status {
+  position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: calc(100% - 48px);
+  padding: 6px 12px; border-radius: 8px; background: var(--toast); color: var(--on-toast);
+  font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+  box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.25);
+  animation: an-toast-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.annotate-status.is-leaving { animation: an-toast-out 140ms ease-in both; }
+@keyframes an-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.98); } to { opacity: 1; transform: translateX(-50%); } }
+@keyframes an-toast-out { from { opacity: 1; transform: translateX(-50%); } to { opacity: 0; transform: translateX(-50%) translateY(4px); } }
+@keyframes an-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .annotate-root *, .annotate-root *::before, .annotate-root *::after { animation: none !important; transition: none !important; }
+}
 
 /* ---------- 快捷菜单窗口 ---------- */
 

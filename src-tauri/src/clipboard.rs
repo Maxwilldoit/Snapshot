@@ -20,6 +20,25 @@ pub(crate) struct ClipboardState {
     fingerprint: u64,
 }
 
+/// Linux（X11/XWayland）上剪贴板内容由写入它的进程自己提供：arboard 在最后一个
+/// `Clipboard` 释放时只给剪贴板管理器 100ms 接手，没装管理器、或整张截图来不及交出去时，
+/// 刚复制的图（标注图、截图、润色文字）一粘贴就是空的。启动时常驻一个实例，应用活着内容就在。
+#[cfg(target_os = "linux")]
+pub(crate) fn keep_alive() {
+    static KEPT: AtomicBool = AtomicBool::new(false);
+    if KEPT.load(Ordering::SeqCst) {
+        return;
+    }
+    if let Ok(clipboard) = Clipboard::new() {
+        // 故意不释放：它在，arboard 的剪贴板服务线程就一直在
+        std::mem::forget(clipboard);
+        KEPT.store(true, Ordering::SeqCst);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn keep_alive() {}
+
 /// 把图放进剪贴板，并按偏好安排自动清空。
 pub(crate) fn copy_image(
     app: &AppHandle,
@@ -28,6 +47,7 @@ pub(crate) fn copy_image(
     label: &str,
     snapshot_id: Option<String>,
 ) -> Result<(), String> {
+    keep_alive(); // 启动时没连上显示服务的话，这里再补一次
     let delay = snapshots::clipboard_clear_delay(&state.settings.lock().clipboard_auto_clear);
     let width = image.width() as usize;
     let height = image.height() as usize;

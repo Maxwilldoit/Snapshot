@@ -1,13 +1,15 @@
 /*
  * 主窗口外观（v12）：侧栏 + 统一工具栏 + 分组列表，跟随系统浅色/深色。
  * 全部挂在 :root[data-window="main"] 下（main.tsx 按窗口标签设置），
- * 桌宠、快捷菜单、标注、启动台、素材库、Prompt 库这些窗口继续用原来的样式。
+ * 标注窗口也共用这套颜色变量（见 styles.css 的「截后标注窗口」），
+ * 桌宠、快捷菜单、启动台、素材库、Prompt 库这些窗口继续用原来的样式。
  */
 
-html[data-window="main"] {
+html[data-window="main"], html[data-window="annotate"] {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "PingFang SC",
-    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "JetBrains Mono", monospace;
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
+    Cantarell, Ubuntu, system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "JetBrains Mono", "DejaVu Sans Mono", monospace;
   --accent: #007aff;
   --text1: #1d1d1f; --text2: rgba(60, 60, 67, 0.78); --text3: rgba(60, 60, 67, 0.5); --text4: rgba(60, 60, 67, 0.3);
   --sep: rgba(0, 0, 0, 0.085); --fill: rgba(0, 0, 0, 0.045); --fill2: rgba(0, 0, 0, 0.075);
@@ -25,7 +27,7 @@ html[data-window="main"] {
   --signal: var(--red); --signal-soft: rgba(255, 59, 48, 0.35); --on-ink: #fff;
   --thumb-empty: var(--fill); --shadow-dialog: 0 0 0 0.5px rgba(0, 0, 0, 0.18), 0 20px 50px -10px rgba(0, 0, 0, 0.35);
 }
-html[data-window="main"][data-theme="dark"] {
+html[data-window="main"][data-theme="dark"], html[data-window="annotate"][data-theme="dark"] {
   --accent: #0a84ff;
   --text1: #f5f5f7; --text2: rgba(235, 235, 245, 0.72); --text3: rgba(235, 235, 245, 0.46); --text4: rgba(235, 235, 245, 0.26);
   --sep: rgba(255, 255, 255, 0.09); --fill: rgba(255, 255, 255, 0.06); --fill2: rgba(255, 255, 255, 0.1);
