@@ -99,7 +99,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' customprotocol: media: http://media.localhost; img-src 'self' media: http://media.localhost https://raw.githubusercontent.com/Maxwilldoit/Pets/ data: blob:; media-src 'self' media: http://media.localhost blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost media: http://media.localhost https:"
+      "csp": "default-src 'self' customprotocol: media: http://media.localhost; img-src 'self' media: http://media.localhost https://raw.githubusercontent.com/Maxwilldoit/Pets/ data: blob:; media-src 'self' media: http://media.localhost blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost media: http://media.localhost"
     }
   },
   "bundle": {

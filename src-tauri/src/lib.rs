@@ -75,6 +75,8 @@ struct AppState {
     thumbs_dir: PathBuf,
     /// 导入时复制进来的伴侣素材与它们的缩略图
     pets_dir: PathBuf,
+    /// 导入时复制进来的自定义快门声（只留当前那一份）
+    sounds_dir: PathBuf,
     activity: Mutex<activity::ActivityLog>,
     prompt_history: Mutex<prompt_history::PromptHistory>,
     saved_prompts: Mutex<prompt_library::PromptLibrary>,
@@ -114,6 +116,24 @@ struct AppState {
 
 static INTERFACE_ENGLISH: AtomicBool = AtomicBool::new(false);
 pub(crate) const AUTOSTART_ARG: &str = "--autostart";
+
+/// 交给系统去开的辅助进程（open、xdg-open、启动的应用）不用等，但得有人回收，免得留下僵尸进程。
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn reap_in_background(mut child: std::process::Child) {
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+}
+
+/// 读写大图、文件的命令放到阻塞线程池里跑：同步命令占着主线程，期间整个界面都会卡住。
+pub(crate) async fn on_worker<T: Send + 'static>(
+    app: AppHandle,
+    task: impl FnOnce(&AppHandle, &AppState) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || task(&app, &app.state::<AppState>()))
+        .await
+        .map_err(|error| error.to_string())?
+}
 
 pub(crate) fn interface_is_english() -> bool {
     INTERFACE_ENGLISH.load(Ordering::Relaxed)
@@ -306,10 +326,16 @@ pub fn run() {
     let snapshots_dir = snapshots::default_history_dir(&legacy_snapshots_dir);
     let thumbs_dir = data_dir.join("thumbs");
     let pets_dir = data_dir.join("pets");
+    let sounds_dir = data_dir.join("sounds");
     let activity_path = settings_path.with_file_name("activity.json");
     let prompt_history_path = data_dir.join("prompt-history.json");
     let saved_prompts_path = data_dir.join("saved-prompts.json");
-    let settings = settings::read_settings(&settings_path);
+    let mut settings = settings::read_settings(&settings_path);
+    if settings::adopt_custom_sound(&mut settings, &sounds_dir) {
+        if let Err(error) = settings::persist_settings(&settings_path, &settings) {
+            eprintln!("snapshot: could not record the copied custom sound: {error}");
+        }
+    }
     if settings.save_dir.trim().is_empty() {
         let migration_marker = data_dir.join("snapshot-history-migrated");
         if let Err(error) = snapshots::migrate_legacy_history(
@@ -336,6 +362,7 @@ pub fn run() {
             snapshots_dir,
             thumbs_dir,
             pets_dir,
+            sounds_dir,
             activity: Mutex::new(activity::ActivityLog::load(activity_path)),
             prompt_history: Mutex::new(prompt_history::PromptHistory::load(prompt_history_path)),
             saved_prompts: Mutex::new(prompt_library::PromptLibrary::load(saved_prompts_path)),
@@ -627,6 +654,7 @@ pub fn run() {
             shortcuts::get_shortcut_conflicts,
             shortcuts::set_shortcuts_paused,
             settings::save_preferences,
+            settings::import_custom_sound,
             tracker::get_previous_app,
             tracker::list_capturable_windows,
             #[cfg(target_os = "macos")]

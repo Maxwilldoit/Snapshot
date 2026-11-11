@@ -443,31 +443,50 @@ fn decode_png_base64(data: &str) -> Result<RgbaImage, String> {
 }
 
 #[tauri::command]
-pub(crate) fn annotate_copy(
-    app: AppHandle,
-    state: State<'_, AppState>,
+pub(crate) async fn annotate_copy(app: AppHandle, image_data: String) -> Result<String, String> {
+    on_worker(app, move |app, state| {
+        annotate_copy_now(app, state, image_data)
+    })
+    .await
+}
+
+fn annotate_copy_now(
+    app: &AppHandle,
+    state: &AppState,
     image_data: String,
 ) -> Result<String, String> {
     let image = decode_png_base64(&image_data)?;
     let settings = state.settings.lock().clone();
-    let snapshot_id = if settings.auto_save_local {
-        snapshots::store_snapshot(&state, &image, "标注")
-            .ok()
-            .map(|record| record.id)
-    } else {
-        None
+    // 存历史失败不拦着复制，但要说出来：不然用户以为历史里有这张
+    let archived = settings
+        .auto_save_local
+        .then(|| snapshots::store_snapshot(state, &image, "标注"));
+    let archive_error = match &archived {
+        Some(Err(error)) => {
+            activity::record_error(
+                app,
+                ui_text("保存到历史记录失败", "Couldn’t save to History"),
+                error,
+            );
+            Some(error.clone())
+        }
+        _ => None,
     };
+    let snapshot_id = archived.and_then(Result::ok).map(|record| record.id);
     if snapshot_id.is_some() {
         let _ = app.emit("snapshots-changed", ());
     }
     activity::record(
-        &app,
+        app,
         activity::Activity::new("capture", ui_text("标注图", "Marked-up image"))
             .meta(format!("{} × {}", image.width(), image.height()))
             .snapshot(snapshot_id.clone()),
     );
-    clipboard::copy_image(&app, &state, image, "标注图", snapshot_id)?;
+    clipboard::copy_image(app, state, image, "标注图", snapshot_id)?;
     // 窗口由前端在按钮打勾、提示停留片刻后收起（annotate_close），这里不立刻隐藏
+    if let Some(error) = archive_error {
+        return Ok(format!("已复制，但没能存进历史记录：{error}"));
+    }
     let clear_label = snapshots::format_clear_label(&settings.clipboard_auto_clear);
     if interface_is_english() {
         return Ok(snapshots::english_sentence("Copied.", &clear_label));
@@ -492,9 +511,19 @@ pub(crate) async fn annotate_save(
 }
 
 #[tauri::command]
-pub(crate) fn annotate_save_copy(
+pub(crate) async fn annotate_save_copy(
     app: AppHandle,
-    state: State<'_, AppState>,
+    image_data: String,
+) -> Result<String, String> {
+    on_worker(app, move |app, state| {
+        annotate_save_copy_now(app, state, image_data)
+    })
+    .await
+}
+
+fn annotate_save_copy_now(
+    app: &AppHandle,
+    state: &AppState,
     image_data: String,
 ) -> Result<String, String> {
     let image = decode_png_base64(&image_data)?;
@@ -503,7 +532,7 @@ pub(crate) fn annotate_save_copy(
     } else {
         format!("{} · 标注", state.annotate_title.lock())
     };
-    snapshots::store_snapshot(&state, &image, &title)?;
+    snapshots::store_snapshot(state, &image, &title)?;
     let _ = app.emit("snapshots-changed", ());
     Ok(ui_text("标注副本已保存到历史记录", "Saved a copy to History.").into())
 }
@@ -562,7 +591,7 @@ pub(crate) fn capture_fullscreen_image(
     let (image, note) = capture_area(include_cursor, area, "显示器", trace, || {
         monitor
             .capture_image()
-            .map_err(|error| format!("全屏截取失败：{error} / fullscreen capture failed: {error}"))
+            .map_err(|error| format!("全屏截取失败：{error}"))
     })?;
     Ok((image, name, note))
 }

@@ -12,7 +12,7 @@
 //!   pet-walk/<形象 id>/<动作路径>  拖动时播的走路动作（横穿画布的改成原地走）
 //!   pet-thumb/<形象 id>          默认动作的第一帧
 //!   icon/<pid>/<边长>
-//!   sound/<设置里选定的自定义音效路径>
+//!   sound/<设置里选定、已复制进应用数据目录的自定义音效路径>
 
 use super::*;
 use percent_encoding::percent_decode_str;
@@ -154,7 +154,9 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
         "sound" => {
             // 只放行设置里选定的那一个文件，不能借这个口子读别的路径
             let configured = state.settings.lock().custom_sound_path.clone();
-            if configured.as_deref() != Some(rest) {
+            if configured.as_deref() != Some(rest)
+                || !settings::is_stored_sound(&state.sounds_dir, rest)
+            {
                 return Err("只能读取设置里选定的音效文件".into());
             }
             let bytes = fs::read(rest).map_err(|_| "音效文件已被移动或删除".to_string())?;

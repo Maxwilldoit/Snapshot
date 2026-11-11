@@ -3,7 +3,7 @@
 //! 启动时后台预加载应用清单，打开时先用本地缓存，再后台检查变化。
 //! 配置只保存用户的顺序和文件夹；可重建的扫描结果单独缓存。
 
-use super::{actions, os, settings, AppState};
+use super::{actions, on_worker, os, settings, AppState};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State};
@@ -382,16 +382,16 @@ pub(crate) fn save_launchpad(
     Ok(())
 }
 
+/// 在工作线程里启动：Linux 要等一下 `gio launch` 的结果，别让启动台卡住。
 #[tauri::command]
-pub(crate) fn launch_app(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
-    let target = target_of(&state, &id).ok_or_else(|| "这个应用已经不在了".to_string())?;
-    os::launch_target(&target)?;
-    conceal(&app);
-    Ok(())
+pub(crate) async fn launch_app(app: AppHandle, id: String) -> Result<(), String> {
+    on_worker(app, move |app, state| {
+        let target = target_of(state, &id).ok_or_else(|| "这个应用已经不在了".to_string())?;
+        os::launch_target(&target)?;
+        conceal(app);
+        Ok(())
+    })
+    .await
 }
 
 #[cfg(test)]

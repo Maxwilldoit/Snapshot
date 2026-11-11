@@ -5,7 +5,9 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use crate::launchpad::InstalledApp;
@@ -26,7 +28,7 @@ pub(crate) fn installed_apps() -> Vec<InstalledApp> {
 }
 
 pub(crate) fn launch_target(target: &str) -> Result<(), String> {
-    if Command::new("gio").args(["launch", target]).spawn().is_ok() {
+    if gio_launch(target) {
         return Ok(());
     }
     let text = fs::read_to_string(target).map_err(|_| "这个应用的启动项已经不在了".to_string())?;
@@ -40,8 +42,34 @@ pub(crate) fn launch_target(target: &str) -> Result<(), String> {
     Command::new(program)
         .args(args)
         .spawn()
-        .map(|_| ())
+        .map(crate::reap_in_background)
         .map_err(|error| format!("无法启动这个应用：{error}"))
+}
+
+/// `gio launch` 起得来不代表应用起来了：它找不到或开不了会马上以非零退出。
+/// 等它一小会儿看结果；还没退出就当已交给桌面环境，留给后台回收。
+fn gio_launch(target: &str) -> bool {
+    let Ok(mut child) = Command::new("gio")
+        .args(["launch", target])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            Ok(None) => {
+                crate::reap_in_background(child);
+                return true;
+            }
+            Err(_) => return false,
+        }
+    }
 }
 
 pub(crate) fn launch_icon_png(target: &str, _size: u32) -> Option<Vec<u8>> {

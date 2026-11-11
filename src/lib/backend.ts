@@ -98,6 +98,9 @@ export const getShortcutConflicts = () => invoke<string[]>("get_shortcut_conflic
 export const savePreferences = (prefs: Partial<Settings>) =>
   invoke<Settings>("save_preferences", { prefs });
 
+/** 把选中的音效复制进应用数据目录并设为快门声；之后只播那份副本 */
+export const importCustomSound = (path: string) => invoke<Settings>("import_custom_sound", { path });
+
 export const getPreviousApp = () => invoke<PreviousApp>("get_previous_app");
 
 export const listWindows = () => invoke<CapturableWindow[]>("list_capturable_windows");

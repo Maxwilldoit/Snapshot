@@ -181,20 +181,27 @@ pub(crate) struct PetImportResult {
 /// 每个文件复制一份进应用数据目录再用：原先按原路径读取，用户清一次「下载」文件夹，
 /// 形象就大面积失效。坏的那几个单独列出原因，不连累其它。
 #[tauri::command]
-pub(crate) fn add_pet_assets(
+pub(crate) async fn add_pet_assets(
     app: AppHandle,
-    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<PetImportResult, String> {
+    on_worker(app, move |app, state| add_pet_assets_now(app, state, paths)).await
+}
+
+fn add_pet_assets_now(
+    app: &AppHandle,
+    state: &AppState,
     paths: Vec<String>,
 ) -> Result<PetImportResult, String> {
     let mut imported = Vec::new();
     let mut failed = Vec::new();
     for path in paths {
-        match prepare_import(&state, &path) {
+        match prepare_import(state, &path) {
             Ok(asset) => imported.push(asset),
             Err(reason) => failed.push(PetImportFailure { path, reason }),
         }
     }
-    register_imports(&app, &state, imported, failed)
+    register_imports(app, state, imported, failed)
 }
 
 fn register_imports(
@@ -642,6 +649,8 @@ pub(crate) fn delete_pet_asset(
 /// 形象架上的静态缩略图：默认 GIF 动作的第一帧。WebM 由前端用暂停的视频显示首帧。
 /// 几十个动画同时动起来既吵又费电，架子上只放静态帧。
 pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
+    // 先认登记过的 id 再拼路径：地址里的 id 是外来的，不能拿它去碰任意文件
+    find_asset(state, id)?;
     let path = thumb_path(pets_dir(state), id);
     if let Ok(bytes) = fs::read(&path) {
         return Ok(bytes);
@@ -704,19 +713,23 @@ pub(crate) fn read_animation(
 }
 
 /// 按动作名把素材原样读出来（压缩包里的条目，或者直接导入的动画），不碰背景。
-fn read_raw_animation(
-    state: &AppState,
-    id: &str,
-    entry: Option<&str>,
-) -> Result<(String, Vec<u8>), String> {
-    let asset = state
+fn find_asset(state: &AppState, id: &str) -> Result<PetAsset, String> {
+    state
         .settings
         .lock()
         .pet_assets
         .iter()
         .find(|asset| asset.id == id)
         .cloned()
-        .ok_or_else(|| "找不到这个形象".to_string())?;
+        .ok_or_else(|| "找不到这个形象".to_string())
+}
+
+fn read_raw_animation(
+    state: &AppState,
+    id: &str,
+    entry: Option<&str>,
+) -> Result<(String, Vec<u8>), String> {
+    let asset = find_asset(state, id)?;
     let archive_path = PathBuf::from(&asset.path);
     let requested = entry.filter(|value| !value.is_empty());
     let entry_name = if let Some(requested) = requested {
@@ -811,6 +824,7 @@ pub(crate) fn read_walk(state: &AppState, id: &str, entry: &str) -> Result<Vec<u
     if is_pet_webm(entry) {
         return read_animation(state, id, Some(entry));
     }
+    find_asset(state, id)?;
     let cache = walk_cache_path(pets_dir(state), id, entry);
     if let Ok(bytes) = fs::read(&cache) {
         return Ok(bytes);

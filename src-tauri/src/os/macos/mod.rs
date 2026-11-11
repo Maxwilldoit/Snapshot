@@ -47,7 +47,7 @@ pub(crate) fn open_folder(path: &Path) -> Result<(), String> {
     Command::new("open")
         .arg(path)
         .spawn()
-        .map(|_| ())
+        .map(crate::reap_in_background)
         .map_err(|error| format!("无法打开访达：{error}"))
 }
 

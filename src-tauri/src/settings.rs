@@ -5,11 +5,14 @@ use serde_json::Value;
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        LazyLock,
+    },
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 const KEYRING_SERVICE: &str = "com.appsnapshot.snapshot";
 const KEYRING_USER: &str = "polish-api-key";
@@ -446,10 +449,8 @@ pub(crate) fn save_prompt_settings(
     state: State<'_, AppState>,
     input: PromptSettingsInput,
 ) -> Result<Settings, String> {
-    if !input.base_url.is_empty()
-        && !(input.base_url.starts_with("http://") || input.base_url.starts_with("https://"))
-    {
-        return Err("Base URL 必须以 http:// 或 https:// 开头".into());
+    if !input.base_url.trim().is_empty() {
+        validate_base_url(&input.base_url)?;
     }
     if let Some(key) = input.api_key.as_ref().filter(|key| !key.trim().is_empty()) {
         keyring_entry()?
@@ -518,6 +519,35 @@ pub(crate) fn sync_builtin_prompt(settings: &mut Settings, english: bool) -> boo
     false
 }
 
+enum ModelsKey {
+    Typed(String),
+    Saved,
+}
+
+/// 拉模型列表时带哪个 Key：填了就用填的；没填时，存着的 Key 只发给存它时的那个地址，
+/// 换了地址就得重新填，免得把 Key 交给别的服务。
+fn models_key(
+    typed: Option<String>,
+    saved_url: &str,
+    has_saved_key: bool,
+    requested_url: &str,
+) -> Result<Option<ModelsKey>, String> {
+    if let Some(key) = typed
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(Some(ModelsKey::Typed(key)));
+    }
+    if !has_saved_key {
+        return Ok(None);
+    }
+    if same_base_url(saved_url, requested_url) {
+        Ok(Some(ModelsKey::Saved))
+    } else {
+        Err("接口地址改了，请重新填写 API Key".into())
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn fetch_models(
     state: State<'_, AppState>,
@@ -525,16 +555,15 @@ pub(crate) async fn fetch_models(
     api_key: Option<String>,
 ) -> Result<Vec<String>, String> {
     let endpoint = make_models_endpoint(&base_url)?;
-    let key = api_key
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| value.trim().to_string())
-        .or_else(|| {
-            if state.settings.lock().has_api_key {
-                keyring_entry().ok()?.get_password().ok()
-            } else {
-                None
-            }
-        });
+    let key = {
+        let settings = state.settings.lock();
+        models_key(api_key, &settings.base_url, settings.has_api_key, &base_url)?
+    };
+    let key = match key {
+        Some(ModelsKey::Typed(key)) => Some(key),
+        Some(ModelsKey::Saved) => keyring_entry()?.get_password().ok(),
+        None => None,
+    };
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -622,7 +651,12 @@ pub(crate) fn save_preferences(
         settings.shutter_sound = value;
     }
     if let Some(value) = prefs.custom_sound_path {
-        settings.custom_sound_path = value.as_str().map(str::to_string);
+        // 只能清空或原样回传；换音效要走 import_custom_sound，免得把任意路径塞进媒体协议
+        match value.as_str() {
+            None => settings.custom_sound_path = None,
+            Some(path) if settings.custom_sound_path.as_deref() == Some(path) => {}
+            Some(_) => return Err("请用「导入」选择音效文件".into()),
+        }
     }
     if let Some(value) = prefs.flash_on_capture {
         settings.flash_on_capture = value;
@@ -668,19 +702,134 @@ pub(crate) fn save_preferences(
     Ok(result)
 }
 
-fn make_models_endpoint(base_url: &str) -> Result<String, String> {
-    let trimmed = base_url.trim().trim_end_matches('/');
-    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
-        return Err("Base URL 必须以 http:// 或 https:// 开头".into());
+const SOUND_EXTENSIONS: [&str; 4] = ["mp3", "wav", "ogg", "m4a"];
+const SOUND_SIZE_LIMIT: u64 = 20 * 1024 * 1024;
+
+/// 导入的快门声复制一份进应用数据目录，之后只播这份：原文件挪走、删掉都不受影响，
+/// 媒体协议也只需放行这个目录里的文件。
+pub(crate) fn store_custom_sound(sounds_dir: &Path, source: &Path) -> Result<PathBuf, String> {
+    let ext = source
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|ext| SOUND_EXTENSIONS.contains(&ext.as_str()))
+        .ok_or_else(|| "只支持 MP3、WAV、OGG、M4A 音效".to_string())?;
+    let meta = fs::metadata(source).map_err(|_| "音效文件已被移动或删除".to_string())?;
+    if !meta.is_file() {
+        return Err("音效文件已被移动或删除".into());
     }
+    fs::create_dir_all(sounds_dir).map_err(|error| format!("无法保存音效：{error}"))?;
+    let target = sounds_dir.join(format!("shutter-{}.{ext}", super::now_millis()));
+    let partial = target.with_extension("partial");
+    fs::copy(source, &partial)
+        .and_then(|_| fs::rename(&partial, &target))
+        .map_err(|error| {
+            let _ = fs::remove_file(&partial);
+            format!("无法保存音效：{error}")
+        })?;
+    // 只留当前这一份
+    if let Ok(entries) = fs::read_dir(sounds_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path != target {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    Ok(target)
+}
+
+/// 设置里的音效是不是应用自己目录里的那份（媒体协议只放行这种）
+pub(crate) fn is_stored_sound(sounds_dir: &Path, path: &str) -> bool {
+    let path = Path::new(path);
+    path.parent() == Some(sounds_dir)
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("shutter-"))
+}
+
+/// 老版本直接记了原文件路径：启动时复制一份进来，复制不了（原文件已不在）就保持原样。
+pub(crate) fn adopt_custom_sound(settings: &mut Settings, sounds_dir: &Path) -> bool {
+    let Some(path) = settings.custom_sound_path.clone() else {
+        return false;
+    };
+    if is_stored_sound(sounds_dir, &path) {
+        return false;
+    }
+    match store_custom_sound(sounds_dir, Path::new(&path)) {
+        Ok(stored) => {
+            settings.custom_sound_path = Some(stored.to_string_lossy().into_owned());
+            true
+        }
+        Err(error) => {
+            eprintln!("snapshot: custom sound left in place ({path}): {error}");
+            false
+        }
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn import_custom_sound(app: AppHandle, path: String) -> Result<Settings, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        // 上限只管新导入的；老设置里已经在用的那份不管多大都照搬，免得升级后快门声没了
+        if fs::metadata(&path).is_ok_and(|meta| meta.len() > SOUND_SIZE_LIMIT) {
+            return Err("音效文件太大（上限 20 MB）".into());
+        }
+        let stored = store_custom_sound(&state.sounds_dir, Path::new(&path))?;
+        let mut settings = state.settings.lock();
+        settings.shutter_sound = "custom".into();
+        settings.custom_sound_path = Some(stored.to_string_lossy().into_owned());
+        persist_settings(&state.settings_path, &settings)?;
+        let result = settings.clone();
+        emit_settings(&app, &result);
+        Ok(result)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// 接口地址只认 https；http 只留给本机上跑的服务（Ollama、LM Studio 之类），Key 不走明文出网。
+pub(crate) fn validate_base_url(base_url: &str) -> Result<&str, String> {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    let url = reqwest::Url::parse(trimmed).map_err(|_| "Base URL 无效".to_string())?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| "Base URL 无效".to_string())?
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    let loopback = match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => host == "localhost" || host.ends_with(".localhost"),
+    };
+    match url.scheme() {
+        "https" => Ok(trimmed),
+        "http" if loopback => Ok(trimmed),
+        _ => Err("Base URL 须以 https:// 开头，本机服务可用 http://".into()),
+    }
+}
+
+fn same_base_url(saved: &str, requested: &str) -> bool {
+    let normalize = |value: &str| value.trim().trim_end_matches('/').to_ascii_lowercase();
+    !saved.trim().is_empty() && normalize(saved) == normalize(requested)
+}
+
+pub(crate) fn has_version_suffix(path: &str) -> bool {
+    static VERSION_SUFFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/v\d+$").unwrap());
+    VERSION_SUFFIX.is_match(path)
+}
+
+fn make_models_endpoint(base_url: &str) -> Result<String, String> {
+    let trimmed = validate_base_url(base_url)?;
     if trimmed.ends_with("/models") {
         return Ok(trimmed.into());
     }
     if let Some(prefix) = trimmed.strip_suffix("/chat/completions") {
         return Ok(format!("{prefix}/models"));
     }
-    let version_suffix = Regex::new(r"/v\d+$").unwrap().is_match(trimmed);
-    Ok(if version_suffix {
+    Ok(if has_version_suffix(trimmed) {
         format!("{trimmed}/models")
     } else {
         format!("{trimmed}/v1/models")
@@ -845,5 +994,82 @@ mod tests {
         assert_eq!(clamp_pet_scale(10), 30);
         assert_eq!(clamp_pet_scale(150), 150);
         assert_eq!(clamp_pet_scale(300), 200);
+    }
+
+    #[test]
+    fn base_url_allows_plain_http_only_on_this_machine() {
+        assert!(validate_base_url("https://api.example.com/v1/").is_ok());
+        assert!(validate_base_url("http://localhost:11434").is_ok());
+        assert!(validate_base_url("http://127.0.0.1:1234/v1").is_ok());
+        assert!(validate_base_url("http://[::1]:8080").is_ok());
+        assert!(validate_base_url("http://api.example.com").is_err());
+        assert!(validate_base_url("http://localhost.example.com").is_err());
+        assert!(validate_base_url("ftp://localhost").is_err());
+        assert!(validate_base_url("not a url").is_err());
+    }
+
+    #[test]
+    fn saved_key_only_goes_to_the_saved_base_url() {
+        let saved = "https://api.example.com/v1";
+        let pick = |typed: Option<&str>, has_saved: bool, url: &str| {
+            models_key(typed.map(str::to_string), saved, has_saved, url)
+        };
+        assert!(matches!(
+            pick(Some(" typed "), true, "https://evil.example/v1"),
+            Ok(Some(ModelsKey::Typed(key))) if key == "typed"
+        ));
+        assert!(matches!(
+            pick(None, true, " https://API.example.com/v1/ "),
+            Ok(Some(ModelsKey::Saved))
+        ));
+        assert!(pick(Some("  "), true, "https://evil.example/v1").is_err());
+        assert!(pick(None, true, "http://127.0.0.1:9/v1").is_err());
+        assert!(matches!(
+            pick(None, false, "https://evil.example/v1"),
+            Ok(None)
+        ));
+        assert!(models_key(None, "", true, saved).is_err());
+    }
+
+    #[test]
+    fn custom_sound_is_copied_in_and_old_paths_are_adopted_once() {
+        let root = std::env::temp_dir().join(format!(
+            "snapshot-sound-{}-{}",
+            std::process::id(),
+            super::super::now_millis()
+        ));
+        let sounds = root.join("sounds");
+        fs::create_dir_all(&root).unwrap();
+        let original = root.join("Shutter.WAV");
+        fs::write(&original, b"RIFF").unwrap();
+        fs::write(root.join("notes.txt"), b"x").unwrap();
+
+        assert!(store_custom_sound(&sounds, &root.join("notes.txt")).is_err());
+        assert!(store_custom_sound(&sounds, &root.join("gone.mp3")).is_err());
+
+        let mut settings = Settings {
+            custom_sound_path: Some(original.to_string_lossy().into_owned()),
+            ..Settings::default()
+        };
+        assert!(!is_stored_sound(
+            &sounds,
+            settings.custom_sound_path.as_deref().unwrap()
+        ));
+        assert!(adopt_custom_sound(&mut settings, &sounds));
+        let stored = settings.custom_sound_path.clone().unwrap();
+        assert!(is_stored_sound(&sounds, &stored));
+        assert!(stored.ends_with(".wav"));
+        assert_eq!(fs::read(&stored).unwrap(), b"RIFF");
+        assert!(!adopt_custom_sound(&mut settings, &sounds));
+
+        let escaped = sounds.join("..").join("Shutter.WAV");
+        assert!(!is_stored_sound(&sounds, &escaped.to_string_lossy()));
+
+        let mut missing = Settings {
+            custom_sound_path: Some(root.join("gone.mp3").to_string_lossy().into_owned()),
+            ..Settings::default()
+        };
+        assert!(!adopt_custom_sound(&mut missing, &sounds));
+        let _ = fs::remove_dir_all(root);
     }
 }

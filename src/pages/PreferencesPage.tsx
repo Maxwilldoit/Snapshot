@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { savePreferences } from "../lib/backend";
+import { importCustomSound, savePreferences } from "../lib/backend";
 import { previewHintSound } from "../lib/sound";
 import { Switch } from "../components/ui/Switch";
 import { Choices } from "../components/ui/Choices";
@@ -66,18 +66,24 @@ export function SnapshotPanel() {
 
 /** 截屏那一下：快门声、闪一下、带不带鼠标指针 */
 export function BehaviorPanel() {
-  const { settings, caps, notify } = useApp();
+  const { settings, caps, notify, onSaved } = useApp();
   const update = usePrefs();
   const { t } = useI18n();
 
   async function importShutterSound() {
+    let selected: string | string[] | null;
     try {
-      const selected = await open({ multiple: false, filters: [{ name: t("音效文件"), extensions: ["mp3", "wav", "ogg", "m4a"] }] });
-      if (typeof selected === "string") {
-        await update({ shutterSound: "custom", customSoundPath: selected }, t("自定义音效已导入"));
-      }
+      selected = await open({ multiple: false, filters: [{ name: t("音效文件"), extensions: ["mp3", "wav", "ogg", "m4a"] }] });
     } catch {
       notify(t("当前环境不支持选择文件"), "error");
+      return;
+    }
+    if (typeof selected !== "string") return;
+    try {
+      onSaved(await importCustomSound(selected));
+      notify(t("自定义音效已导入"));
+    } catch (error) {
+      notify(errorText(error), "error");
     }
   }
 

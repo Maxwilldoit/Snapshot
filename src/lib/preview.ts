@@ -240,6 +240,8 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       return update({ hasApiKey: false });
     case "save_preferences":
       return update(args.prefs);
+    case "import_custom_sound":
+      return update({ shutterSound: "custom", customSoundPath: args.path });
     case "save_shortcuts":
       return update({ shortcuts: args.shortcuts });
     case "set_shortcuts_paused":

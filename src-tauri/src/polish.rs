@@ -1,6 +1,10 @@
-use super::settings::{default_prompt, keyring_entry, DEFAULT_PROMPT, DEFAULT_PROMPT_EN};
+use super::settings::{
+    default_prompt, has_version_suffix, keyring_entry, validate_base_url, DEFAULT_PROMPT,
+    DEFAULT_PROMPT_EN,
+};
 use super::*;
 use regex::Regex;
+use std::sync::LazyLock;
 
 /// 待润色草稿的长度上限（字符）
 const POLISH_INPUT_LIMIT: usize = 12_000;
@@ -131,11 +135,9 @@ fn log_polish(app: &AppHandle, original: &str, result: &Result<(String, String),
 
 /// 剥掉 R1 一类推理模型吐出的思维链
 fn strip_reasoning(raw: &str) -> String {
-    Regex::new(r"(?s)<think>.*?</think>")
-        .unwrap()
-        .replace_all(raw, "")
-        .trim()
-        .to_string()
+    static THINK: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?s)<think>.*?</think>").unwrap());
+    THINK.replace_all(raw, "").trim().to_string()
 }
 
 /// 界面用：收草稿、回改写结果，不碰剪贴板
@@ -187,15 +189,11 @@ pub(crate) async fn polish_clipboard(
 }
 
 fn make_endpoint(base_url: &str) -> Result<String, String> {
-    let trimmed = base_url.trim_end_matches('/');
-    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
-        return Err("润色服务 Base URL 无效".into());
-    }
+    let trimmed = validate_base_url(base_url)?;
     if trimmed.ends_with("/chat/completions") {
         return Ok(trimmed.into());
     }
-    let version_suffix = Regex::new(r"/v\d+$").unwrap().is_match(trimmed);
-    let path = if version_suffix {
+    let path = if has_version_suffix(trimmed) {
         "chat/completions"
     } else {
         "v1/chat/completions"

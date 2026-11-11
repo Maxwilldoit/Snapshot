@@ -142,15 +142,51 @@ pub(crate) fn format_clear_label(setting: &str) -> String {
     }
 }
 
+/// 最近一次读写过的索引。列表、缩略图、媒体协议每次都要查它，图多了反复解析 JSON 很浪费；
+/// 文件的修改时间或大小一变（包括在别处被改）就作废重读。
+struct IndexCache {
+    path: PathBuf,
+    stamp: (SystemTime, u64),
+    records: Vec<SnapshotRecord>,
+}
+
+static INDEX_CACHE: Mutex<Option<IndexCache>> = Mutex::new(None);
+
+fn index_stamp(path: &Path) -> Option<(SystemTime, u64)> {
+    let meta = fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
 pub(crate) fn read_snapshot_index(path: &Path) -> Vec<SnapshotRecord> {
-    read_json_with_backup(path).unwrap_or_default()
+    let stamp = index_stamp(path);
+    if let (Some(stamp), Some(cache)) = (stamp, INDEX_CACHE.lock().as_ref()) {
+        if cache.path == path && cache.stamp == stamp {
+            return cache.records.clone();
+        }
+    }
+    let records: Vec<SnapshotRecord> = read_json_with_backup(path).unwrap_or_default();
+    *INDEX_CACHE.lock() = stamp.map(|stamp| IndexCache {
+        path: path.to_path_buf(),
+        stamp,
+        records: records.clone(),
+    });
+    records
 }
 
 pub(crate) fn write_snapshot_index(path: &Path, records: &[SnapshotRecord]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    write_json_atomic(path, records)
+    let result = write_json_atomic(path, records);
+    *INDEX_CACHE.lock() = match (&result, index_stamp(path)) {
+        (Ok(()), Some(stamp)) => Some(IndexCache {
+            path: path.to_path_buf(),
+            stamp,
+            records: records.to_vec(),
+        }),
+        _ => None,
+    };
+    result
 }
 
 /// 把截图落盘并登记进历史索引。
@@ -368,11 +404,12 @@ pub(crate) fn read_snapshot(state: &AppState, id: &str) -> Result<(&'static str,
 
 /// 读缩略图；老快照没有缩略图时按原图现做一张存下来。
 pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
-    let path = thumbnail_path(state, id);
+    // 先在索引里找到这条再拼路径：地址里的 id 是外来的，不能拿它去碰任意文件
+    let record = find_record(state, id)?;
+    let path = thumbnail_path(state, &record.id);
     if let Ok(bytes) = fs::read(&path) {
         return Ok(bytes);
     }
-    let record = find_record(state, id)?;
     let image = image::open(history_dir(state).join(&record.file_name))
         .map_err(|_| "快照文件已被移动或删除".to_string())?
         .to_rgba8();
@@ -382,19 +419,26 @@ pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, Stri
 
 /// 删掉选中的若干张（「全选」再删就是清空）。返回删完后的列表。
 #[tauri::command]
-pub(crate) fn delete_snapshots(
+pub(crate) async fn delete_snapshots(
     app: AppHandle,
-    state: State<'_, AppState>,
     ids: Vec<String>,
 ) -> Result<Vec<SnapshotRecord>, String> {
-    let dir = history_dir(&state);
-    let index_path = snapshot_index_path(&state);
+    on_worker(app, move |app, state| delete_snapshots_now(app, state, ids)).await
+}
+
+fn delete_snapshots_now(
+    app: &AppHandle,
+    state: &AppState,
+    ids: Vec<String>,
+) -> Result<Vec<SnapshotRecord>, String> {
+    let dir = history_dir(state);
+    let index_path = snapshot_index_path(state);
     let _guard = state.snapshot_index_lock.lock();
     let (removed, kept): (Vec<_>, Vec<_>) = read_snapshot_index(&index_path)
         .into_iter()
         .partition(|item| ids.contains(&item.id));
     for record in &removed {
-        remove_snapshot_files(&state, &dir, record);
+        remove_snapshot_files(state, &dir, record);
     }
     write_snapshot_index(&index_path, &kept)?;
     let _ = app.emit("snapshots-changed", ());
@@ -404,28 +448,26 @@ pub(crate) fn delete_snapshots(
 /// 从历史原图打开现有标注窗口，不修改原始快照。
 #[tauri::command]
 pub(crate) async fn annotate_snapshot(app: AppHandle, id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        let record = find_record(&state, &id)?;
-        let (_, bytes) = read_snapshot(&state, &id)?;
+    on_worker(app, move |app, state| {
+        let record = find_record(state, &id)?;
+        let (_, bytes) = read_snapshot(state, &id)?;
         let image = image::load_from_memory(&bytes)
             .map_err(|error| format!("无法读取快照图片：{error}"))?
             .to_rgba8();
-        capture::open_annotate_window(&app, &state, &image, &record.app_name)
+        capture::open_annotate_window(app, state, &image, &record.app_name)
     })
     .await
-    .map_err(|error| error.to_string())?
 }
 
 /// 把历史里的一张重新放回剪贴板（同样按偏好自动清空）
 #[tauri::command]
-pub(crate) fn copy_snapshot(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<String, String> {
-    let record = find_record(&state, &id)?;
-    let image = image::open(history_dir(&state).join(&record.file_name))
+pub(crate) async fn copy_snapshot(app: AppHandle, id: String) -> Result<String, String> {
+    on_worker(app, move |app, state| copy_snapshot_now(app, state, id)).await
+}
+
+fn copy_snapshot_now(app: &AppHandle, state: &AppState, id: String) -> Result<String, String> {
+    let record = find_record(state, &id)?;
+    let image = image::open(history_dir(state).join(&record.file_name))
         .map_err(|_| "快照文件已被移动或删除".to_string())?
         .to_rgba8();
     let title = if interface_is_english() {
@@ -433,7 +475,7 @@ pub(crate) fn copy_snapshot(
     } else {
         format!("{} 截图", record.app_name)
     };
-    clipboard::copy_image(&app, &state, image, &title, Some(record.id.clone()))?;
+    clipboard::copy_image(app, state, image, &title, Some(record.id.clone()))?;
     let clear_label = format_clear_label(&state.settings.lock().clipboard_auto_clear);
     if interface_is_english() {
         Ok(english_sentence(
