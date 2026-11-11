@@ -11,7 +11,7 @@ import { errorText, useApp } from "../app/context";
 import { Toolbar } from "../app/Shell";
 import { usePetImport } from "../app/usePetImport";
 import { Menu, MenuItem, MenuSeparator, useMenuAnchor } from "../components/Menu";
-import { PetPanel } from "./PreferencesPage";
+import { PetSettings } from "../components/PetSettings";
 import { useI18n } from "../lib/i18n";
 import { ensurePetAutoScale } from "../lib/petScale";
 
@@ -227,7 +227,7 @@ export function PetPage() {
 
               </>
             )}
-            <PetPanel assetId={asset?.id ?? "app-icon"} />
+            <PetSettings assetId={asset?.id ?? "app-icon"} />
           </div>
         </div>
       </div>

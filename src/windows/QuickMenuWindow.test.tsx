@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InvokeArgs } from "@tauri-apps/api/core";
 import type { RecordingStatus, Settings } from "../types";
 import { setupTauriMock } from "../test/tauri";
-import { windowPickerLabels } from "./QuickMenuWindow";
+import { windowPickerLabels } from "../lib/windowList";
 
 const windowList = [
   { id: 73, pid: 4242, appName: "Visual Studio Code", title: "notes.md", minimized: true },

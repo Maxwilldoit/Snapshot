@@ -68,10 +68,16 @@
 
 ## 4. 有证据的结构整理（codex/simplify-04-structure）
 
-- [ ] 拆分截图、通用和伴侣设置；存储设置移出 ShortcutsPage；RulesPanel 移到 components。
-- [ ] 共用快捷键查询放在 lib，避免页面之间相互依赖。
-- [ ] 提取两处窗口选择器的实际公共逻辑与视图，保留各入口的关闭、焦点、错误和时序行为。
-- [ ] 完整检查与契约快照零差异后提交。
+- [x] 拆分截图、通用和伴侣设置；存储设置移出 ShortcutsPage；RulesPanel 移到 components。
+- [x] 共用快捷键查询放在 lib，避免页面之间相互依赖。
+- [x] 提取两处窗口选择器的实际公共逻辑与视图，保留各入口的关闭、焦点、错误和时序行为。
+- [x] 完整检查与契约快照零差异后提交。
+
+验证：`npm run check` 全量通过（10 个脚本测试、553 个前端测试、137 个 Rust 测试、生产构建、Knip 零报告）；`node scripts/check-i18n.mjs` 报告 303 条直接文案与 382 条引用翻译无缺失、无未引用。契约快照与第 2、3 批完全相同，相对原始基线仍只差已确认未调用的 `show_main_window` IPC 注册。
+
+原生 smoke 使用独立 identifier `com.appsnapshot.snapshot.simplify20261111` 与专用测试目录，debug 打包成功并真实启动：侧栏「资料库 / 设置 / 桌面伴侣」分组、截图与录制、通用、快捷键四个页面均正确渲染，`shortcutsPaused` 与快门「静音」等预置设置按预期生效，隔离目录未写入真实应用数据。验证后已退出该实例，`main` 与真实 settings.json 未被触碰。
+
+结构拆分本身不改变行为：`PreferencesPage.tsx` 拆为 `pages/CapturePage.tsx`、`pages/GeneralPage.tsx`、`components/PetSettings.tsx` 与 `hooks/usePreferences.ts`；存储行独立为 `components/CaptureStorage.tsx`；`acceleratorOf` 移到 `lib/shortcuts.ts`，窗口候选标签移到 `lib/windowList.ts`；截图工具与快速菜单共用 `components/WindowIdentity.tsx`，各入口保留自己的关闭、焦点、错误与样式变体。
 
 ## 暂缓事项与原因
 

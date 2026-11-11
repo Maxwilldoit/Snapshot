@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { defaultPrompt, savePromptSettings } from "../lib/backend";
 import { DURATION, useFlip, usePresence } from "../lib/motion";
 import { persistAutoCopy, readAutoCopy } from "../lib/prefs";
-import { Switch } from "../components/ui/Switch";
+import { Switch } from "./ui/Switch";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { PromptTemplate } from "../types";

@@ -96,3 +96,16 @@ export function resetWindowListCache() {
   inflight = null;
   listeners.clear();
 }
+
+export function windowPickerLabels(item: Pick<CapturableWindow, "appName" | "title">) {
+  const appName = item.appName.trim();
+  const title = item.title.trim();
+  // Microsoft Store 的 ChatGPT 可执行文件名仍是 Codex。优先显示用户认识的应用名。
+  const name = appName.toLocaleLowerCase() === "codex" && title.toLocaleLowerCase() === "chatgpt"
+    ? title
+    : appName || title;
+  return {
+    name,
+    title: title && title.toLocaleLowerCase() !== name.toLocaleLowerCase() ? title : "",
+  };
+}

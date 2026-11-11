@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Lightbox } from "./Lightbox";
 import { setupTauriMock, invokeArgs } from "../test/tauri";
@@ -43,7 +44,8 @@ describe("历史预览标注", () => {
     render(<Lightbox records={records} startId="first" onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "复制" }));
     expect((await screen.findByRole("status")).textContent).toContain("已复制 first");
-    fireEvent.keyDown(window, { key: "c", ctrlKey: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "复制" })).toHaveProperty("disabled", false));
+    await userEvent.setup().keyboard("{Control>}c{/Control}");
     await waitFor(() => expect(copied).toEqual(["first", "first"]));
   });
 });

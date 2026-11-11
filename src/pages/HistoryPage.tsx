@@ -18,7 +18,7 @@ import { LoadingState } from "../components/LoadingState";
 import { SearchField } from "../components/SearchField";
 import { Keys } from "../components/ui/Keys";
 import { Toolbar } from "../app/Shell";
-import { acceleratorOf } from "./ShortcutsPage";
+import { acceleratorOf } from "../lib/shortcuts";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { SnapshotRecord } from "../types";

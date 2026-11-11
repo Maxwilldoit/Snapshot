@@ -12,14 +12,12 @@ import {
   subscribeWindows,
 } from "../lib/windowList";
 import { formatDuration } from "../lib/format";
-import { iconUrl } from "../lib/media";
 import { localizeMessage, useI18n } from "../lib/i18n";
 import { useNow } from "../hooks/useLive";
 import { Menu, MenuItem, MenuSeparator, useMenuAnchor } from "../components/Menu";
-import { MediaImage } from "../components/MediaImage";
+import { WindowIdentity } from "../components/WindowIdentity";
 import { Keys } from "../components/ui/Keys";
-import { windowPickerLabels } from "../windows/QuickMenuWindow";
-import { acceleratorOf } from "../pages/ShortcutsPage";
+import { acceleratorOf } from "../lib/shortcuts";
 import { errorText, useApp } from "./context";
 import type { CapturableWindow } from "../types";
 
@@ -149,18 +147,13 @@ export function CaptureTools() {
         <div className="mw-menu-note">{t("没有找到可用的窗口")}</div>
       )}
       {!picker.permission && windows?.map((item) => {
-        const labels = windowPickerLabels(item);
         return (
           <MenuItem
             key={item.id}
             onSelect={() => onPick(item)}
             trailing={item.minimized ? t("已最小化") : undefined}
           >
-            <span className="mw-window-item">
-              <span className="mw-window-icon"><MediaImage src={iconUrl(item.pid, 16)} fallback={<span className="mw-window-blank" />} /></span>
-              <span className="mw-window-name">{labels.name}</span>
-              {labels.title && <span className="mw-window-title">{labels.title}</span>}
-            </span>
+            <WindowIdentity item={item} variant="menu" />
           </MenuItem>
         );
       })}

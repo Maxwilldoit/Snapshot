@@ -17,7 +17,8 @@ import { ShortcutsPage } from "./pages/ShortcutsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { PromptsPage } from "./pages/PromptsPage";
 import { PetPage } from "./pages/PetPage";
-import { CapturePage, GeneralPage } from "./pages/PreferencesPage";
+import { CapturePage } from "./pages/CapturePage";
+import { GeneralPage } from "./pages/GeneralPage";
 import type { NavPage, PlatformCapabilities, Settings } from "./types";
 import { useI18n, useWindowTitle } from "./lib/i18n";
 

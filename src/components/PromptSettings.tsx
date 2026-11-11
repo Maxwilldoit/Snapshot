@@ -3,7 +3,7 @@ import { useApp } from "../app/context";
 import { usePresence } from "../lib/motion";
 import { useI18n } from "../lib/i18n";
 import { ModelSettingsDialog } from "./ModelSettingsDialog";
-import { RulesPanel } from "../pages/RulesPanel";
+import { RulesPanel } from "./RulesPanel";
 
 export function PromptSettings() {
   const { settings, onSaved, notify } = useApp();

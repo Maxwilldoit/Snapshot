@@ -7,7 +7,7 @@ import { Toolbar } from "../app/Shell";
 import { SearchField } from "../components/SearchField";
 import { PromptSettings } from "../components/PromptSettings";
 import { Keys } from "../components/ui/Keys";
-import { acceleratorOf } from "./ShortcutsPage";
+import { acceleratorOf } from "../lib/shortcuts";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { PromptHistoryEntry } from "../types";

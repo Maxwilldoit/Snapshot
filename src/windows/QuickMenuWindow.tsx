@@ -17,12 +17,11 @@ import {
   showPromptLibrary,
   toggleRecording,
 } from "../lib/backend";
-import { iconUrl } from "../lib/media";
 import { cachedWindows, confirmWindow, ensureFreshWindows, prefetchWindows, refreshWindows } from "../lib/windowList";
 import { formatDuration } from "../lib/format";
 import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 import { readAutoCopy } from "../lib/prefs";
-import { MediaImage } from "../components/MediaImage";
+import { WindowIdentity } from "../components/WindowIdentity";
 import { Keys } from "../components/ui/Keys";
 import type { CapturableWindow, RecordingStatus, Settings, ShortcutAction, PlatformCapabilities } from "../types";
 
@@ -38,19 +37,6 @@ const TOP_EDGE = 24;
 const EDGE = 40;
 /** 菜单和窗口列表同宽；高度按各自内容包裹，切换时只更新一次原生窗口尺寸 */
 const PANEL_WIDTH: Record<View, number> = { menu: 360, windows: 360, polish: 480 };
-
-export function windowPickerLabels(item: Pick<CapturableWindow, "appName" | "title">) {
-  const appName = item.appName.trim();
-  const title = item.title.trim();
-  // Microsoft Store 的 ChatGPT 可执行文件名仍是 Codex。优先显示用户认识的应用名。
-  const name = appName.toLocaleLowerCase() === "codex" && title.toLocaleLowerCase() === "chatgpt"
-    ? title
-    : appName || title;
-  return {
-    name,
-    title: title && title.toLocaleLowerCase() !== name.toLocaleLowerCase() ? title : "",
-  };
-}
 
 const errorText = (error: unknown) => localizeMessage(
   typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error),
@@ -627,7 +613,6 @@ export function QuickMenuWindow() {
                     <p className="palette-empty small quiet">{t("没有找到可用的窗口")}</p>
                   )}
                   {visibleWindows.map((item, index) => {
-                    const labels = windowPickerLabels(item);
                     return <button
                       key={item.id}
                       type="button"
@@ -637,16 +622,7 @@ export function QuickMenuWindow() {
                       onMouseMove={() => setCursor(index)}
                       onClick={() => void pickWindow(item)}
                     >
-                      <span className="palette-window">
-                        <span className="palette-icon">
-                          <MediaImage src={iconUrl(item.pid, 20)} fallback={<span className="palette-icon-blank" />} />
-                        </span>
-                        <span className="palette-window-name">{labels.name}</span>
-                        {labels.title && <span className="palette-window-title small quiet">{labels.title}</span>}
-                        {item.minimized && (
-                          <span className="palette-window-state small quiet">{t("已最小化")}</span>
-                        )}
-                      </span>
+                      <WindowIdentity item={item} variant="palette" />
                     </button>;
                   })}
                 </div>
