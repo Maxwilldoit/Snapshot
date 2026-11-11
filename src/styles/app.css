@@ -17,8 +17,10 @@
 /* 换页：只有内容区在动，侧栏和标题栏原地不动 */
 :root[data-vt="page"] .main { view-transition-name: page; }
 :root[data-vt="page"] .nav-mark { view-transition-name: nav-mark; }
-:root[data-vt="page"]::view-transition-old(root),
 :root[data-vt="page"]::view-transition-new(root) { animation: none; }
+/* 旧根快照是整屏位图，macOS 透明窗口下的毛玻璃侧栏会被拍成不透光的浅色板，切页时闪白。
+   隐藏旧快照，让侧栏、标题栏和截图按钮保持实时渲染；内容区和导航墨线仍各自过渡。 */
+:root[data-vt="page"]::view-transition-old(root) { display: none; }
 :root[data-vt="page"]::view-transition-group(page) { overflow: clip; animation: none; }
 /* 旧页：很快淡掉（两页别叠在一起糊成一片），同时朝反方向退一小步 */
 :root[data-vt="page"]::view-transition-old(page) {

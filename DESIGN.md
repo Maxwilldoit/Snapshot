@@ -57,6 +57,14 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
 - Keep Chinese and English terminology consistent: 截图/Screenshot, 录屏/Recording,
   长截图/Scrolling screenshot. Use Window/Fullscreen where the distinction changes behavior.
 
+## Motion
+
+- Page changes animate the content area and the navigation mark only. On a transparent
+  native surface (macOS sidebar vibrancy) the old root view-transition snapshot must stay
+  hidden: that bitmap loses the material underneath and paints the sidebar as a pale
+  opaque plate. Keep the sidebar and title bar live; hide `::view-transition-old(root)`
+  for page transitions and let the `page` and `nav-mark` groups carry the motion.
+
 ## Validation
 
 Use the native main-window dimensions (960×580, minimum 820×520) for browser visual

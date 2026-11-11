@@ -79,6 +79,15 @@
 
 结构拆分本身不改变行为：`PreferencesPage.tsx` 拆为 `pages/CapturePage.tsx`、`pages/GeneralPage.tsx`、`components/PetSettings.tsx` 与 `hooks/usePreferences.ts`；存储行独立为 `components/CaptureStorage.tsx`；`acceleratorOf` 移到 `lib/shortcuts.ts`，窗口候选标签移到 `lib/windowList.ts`；截图工具与快速菜单共用 `components/WindowIdentity.tsx`，各入口保留自己的关闭、焦点、错误与样式变体。
 
+## 5. 修复切页时侧栏闪白（codex/simplify-05-sidebar-flash）
+
+- [x] 复现并量化：隔离 identifier 的 debug 包里把换页动画临时放慢到 20 秒，侧栏中途帧采样为 `#f8f8f8`，稳定态为 `#f0f0ee`。
+- [x] 定位：旧根快照是整屏位图，macOS 透明窗口下的毛玻璃材质不在其中，覆盖到实时页面上就把侧栏拍成偏白的平板。
+- [x] 修复：`src/styles/app.css` 只在换页时隐藏 `::view-transition-old(root)`；内容区仍由 `page` 组交叉淡入，导航墨线仍由 `nav-mark` 组滑动。
+- [x] 验证：同样慢速采样，去「通用」和回「截图记录」两个方向的中途帧都回到 `#f0f0ee`，与稳定态一致；中途截图确认内容区照常淡入。
+
+验证：`npm run check` 全绿（10 个脚本测试、553 个前端测试、137 个 Rust 测试、构建、Knip 零报告）；契约快照与第 4 批完全相同。修复前证据为 `.tmp-simplify/u1-idle-active.png`、`.tmp-simplify/u2-mid.png`，修复后为 `x1/x2`（正向）与 `y1/y2`（反向）。
+
 ## 暂缓事项与原因
 
 - **截图策略迁移**：真实枚举是 clipboard / annotate / saveas。仅保存必须进历史，关闭历史的旧用户也要保持原行为。本轮保留选项与开关，不新增隐藏标志。未来需先列出 3×2 配置行为表，并验证保存失败及迁移幂等。
