@@ -6,7 +6,6 @@ import {
   getRecordingStatus,
   getShortcutConflicts,
   hideQuickMenu,
-  listWindows,
   loadSettings,
   onPaletteOpened,
   onSettingsChanged,
@@ -18,6 +17,7 @@ import {
   toggleRecording,
 } from "../lib/backend";
 import { iconUrl } from "../lib/media";
+import { cachedWindows, confirmWindow, ensureFreshWindows, prefetchWindows, refreshWindows } from "../lib/windowList";
 import { formatDuration } from "../lib/format";
 import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 import { readAutoCopy } from "../lib/prefs";
@@ -129,6 +129,8 @@ export function QuickMenuWindow() {
     const opened = onPaletteOpened(() => {
       reset();
       refresh();
+      // 菜单一出来就提前读窗口列表，选「快照」「录制」时多半已经读好了
+      prefetchWindows();
     });
     const settingsListener = onSettingsChanged(setSettings);
     const focus = getCurrentWindow().onFocusChanged(({ payload }) => {
@@ -195,24 +197,36 @@ export function QuickMenuWindow() {
     return <Keys value={value} quiet />;
   };
 
-  async function openPicker(mode: "capture" | "record") {
+  /** `force`：用户点了「重新读取」或刚授权完，不用缓存。 */
+  async function openPicker(mode: "capture" | "record", force = false) {
     const token = ++pickerToken.current;
-    setPickerLoading(true);
     setPickerMode(mode);
     setCursor(0);
     showStatus(null);
+    // 有上一次的列表就立刻切过去，后台重读完再就地换成新的
+    const stale = force ? null : cachedWindows();
+    if (stale !== null) {
+      setWindows(stale);
+      setCapturePermissionRequired(false);
+      setView("windows");
+    } else {
+      setPickerLoading(true);
+    }
     try {
-      const list = await listWindows();
+      const list = await (force ? refreshWindows() : ensureFreshWindows());
       if (token !== pickerToken.current) return;
-      // 等列表到手再切页：避免「读取中」矮面板和完整列表之间再改一次高度。
+      // 没有旧列表时等列表到手再切页：避免「读取中」矮面板和完整列表之间再改一次高度。
       setWindows(list);
+      setCursor((value) => Math.min(value, Math.max(list.length - 1, 0)));
       setCapturePermissionRequired(false);
       setView("windows");
     } catch (error) {
       if (token !== pickerToken.current) return;
+      const permissionRequired = needsScreenCapturePermission(error);
+      // 后台重读失败但旧列表还在：继续用它，选中时会再确认窗口是否还在
+      if (stale !== null && !permissionRequired) return;
       setWindows([]);
       setView("windows");
-      const permissionRequired = needsScreenCapturePermission(error);
       setCapturePermissionRequired(permissionRequired);
       if (!permissionRequired) showStatus({ kind: "error", text: t(errorText(error)) });
     } finally {
@@ -229,7 +243,7 @@ export function QuickMenuWindow() {
     try {
       const granted = await authorizeScreenCapture();
       if (token !== pickerToken.current) return;
-      if (granted) await openPicker(pickerMode);
+      if (granted) await openPicker(pickerMode, true);
     } catch (error) {
       if (token === pickerToken.current) showStatus({ kind: "error", text: t(errorText(error)) });
     } finally {
@@ -252,7 +266,20 @@ export function QuickMenuWindow() {
     }
   }
 
-  async function pickWindow(item: CapturableWindow) {
+  async function pickWindow(choice: CapturableWindow) {
+    // 列表可能是旧的：有重读在路上就等它，确认窗口还在再动手；没有重读时同步判断，不多等。
+    const pending = confirmWindow(choice);
+    const item = pending instanceof Promise ? await pending : pending;
+    if (!item) {
+      showStatus({ kind: "error", text: t("这个窗口已经关闭，请重新选择") });
+      const token = pickerToken.current;
+      void refreshWindows()
+        .then((list) => {
+          if (token === pickerToken.current) setWindows(list);
+        })
+        .catch(() => {});
+      return;
+    }
     if (pickerMode === "capture") {
       // 后端先把快捷菜单藏起来再截，免得截进画面；失败会记进活动，主窗口的猫会说
       void runAction("capture", item.id).catch(() => {});
@@ -573,7 +600,7 @@ export function QuickMenuWindow() {
                       <p className="small ink-2">{t("若更新后已开启权限并重启仍提示授权，请在屏幕录制设置中移除旧的应用快照，再添加「应用程序」中的 snapshot.app 并开启权限。")}</p>
                       <div className="palette-permission-actions">
                         <button type="button" className="btn btn-small" disabled={pickerLoading} onClick={() => void authorizeCapture()}>{t("打开系统设置")}</button>
-                        <button type="button" className="text-btn small" disabled={pickerLoading} onClick={() => void openPicker(pickerMode)}>{t("重新读取")}</button>
+                        <button type="button" className="text-btn small" disabled={pickerLoading} onClick={() => void openPicker(pickerMode, true)}>{t("重新读取")}</button>
                       </div>
                     </div>
                   )}

@@ -65,10 +65,12 @@ private func setAXMinimized(_ element: AXUIElement, _ minimized: Bool) -> Bool {
 }
 
 /// 某个进程当前最小化的窗口（AX 元素 + 标题/位置）。没有辅助功能权限时为空。
-func minimizedAXWindows(pid: pid_t) -> [(element: AXUIElement, snapshot: AXWindowSnapshot)] {
+func minimizedAXWindows(pid: pid_t, timeout: Float? = nil) -> [(element: AXUIElement, snapshot: AXWindowSnapshot)] {
     guard AXIsProcessTrusted() else { return [] }
+    let application = AXUIElementCreateApplication(pid)
+    if let timeout { AXUIElementSetMessagingTimeout(application, timeout) }
     var raw: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &raw) == .success,
+    guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &raw) == .success,
           let windows = raw as? [AXUIElement] else { return [] }
     return windows.compactMap { element in
         guard axBool(element, kAXMinimizedAttribute) else { return nil }
@@ -78,6 +80,20 @@ func minimizedAXWindows(pid: pid_t) -> [(element: AXUIElement, snapshot: AXWindo
         let size = axSize(element) ?? .zero
         return (element, AXWindowSnapshot(title: (title as? String) ?? "", frame: CGRect(origin: origin, size: size)))
     }
+}
+
+/// 并发地问多个进程各自有哪些最小化窗口。每个进程单独设了消息超时，
+/// 一个卡住的应用不会拖住整份列表（最多等它 0.3 秒，问不到就当它没有最小化窗口）。
+func minimizedAXSnapshots(pids: [pid_t]) -> [pid_t: [AXWindowSnapshot]] {
+    guard !pids.isEmpty, AXIsProcessTrusted() else { return [:] }
+    var results = [[AXWindowSnapshot]](repeating: [], count: pids.count)
+    results.withUnsafeMutableBufferPointer { buffer in
+        let slots = buffer
+        DispatchQueue.concurrentPerform(iterations: pids.count) { index in
+            slots[index] = minimizedAXWindows(pid: pids[index], timeout: 0.3).map(\.snapshot)
+        }
+    }
+    return Dictionary(uniqueKeysWithValues: zip(pids, results))
 }
 
 /// 这个 SCWindow 是不是一个（Dock 里的）最小化窗口；是的话返回它的 AX 元素。

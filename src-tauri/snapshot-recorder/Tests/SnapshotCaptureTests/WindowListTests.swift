@@ -96,5 +96,19 @@ final class WindowListTests: XCTestCase {
         let entry = try XCTUnwrap((JSONSerialization.jsonObject(with: JSONEncoder().encode([window])) as? [[String: Any]])?.first)
         XCTAssertEqual(entry["minimized"] as? Bool, true)
     }
+
+    func testMinimizedLookupWithNoCandidatesDoesNotTouchAccessibility() {
+        // 没有可能是最小化的窗口时一次辅助功能调用都不发（也不要求权限）
+        XCTAssertTrue(minimizedAXSnapshots(pids: []).isEmpty)
+    }
+
+    func testMinimizedLookupAnswersEveryProcessEvenIfItHasNoWindows() {
+        // 不存在的进程问不到东西：并发查询要按原顺序给每个进程一份（可能为空）的结果，不能错位或丢失
+        let pids: [pid_t] = [999_991, 999_992, 999_993]
+        let result = minimizedAXSnapshots(pids: pids)
+        if result.isEmpty { return } // 测试进程没有辅助功能权限
+        XCTAssertEqual(Set(result.keys), Set(pids))
+        XCTAssertTrue(result.values.allSatisfy(\.isEmpty))
+    }
 }
 

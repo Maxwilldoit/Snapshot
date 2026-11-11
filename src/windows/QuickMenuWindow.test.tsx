@@ -467,3 +467,48 @@ describe("快捷菜单：润色", () => {
     expect(await screen.findByText("新结果")).toBeTruthy();
   });
 });
+
+describe("快捷菜单：窗口列表秒开", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  it("再次打开时立刻给上一次的列表，后台重读；旧列表里已关的窗口确认后提示，不去截它", async () => {
+    let next: ReturnType<typeof deferred<typeof windowList>> | null = null;
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "run_action") return "ok";
+      if (command !== "list_capturable_windows") return undefined;
+      return next ? next.promise : windowList;
+    });
+    const listCalls = () => calls.filter((call) => call.command === "list_capturable_windows").length;
+    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await screen.findByRole("listbox", { name: "选择要截取的窗口" });
+    expect(listCalls()).toBe(1);
+
+    // 下一次呼出菜单：一出来就预取；读得慢也不挡着切到列表
+    next = deferred<typeof windowList>();
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+    const { emit } = await import("@tauri-apps/api/event");
+    await act(async () => {
+      await emit("palette-opened");
+    });
+    await waitFor(() => expect(listCalls()).toBe(2));
+    await user.click(await screen.findByRole("option", { name: "快照" }));
+    expect(screen.getByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
+    expect(screen.getAllByRole("option")).toHaveLength(windowList.length);
+    expect(listCalls()).toBe(2);
+
+    await user.click(screen.getByRole("option", { name: /Visual Studio Code/ }));
+    expect(calls.some((call) => call.command === "run_action")).toBe(false);
+    await act(async () => next!.resolve([windowList[1]]));
+    expect(await screen.findByText("这个窗口已经关闭，请重新选择")).toBeTruthy();
+    expect(calls.some((call) => call.command === "run_action")).toBe(false);
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    now.mockRestore();
+  });
+});

@@ -69,23 +69,36 @@ func shareableWindowContent() async throws -> SCShareableContent {
     return try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
 }
 
+/// 列表里本会被当成辅助窗口丢掉、但可能其实是 Dock 里最小化窗口的那类：普通层、不在屏幕上、属于用户应用。
+private func mayBeMinimizedWindow(_ window: SCWindow, application: SCRunningApplication) -> Bool {
+    !isUserFacingWindow(bundleID: application.bundleIdentifier, appName: application.applicationName, isActive: window.isActive)
+        && window.windowLayer == 0 && !window.isOnScreen
+        && isUserFacingWindow(bundleID: application.bundleIdentifier, appName: application.applicationName, isActive: true)
+}
+
 @MainActor
 func runWindowList() async throws {
     let content = try await shareableWindowContent()
-    let stack = windowStackOrder()
     // 最小化的窗口 isActive 为 false，和藏起来的辅助窗口分不开；按进程问一次辅助功能，
     // 只有 AX 确认是最小化的那个才列出来。每个进程只问一次，已配对的不再重复使用。
-    var minimizedByProcess: [pid_t: [AXWindowSnapshot]] = [:]
+    // 逐个进程问辅助功能是这条命令里最慢的一步（每个进程 10–40ms），所以并发去问，
+    // 同时在另一条线程上读前后顺序。
+    let candidates = Set(content.windows.compactMap { window -> pid_t? in
+        guard let application = window.owningApplication, application.processID > 0,
+              mayBeMinimizedWindow(window, application: application) else { return nil }
+        return application.processID
+    })
+    async let stackTask = Task.detached { windowStackOrder() }.value
+    var minimizedByProcess = await Task.detached { minimizedAXSnapshots(pids: Array(candidates)) }.value
+    let stack = await stackTask
     let windows = content.windows.enumerated().compactMap { index, window -> ListedWindow? in
         guard window.windowID > 0, let application = window.owningApplication,
               application.processID > 0,
               let area = listedWindowArea(title: window.title, layer: window.windowLayer, size: window.frame.size) else { return nil }
         var minimized = false
         if !isUserFacingWindow(bundleID: application.bundleIdentifier, appName: application.applicationName, isActive: window.isActive) {
-            guard window.windowLayer == 0, !window.isOnScreen,
-                  isUserFacingWindow(bundleID: application.bundleIdentifier, appName: application.applicationName, isActive: true) else { return nil }
+            guard mayBeMinimizedWindow(window, application: application) else { return nil }
             let pid = application.processID
-            if minimizedByProcess[pid] == nil { minimizedByProcess[pid] = minimizedAXWindows(pid: pid).map(\.snapshot) }
             guard let match = matchMinimizedWindow(title: window.title ?? "", frame: window.frame, among: minimizedByProcess[pid] ?? []) else { return nil }
             minimizedByProcess[pid]?.remove(at: match)
             minimized = true

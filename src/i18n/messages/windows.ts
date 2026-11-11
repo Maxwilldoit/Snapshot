@@ -1,5 +1,6 @@
 /** English copy used by the quick actions, annotation, and launchpad windows. */
 export const windowsEnglish: Record<string, string> = {
+  "这个窗口已经关闭，请重新选择": "That window has closed. Pick another one.",
   "快速操作": "Quick actions",
   "标注截图": "Annotate screenshot",
   "启动台": "Launchpad",
