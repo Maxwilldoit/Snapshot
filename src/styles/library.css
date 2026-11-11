@@ -1,0 +1,139 @@
+/* Shared library layout; colors and controls come from main-window.css. */
+.library-content {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.library-toolbar,
+.library-actions,
+.library-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.library-toolbar {
+  margin-bottom: 24px;
+}
+.library-toolbar .mw-search {
+  flex: 1 1 auto;
+}
+.library-toolbar .btn,
+.library-editor .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.library-actions {
+  justify-content: space-between;
+}
+.library-actions .panel-title {
+  margin: 0;
+}
+.library-editor {
+  max-width: 840px;
+  gap: 20px;
+}
+.library-textarea {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.library-list {
+  border-top: 0.5px solid var(--sep);
+}
+.library-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 0;
+  border-bottom: 0.5px solid var(--sep);
+}
+.library-row-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.library-row h2 {
+  margin: 0;
+  font-size: var(--text);
+  font-weight: 600;
+}
+.library-row p {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-small);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.library-row-actions {
+  flex: 0 0 auto;
+}
+.library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 64px 0;
+}
+.library-empty h2 {
+  margin: 0;
+  font-size: var(--text-lead);
+  font-weight: 600;
+}
+.library-status {
+  margin: 20px 0 0;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--sep);
+  font-size: var(--text-small);
+}
+.pet-catalog-details {
+  color: var(--ink-2);
+}
+.pet-catalog-details summary,
+.permission-help summary {
+  cursor: pointer;
+}
+.pet-catalog-details[open] {
+  display: grid;
+  gap: 8px;
+}
+.permission-help {
+  margin: 12px 0;
+}
+.saved-key {
+  display: inline-flex;
+  align-items: center;
+  flex: 1 1 auto;
+}
+.palette-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 620px) {
+  .library-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .library-content {
+    padding: 20px;
+  }
+}
+
+html[data-surface="app"] .library-toolbar .mw-search {
+  flex: 1 1 auto;
+  max-width: 520px;
+}
+.library-toolbar > .btn {
+  margin-left: auto;
+}
+.btn-primary .keys-quiet {
+  color: inherit;
+  opacity: 0.8;
+}

@@ -41,9 +41,22 @@ async function renderPalette(handle: (command: string, payload?: InvokeArgs) => 
 }
 
 describe("快捷菜单：截取自身主窗口", () => {
+  it.each([false, true])("长截图按平台能力 enabled=%s 调用既有动作", async (enabled) => {
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "platform_capabilities") return { os: "linux", scrolling: { available: enabled } };
+      return undefined;
+    });
+    const option = await screen.findByRole("option", { name: "长截图" });
+    await waitFor(() => expect(option).toHaveProperty("disabled", !enabled));
+    await user.click(option);
+    expect(calls.filter((call) => call.command === "run_action")).toEqual(enabled
+      ? [expect.objectContaining({ payload: { action: "scrolling", targetId: null } })]
+      : []);
+  });
+
   it.each([
-    ["快照", "run_action", { action: "capture", targetId: 75 }],
-    ["录制", "toggle_recording", { targetId: 75 }],
+    ["截图", "run_action", { action: "capture", targetId: 75 }],
+    ["录屏", "toggle_recording", { targetId: 75 }],
   ] as const)("选择应用快照进行%s时使用它的明确窗口 id", async (label, commandName, payload) => {
     const ownMain = { id: 75, pid: 4244, appName: "snapshot", title: "应用快照", minimized: false };
     const { calls, user } = await renderPalette((command) => {
@@ -67,7 +80,7 @@ describe("快捷菜单：macOS 屏幕录制授权", () => {
     message: "需要「屏幕录制」权限才能读取和截取窗口",
   };
 
-  it.each(["快照", "录制"])("%s 无权限时显示原因和授权入口，不显示空窗口列表", async (label) => {
+  it.each(["截图", "录屏"])("%s 无权限时显示原因和授权入口，不显示空窗口列表", async (label) => {
     const { calls, user } = await renderPalette((command) => {
       if (command === "list_capturable_windows") throw permissionError;
       if (command === "authorize_screen_capture") return false;
@@ -93,7 +106,7 @@ describe("快捷菜单：macOS 屏幕录制授权", () => {
       }
       return undefined;
     });
-    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await user.click(await screen.findByRole("option", { name: "截图" }));
     await screen.findByRole("alert");
     granted = true;
     await user.click(screen.getByRole("button", { name: "重新读取" }));
@@ -112,7 +125,7 @@ describe("快捷菜单：macOS 屏幕录制授权", () => {
       if (command === "authorize_screen_capture") return (granted = true);
       return undefined;
     });
-    await user.click(await screen.findByRole("option", { name: "录制" }));
+    await user.click(await screen.findByRole("option", { name: "录屏" }));
     await user.click(await screen.findByRole("button", { name: "打开系统设置" }));
     expect(await screen.findByRole("option", { name: /Visual Studio Code/ })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -124,7 +137,7 @@ describe("快捷菜单：macOS 屏幕录制授权", () => {
       if (command === "authorize_screen_capture") throw "无法打开系统设置，请手动打开「屏幕录制」设置";
       return undefined;
     });
-    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await user.click(await screen.findByRole("option", { name: "截图" }));
     const button = await screen.findByRole("button", { name: "打开系统设置" });
     button.focus();
     await user.keyboard("{Enter}");
@@ -143,12 +156,12 @@ describe("快捷菜单：macOS 屏幕录制授权", () => {
       }
       return undefined;
     });
-    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await user.click(await screen.findByRole("option", { name: "截图" }));
     await user.click(await screen.findByRole("button", { name: "打开系统设置" }));
     await user.keyboard("{Escape}");
-    expect(await screen.findByRole("option", { name: "快照" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "截图" })).toBeTruthy();
     await act(async () => finishAuthorization(true));
-    expect(screen.getByRole("option", { name: "快照" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "截图" })).toBeTruthy();
     expect(calls.filter((call) => call.command === "list_capturable_windows")).toHaveLength(1);
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -158,7 +171,7 @@ describe("快捷菜单：macOS 屏幕录制授权", () => {
       if (command === "list_capturable_windows") throw { kind: "enumeration", message: "读取窗口失败" };
       return undefined;
     });
-    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await user.click(await screen.findByRole("option", { name: "截图" }));
     expect((await screen.findByRole("status")).textContent).toBe("读取窗口失败");
     expect(screen.queryByText("没有找到可用的窗口")).toBeNull();
     expect(screen.queryByRole("button", { name: "打开系统设置" })).toBeNull();
@@ -174,7 +187,7 @@ describe("快捷菜单：录制", () => {
       return undefined;
     });
 
-    await user.click(await screen.findByRole("option", { name: "录制" }));
+    await user.click(await screen.findByRole("option", { name: "录屏" }));
     expect(await screen.findByRole("listbox", { name: "选择要录制的窗口" })).toBeTruthy();
     expect(screen.getByText("已最小化")).toBeTruthy();
     expect(screen.getByText("ChatGPT")).toBeTruthy();
@@ -213,7 +226,7 @@ describe("快捷菜单：录制", () => {
       return undefined;
     });
 
-    await user.click(await screen.findByRole("option", { name: "录制" }));
+    await user.click(await screen.findByRole("option", { name: "录屏" }));
     expect(screen.getByRole("listbox", { name: "动作" })).toBeTruthy();
     expect(screen.queryByRole("listbox", { name: "选择要录制的窗口" })).toBeNull();
 
@@ -235,7 +248,7 @@ describe("快捷菜单：录制", () => {
       return undefined;
     });
 
-    await user.click(await screen.findByRole("option", { name: "录制" }));
+    await user.click(await screen.findByRole("option", { name: "录屏" }));
     const list = await screen.findByRole("listbox", { name: "选择要录制的窗口" });
     expect(list.classList.contains("palette-windows")).toBe(true);
     expect(list.querySelectorAll('[role="option"]')).toHaveLength(7);
@@ -279,7 +292,7 @@ describe("快捷菜单：精简菜单", () => {
     expect(screen.queryByRole("option", { name: "打开主窗口" })).toBeNull();
     expect(calls.some((call) => call.command === "show_main_window")).toBe(false);
 
-    await user.click(screen.getByRole("option", { name: "快照" }));
+    await user.click(screen.getByRole("option", { name: "截图" }));
     expect(await screen.findByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
     expect(screen.queryByRole("textbox")).toBeNull();
   });
@@ -357,7 +370,7 @@ describe("快捷菜单：窗口大小", () => {
     await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 225 + 24 + 40 }));
     const callsBeforeSwitch = sizes().length;
 
-    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await user.click(await screen.findByRole("option", { name: "截图" }));
     expect(await screen.findByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
     await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 194 + 24 + 40 }));
     expect(sizes()).toHaveLength(callsBeforeSwitch + 1);
@@ -422,7 +435,7 @@ describe("快捷菜单：润色", () => {
     await waitFor(() => expect(calls.some((call) => call.command === "load_settings")).toBe(true));
     await user.click(screen.getByRole("option", { name: "润色 Prompt" }));
 
-    expect(await screen.findByText(/还没填模型接口/)).toBeTruthy();
+    expect(await screen.findByText(/Prompt 页的设置/)).toBeTruthy();
     expect(calls.some((call) => call.command === "polish_text")).toBe(false);
   });
 
@@ -486,7 +499,7 @@ describe("快捷菜单：窗口列表秒开", () => {
       return next ? next.promise : windowList;
     });
     const listCalls = () => calls.filter((call) => call.command === "list_capturable_windows").length;
-    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await user.click(await screen.findByRole("option", { name: "截图" }));
     await screen.findByRole("listbox", { name: "选择要截取的窗口" });
     expect(listCalls()).toBe(1);
 
@@ -498,7 +511,7 @@ describe("快捷菜单：窗口列表秒开", () => {
       await emit("palette-opened");
     });
     await waitFor(() => expect(listCalls()).toBe(2));
-    await user.click(await screen.findByRole("option", { name: "快照" }));
+    await user.click(await screen.findByRole("option", { name: "截图" }));
     expect(screen.getByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
     expect(screen.getAllByRole("option")).toHaveLength(windowList.length);
     expect(listCalls()).toBe(2);

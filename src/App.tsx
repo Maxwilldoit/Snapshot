@@ -10,7 +10,7 @@ import { prepareHintSound, previewHintSound, primeHintSound } from "./lib/sound"
 import { shortcutKeys } from "./lib/format";
 import { canViewTransition, viewTransition, type TransitionDirection } from "./lib/motion";
 import { AppContext, errorText, type AppContextValue, type Notice, type NoticeKind } from "./app/context";
-import { NoticeLine, SideNav, WindowChrome } from "./app/Shell";
+import { CaptureActions, NoticeLine, SideNav, WindowChrome } from "./app/Shell";
 import { LoadingState } from "./components/LoadingState";
 import { useActivityLog, useClipboardState, useRecordingStatus } from "./hooks/useLive";
 import { ShortcutsPage } from "./pages/ShortcutsPage";
@@ -240,6 +240,7 @@ export function App() {
         <div className="shell">
           <aside className="sidebar">
             <WindowChrome placement="sidebar" />
+            <CaptureActions />
             <SideNav />
           </aside>
           {content}

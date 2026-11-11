@@ -19,10 +19,10 @@ import { useI18n } from "../lib/i18n";
 import type { Settings, ShortcutAction, ShortcutBinding } from "../types";
 
 const ACTION_LABELS: Record<ShortcutAction, { name: string }> = {
-  snapshot: { name: "窗口快照" },
-  fullscreen: { name: "全屏快照" },
-  scrolling: { name: "滚动长截图" },
-  record: { name: "窗口录制" },
+  snapshot: { name: "窗口截图" },
+  fullscreen: { name: "全屏截图" },
+  scrolling: { name: "长截图" },
+  record: { name: "录屏" },
   polish: { name: "润色 Prompt" },
   prompts: { name: "打开 Prompt 库" },
   palette: { name: "呼出快捷菜单" },
@@ -134,7 +134,7 @@ function ShortcutsPanel() {
       const saved = await saveShortcuts(next);
       onSaved(saved);
       setConflicts([]);
-      notify(saved.shortcutsPaused ? t("快捷键绑定已保存，全局快捷键仍保持暂停") : t("快捷键已保存，立即生效"));
+
     } catch (error) {
       setShortcuts(previous);
       notify(errorText(error), "error");
@@ -210,7 +210,7 @@ function ShortcutsPanel() {
             ) : binding.accelerator ? (
               <Keys value={binding.accelerator} struck={conflicted} />
             ) : (
-              <span className="key-field-hint">{t("点按录制")}</span>
+              <span className="key-field-hint" aria-hidden="true">—</span>
             )}
           </button>
           {!isRecording && binding.accelerator && (
@@ -254,11 +254,7 @@ function ShortcutsPanel() {
             />
           </div>
         </div>
-        <p className="group-note">
-          {shortcutsPaused
-            ? t("已关闭：下面的快捷键都不响应，按键让给其他程序。设好的组合会保留。")
-            : t("在任何应用里都能用下面的组合键。")}
-        </p>
+
       </section>
       {groups.map((group) => (
         <section key={group.title} className={`panel panel-shortcuts ${shortcutsPaused ? "is-off" : ""}`} aria-disabled={shortcutsPaused || undefined}>
@@ -376,7 +372,7 @@ export function SnapshotStorageRows() {
 
 /** 录像存到哪、录不录声音。放在「截图与录制」右栏 */
 export function RecordingPanel() {
-  const { settings, notify, caps } = useApp();
+  const { settings, notify } = useApp();
   const { t } = useI18n();
   const { recordingPath, setRecordingPath } = useStoragePaths();
   const { update, pickDir } = useStorageActions();
@@ -411,26 +407,7 @@ export function RecordingPanel() {
             )}
           </span>
         </div>
-        <div className="row">
-          <label htmlFor="switch-system-audio" className="row-label">{t("同时录系统声音")}</label>
-          <Switch
-            id="switch-system-audio"
-            label={t("同时录系统声音")}
-            value={settings.recordSystemAudio}
-            disabled={Boolean(caps && !caps.recordingSystemAudio.available && !settings.recordSystemAudio)}
-            onChange={(value) => void update({ recordSystemAudio: value })}
-          />
-        </div>
-        <div className="row">
-          <label htmlFor="switch-microphone" className="row-label">{t("同时录麦克风")}</label>
-          <Switch
-            id="switch-microphone"
-            label={t("同时录麦克风")}
-            value={settings.recordMicrophone}
-            disabled={Boolean(caps && !caps.recordingMicrophone.available && !settings.recordMicrophone)}
-            onChange={(value) => void update({ recordMicrophone: value })}
-          />
-        </div>
+
       </div>
     </section>
   );

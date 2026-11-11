@@ -34,23 +34,26 @@ export function WindowChrome({ placement }: { placement: "sidebar" | "toolbar" }
 }
 
 /**
- * 每页顶上那一条：左边是标题，中间放这一页自己的工具，右边固定是「截取」「录制」。
+ * 每页顶上那一条：标题和本页操作；截图、录屏固定在侧栏。
  * 整条可以拖动窗口；按钮本身不拖。
  */
-export function Toolbar({ title, lead, children, capture = true }: { title: ReactNode; lead?: ReactNode; children?: ReactNode; capture?: boolean }) {
+export function Toolbar({ title, lead, children }: { title: ReactNode; lead?: ReactNode; children?: ReactNode }) {
   return (
     <header className="mw-toolbar" data-tauri-drag-region>
       {lead}
       <h1 className="mw-title" data-tauri-drag-region>{title}</h1>
       <span className="mw-fill" data-tauri-drag-region />
       {children && <span className="mw-tools">{children}</span>}
-      {capture && <CaptureTools />}
       <WindowChrome placement="toolbar" />
     </header>
   );
 }
 
 type NavItem = { page: NavPage; label: string; icon: ReactNode; trailing?: ReactNode };
+
+export function CaptureActions() {
+  return <div className="mw-global-actions"><CaptureTools /></div>;
+}
 
 /** 侧栏里伴侣的顺序：后导入的在前；导入时间一样就照原顺序。前台应用图标总在最后 */
 function sortedPets(assets: PetAsset[]) {
@@ -105,7 +108,7 @@ export function SideNav() {
         data-pet-id={id}
         className={`nav-item nav-pet ${current ? "is-on" : ""} ${asset?.missing ? "is-broken" : ""}`}
         aria-current={current ? "page" : undefined}
-        title={asset?.source ? `${name}\n${asset.source}` : name}
+        title={name}
         onClick={() => navigate("pet", { petId: id })}
       >
         <span className="nav-avatar" aria-hidden="true">

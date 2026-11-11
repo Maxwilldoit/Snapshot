@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clearApiKey, fetchModels, savePromptSettings } from "../lib/backend";
 import { errorText } from "../app/context";
@@ -25,14 +25,39 @@ export function ModelSettingsDialog({
   const [model, setModel] = useState(settings.model);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [apiKey, setApiKey] = useState("");
+  const [editingKey, setEditingKey] = useState(!settings.hasApiKey);
   const [saving, setSaving] = useState(false);
   const [clearingKey, setClearingKey] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previous = document.activeElement;
+    dialogRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, []);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+      if (event.key !== "Tab") return;
+      const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>("input:not(:disabled), button:not(:disabled)") ?? [])];
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
@@ -86,6 +111,7 @@ export function ModelSettingsDialog({
     try {
       onSaved(await clearApiKey());
       setApiKey("");
+      setEditingKey(true);
       notify(t("已删除保存的 API Key"));
     } catch (reason) {
       setError(errorText(reason));
@@ -95,15 +121,21 @@ export function ModelSettingsDialog({
   }
 
   return createPortal(
-    <div className={`dialog-backdrop ${leaving ? "is-leaving" : ""}`} onClick={onClose}>
+    <div
+      className={`dialog-backdrop ${leaving ? "is-leaving" : ""}`}
+      onClick={onClose}
+    >
       <div
+        ref={dialogRef}
         className="dialog dialog-wide"
         role="dialog"
         aria-modal="true"
         aria-labelledby="model-settings-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 className="dialog-title" id="model-settings-title">{t("润色用的模型")}</h2>
+        <h2 className="dialog-title" id="model-settings-title">
+          {t("润色用的模型")}
+        </h2>
 
         <div className="form">
           <label className="form-field">
@@ -117,7 +149,9 @@ export function ModelSettingsDialog({
             />
           </label>
           <div className="form-field">
-            <span className={`form-label${settings.hasApiKey ? " has-action" : ""}`}>
+            <span
+              className={`form-label${settings.hasApiKey ? " has-action" : ""}`}
+            >
               <span>API Key</span>
               {settings.hasApiKey && (
                 <button
@@ -130,14 +164,47 @@ export function ModelSettingsDialog({
                 </button>
               )}
             </span>
-            <input
-              className="input"
-              aria-label="API Key"
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              placeholder={settings.hasApiKey ? t("已保存；留空就不改") : t("可选")}
-            />
+            {settings.hasApiKey && !editingKey ? (
+              <span className="form-inline">
+                <span
+                  className="input saved-key"
+                  aria-label={t("API Key 已保存")}
+                >
+                  ••••••••
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setEditingKey(true)}
+                >
+                  {t("更换")}
+                </button>
+              </span>
+            ) : (
+              <span className="form-inline">
+                <input
+                  className="input"
+                  aria-label="API Key"
+                  type="password"
+                  autoFocus={settings.hasApiKey}
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  placeholder={settings.hasApiKey ? undefined : t("可选")}
+                />
+                {settings.hasApiKey && (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      setApiKey("");
+                      setEditingKey(false);
+                    }}
+                  >
+                    {t("取消更换")}
+                  </button>
+                )}
+              </span>
+            )}
           </div>
           <label className="form-field">
             <span className="form-label">{t("模型")}</span>
@@ -149,21 +216,39 @@ export function ModelSettingsDialog({
                 onChange={(event) => setModel(event.target.value)}
                 spellCheck={false}
               />
-              <button type="button" className="btn" onClick={() => void loadModels()} disabled={fetchingModels}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void loadModels()}
+                disabled={fetchingModels}
+              >
                 {fetchingModels ? t("拉取中…") : t("拉取")}
               </button>
             </span>
             <datalist id="available-models">
-              {availableModels.map((item) => <option key={item} value={item} />)}
+              {availableModels.map((item) => (
+                <option key={item} value={item} />
+              ))}
             </datalist>
           </label>
         </div>
 
-        {error && <p className="signal small" role="alert">{error}</p>}
+        {error && (
+          <p className="signal small" role="alert">
+            {error}
+          </p>
+        )}
 
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onClose}>{t("取消")}</button>
-          <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>
+          <button type="button" className="btn" onClick={onClose}>
+            {t("取消")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void save()}
+            disabled={saving}
+          >
             {saving ? t("保存中…") : t("保存")}
           </button>
         </div>

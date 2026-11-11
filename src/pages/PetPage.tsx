@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { Check, MoreHorizontal } from "lucide-react";
 import { CatShape } from "../components/ui/CatShape";
 import { PetMedia } from "../components/PetMedia";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { deletePetAsset, renamePetAsset, selectPetAppearance, showPetCatalog } from "../lib/backend";
 import { petUrl } from "../lib/media";
-import { formatBytes } from "../lib/format";
 import { commonPrefix, entryLabel } from "../lib/petNames";
 import { stagger } from "../lib/motion";
 import { errorText, useApp } from "../app/context";
@@ -157,13 +156,10 @@ export function PetPage() {
         >
           <MoreHorizontal aria-hidden="true" />
         </button>
-        {onDesk ? (
-          <span className="mw-status">{t("在桌面上")}</span>
-        ) : (
-          <button type="button" className="tb-btn is-primary" disabled={Boolean(asset?.missing)} onClick={() => void putOnDesk()}>
-            {t("放到桌面")}
-          </button>
-        )}
+        <button type="button" className={`tb-btn ${onDesk ? "" : "is-primary"}`} aria-pressed={onDesk} disabled={onDesk || Boolean(asset?.missing)} onClick={() => void putOnDesk()}>
+          {onDesk && <Check aria-hidden="true" />}
+          {onDesk ? t("在桌面上") : t("放到桌面")}
+        </button>
       </Toolbar>
       {more.open && (
         <Menu anchor={more.anchor} onClose={more.close} label={t("更多")}>
@@ -221,21 +217,14 @@ export function PetPage() {
                       aria-checked={activeEntry === entry}
                       className={`pet-action ${activeEntry === entry ? "is-on" : ""}`}
                       style={stagger(index)}
-                      title={entry}
                       onClick={() => setActiveEntry(entry)}
                     >
                       <span>{entryLabel(entry, prefix, t)}</span>
                       <svg className="pet-action-play" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 1.5v7l6-3.5z" fill="currentColor" /></svg>
                     </button>
                   ))}
-                  {asset.animations.length % 2 === 1 && <span className="pet-action is-filler" aria-hidden="true" />}
                 </div>
-                <p className="group-note mono">
-                  {asset.animations.length === 1
-                    ? t("1 个动作")
-                    : t("{count} 个动作", { count: asset.animations.length })}
-                  {asset.sizeBytes ? ` · ${formatBytes(asset.sizeBytes)}` : ""}
-                </p>
+
               </>
             )}
             <PetPanel assetId={asset?.id ?? "app-icon"} />

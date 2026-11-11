@@ -52,7 +52,7 @@ describe("工具栏截取/录屏：窗口列表秒开", () => {
   it("挂上时就预取，点开直接是列表，不再读一次也不显示「正在读取窗口」", async () => {
     const { listCalls, user } = await renderTools((command) => (command === "list_capturable_windows" ? [notes, chat] : undefined));
     await waitFor(() => expect(listCalls()).toBe(1));
-    await user.click(screen.getByRole("button", { name: "截取" }));
+    await user.click(screen.getByRole("button", { name: "截图" }));
     expect(await screen.findByRole("menuitem", { name: /Visual Studio Code/ })).toBeTruthy();
     expect(screen.queryByText("正在读取窗口…")).toBeNull();
     expect(listCalls()).toBe(1);
@@ -82,7 +82,7 @@ describe("工具栏截取/录屏：窗口列表秒开", () => {
     const { listCalls, user } = await renderTools((command) => (command === "list_capturable_windows" ? [notes] : undefined));
     await waitFor(() => expect(listCalls()).toBe(1));
     const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
-    await user.hover(screen.getByRole("button", { name: "截取" }));
+    await user.hover(screen.getByRole("button", { name: "截图" }));
     await waitFor(() => expect(listCalls()).toBe(2));
     now.mockReturnValue(Date.now() + 120_000);
     window.dispatchEvent(new Event("focus"));
@@ -93,7 +93,7 @@ describe("工具栏截取/录屏：窗口列表秒开", () => {
   it("第一次读很慢时，过 150ms 才显示「正在读取窗口」", async () => {
     const first = deferred<CapturableWindow[]>();
     const { user } = await renderTools((command) => (command === "list_capturable_windows" ? first.promise : undefined));
-    await user.click(screen.getByRole("button", { name: "截取" }));
+    await user.click(screen.getByRole("button", { name: "截图" }));
     expect(screen.queryByText("正在读取窗口…")).toBeNull();
     expect(screen.queryByText("没有找到可用的窗口")).toBeNull();
     expect(await screen.findByText("正在读取窗口…")).toBeTruthy();
@@ -113,7 +113,7 @@ describe("工具栏截取/录屏：窗口列表秒开", () => {
     await waitFor(() => expect(cache.cachedWindows()).toHaveLength(2));
     next = deferred<CapturableWindow[]>();
     const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
-    await user.click(screen.getByRole("button", { name: "截取" }));
+    await user.click(screen.getByRole("button", { name: "截图" }));
     await user.click(screen.getByRole("menuitem", { name: /Visual Studio Code/ }));
     expect(calls.some((call) => call.command === "run_action")).toBe(false);
     await act(async () => next!.resolve([chat]));
@@ -128,7 +128,7 @@ describe("工具栏截取/录屏：窗口列表秒开", () => {
       return command === "list_capturable_windows" ? [notes, chat] : undefined;
     });
     await waitFor(() => expect(listCalls()).toBe(1));
-    await user.click(screen.getByRole("button", { name: "截取" }));
+    await user.click(screen.getByRole("button", { name: "截图" }));
     await user.click(await screen.findByRole("menuitem", { name: /Safari/ }));
     await waitFor(() =>
       expect(calls.find((call) => call.command === "run_action")?.payload).toEqual({ action: "capture", targetId: 74 }),

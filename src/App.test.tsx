@@ -67,13 +67,13 @@ describe("global shortcuts", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^快捷键/ }));
 
-    const recordRow = await screen.findByRole("button", { name: "快捷键：窗口录制，当前按键：未设置" });
+    const recordRow = await screen.findByRole("button", { name: "快捷键：录屏，当前按键：未设置" });
     await user.click(recordRow);
     recordRow.focus();
     await user.keyboard("{Alt>}{Shift>}3{/Shift}{/Alt}");
 
     expect(await screen.findByText("快捷键不能重复")).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "快捷键：窗口录制，当前按键：未设置" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "快捷键：录屏，当前按键：未设置" })).toBeTruthy();
     const saved = calls.find((call) => call.command === "save_shortcuts");
     expect(invokeArgs(saved?.payload).shortcuts).toEqual([
       { action: "snapshot", accelerator: "Alt+Shift+2" },

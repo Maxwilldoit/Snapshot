@@ -82,13 +82,39 @@ async function renderApp(handle: IPCHandler = handler) {
 }
 
 describe("B2 拆页后逐页渲染", () => {
+  it("空状态有可执行的主按钮，失败保留错误且不改变截图策略", async () => {
+    const run = vi.fn((_payload: InvokeArgs | undefined) => Promise.reject("截图权限不足"));
+    await renderApp((command, payload) => command === "run_action" ? run(payload) : handler(command));
+    const user = userEvent.setup();
+    const main = within(screen.getByRole("main"));
+    await user.click(await main.findByRole("button", { name: "截图" }));
+    await waitFor(() => expect(run).toHaveBeenCalledWith({ action: "capture", targetId: null }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("截图权限不足"));
+    await user.click(screen.getByRole("button", { name: "Prompt 记录" }));
+    await user.click(await main.findByRole("button", { name: "润色 Prompt" }));
+    await waitFor(() => expect(run).toHaveBeenLastCalledWith({ action: "polish", targetId: null }));
+  });
+
+  it("全局截图入口留在侧栏，模型和规则只出现在 Prompt 设置", async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "通用" }));
+    const aside = within(screen.getByRole("complementary"));
+    expect(aside.getByRole("button", { name: "截图" }).getAttribute("aria-haspopup")).toBe("menu");
+    expect(screen.queryByRole("heading", { name: "润色规则" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Prompt 记录" }));
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(await screen.findByRole("heading", { name: "润色用的模型" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "润色规则" })).toBeTruthy();
+  });
+
   it("默认落在截图记录页；快捷键行在「设置 · 快捷键」", async () => {
     await renderApp();
     expect(await screen.findByRole("heading", { name: "截图记录" })).toBeTruthy();
     expect(await screen.findByText("还没有截图")).toBeTruthy();
     await userEvent.setup().click(screen.getByRole("button", { name: /^快捷键/ }));
     expect(
-      await screen.findByRole("button", { name: "快捷键：窗口快照，当前按键：Alt+Shift+2" }),
+      await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Prompt$/ })).toBeNull();
     expect(screen.queryByText("应用数据目录（默认）")).toBeNull();
@@ -125,7 +151,7 @@ describe("B2 拆页后逐页渲染", () => {
     [/^前台应用图标/, "自由走动"],
     [/^截图与录制/, "截图时"],
     [/^快捷键/, "启用全局快捷键"],
-    [/^通用/, "润色规则"],
+    [/^通用/, "界面语言"],
   ])("导航到「%s」能渲染出该页独有内容", async (navLabel, marker) => {
     await renderApp();
     const user = userEvent.setup();

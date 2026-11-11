@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { WindowTitleBar } from "../components/WindowTitleBar";
+import { LibraryWindow } from "../components/LibraryWindow";
+import { SearchField } from "../components/SearchField";
+import { Keys } from "../components/ui/Keys";
 import {
   copyText,
   deleteSavedPrompt,
@@ -10,7 +12,6 @@ import {
 } from "../lib/backend";
 import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 import type { SavedPrompt } from "../types";
-import "./PromptLibraryWindow.css";
 
 type EditingPrompt = {
   key: number;
@@ -159,7 +160,10 @@ export function PromptLibraryWindow() {
     } catch (error) {
       setStatus({
         kind: "error",
-        text: t("{action}失败：{detail}", { action: t("保存"), detail: errorText(error) }),
+        text: t("{action}失败：{detail}", {
+          action: t("保存"),
+          detail: errorText(error),
+        }),
       });
     } finally {
       setSaving(false);
@@ -199,7 +203,10 @@ export function PromptLibraryWindow() {
         void hidePromptLibrary().catch((error) => {
           setStatus({
             kind: "error",
-            text: t("{action}失败：{detail}", { action: t("关闭"), detail: errorText(error) }),
+            text: t("{action}失败：{detail}", {
+              action: t("关闭"),
+              detail: errorText(error),
+            }),
           });
         });
       }
@@ -219,7 +226,10 @@ export function PromptLibraryWindow() {
     } catch (error) {
       setStatus({
         kind: "error",
-        text: t("{action}失败：{detail}", { action: t("复制"), detail: errorText(error) }),
+        text: t("{action}失败：{detail}", {
+          action: t("复制"),
+          detail: errorText(error),
+        }),
       });
     } finally {
       setCopyingId(null);
@@ -238,7 +248,9 @@ export function PromptLibraryWindow() {
     setStatus(null);
   }
 
-  function editDraft(update: Partial<Pick<EditingPrompt, "title" | "content">>) {
+  function editDraft(
+    update: Partial<Pick<EditingPrompt, "title" | "content">>,
+  ) {
     setEditing((current) => (current ? { ...current, ...update } : current));
     setDeleteArmed(false);
     setStatus(null);
@@ -268,7 +280,10 @@ export function PromptLibraryWindow() {
     } catch (error) {
       setStatus({
         kind: "error",
-        text: t("{action}失败：{detail}", { action: t("删除"), detail: errorText(error) }),
+        text: t("{action}失败：{detail}", {
+          action: t("删除"),
+          detail: errorText(error),
+        }),
       });
     } finally {
       setDeleting(false);
@@ -277,232 +292,214 @@ export function PromptLibraryWindow() {
 
   const needle = query.trim().toLocaleLowerCase();
   const visiblePrompts = needle
-    ? prompts.filter((prompt) =>
-        prompt.title.toLocaleLowerCase().includes(needle) ||
-        prompt.content.toLocaleLowerCase().includes(needle),
+    ? prompts.filter(
+        (prompt) =>
+          prompt.title.toLocaleLowerCase().includes(needle) ||
+          prompt.content.toLocaleLowerCase().includes(needle),
       )
     : prompts;
 
   return (
-    <div className="prompt-library-root">
-      <WindowTitleBar
-        className="prompt-library-titlebar"
-        onError={(text) => setStatus({ kind: "error", text })}
-      >
-        <h1 className="titlebar-name prompt-library-window-name" data-tauri-drag-region>{t("Prompt 库")}</h1>
-      </WindowTitleBar>
-
-      {editing && (
-        <header className="prompt-library-header">
-          <h2>{t(editing.id ? "编辑" : "新建")}</h2>
-        </header>
-      )}
-
-      {editing ? (
-        <form
-          className="prompt-library-editor"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void saveDraft();
-          }}
-        >
-          <button type="button" className="text-btn prompt-library-back" onClick={closeEditor}>
-            <span aria-hidden="true">←</span>
-            {t("返回")}
-          </button>
-
-          <label className="prompt-library-field">
-            <span className="prompt-library-label">
-              {t("名称")}
-              <span className="quiet">{t("可选")}</span>
-            </span>
-            <input
-              ref={titleRef}
-              className="input prompt-library-title-input"
-              value={editing.title}
-              onChange={(event) => editDraft({ title: event.target.value })}
-              aria-label={t("名称")}
-              maxLength={80}
-              spellCheck={false}
-            />
-          </label>
-
-          <label className="prompt-library-field prompt-library-content-field">
-            <span className="prompt-library-label">
-              {t("正文")}
-              <span className="mono quiet">{t("{count} 字", { count: editing.content.length })}</span>
-            </span>
-            <textarea
-              ref={contentRef}
-              className="input prompt-library-content"
-              value={editing.content}
-              onChange={(event) => editDraft({ content: event.target.value })}
-              aria-label={t("正文")}
-              placeholder={t("粘贴或输入要长期保存的 Prompt")}
-              maxLength={200_000}
-              spellCheck={false}
-            />
-          </label>
-
-          <div className="prompt-library-editor-foot">
-            <span>
-              {editing.id && (
-                <button
-                  type="button"
-                  className={`text-btn ${deleteArmed ? "signal" : "ink-2"}`}
-                  onClick={() => void remove()}
-                  disabled={saving || deleting}
-                >
-                  {deleteArmed ? t("再点一次删除") : t("删除")}
-                </button>
-              )}
-            </span>
-            <span className="prompt-library-editor-actions">
-              <button type="button" className="btn" onClick={closeEditor} disabled={saving || deleting}>
-                {t("取消")}
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={!editing.content.trim() || saving || deleting}
-              >
-                {saving ? t("保存中…") : t("保存")}
-                {!saving && <span className="prompt-library-shortcut mono" aria-hidden="true">Ctrl S</span>}
-              </button>
-            </span>
-          </div>
-
-          {status && (
-            <p
-              className={`prompt-library-status prompt-library-editor-status is-${status.kind}`}
-              role={status.kind === "error" ? "alert" : "status"}
-              aria-live="polite"
+    <LibraryWindow
+      title={t("Prompt 库")}
+      onError={(text) => setStatus({ kind: "error", text })}
+    >
+      <main className="mw-scroll">
+        <div className="library-content">
+          {editing ? (
+            <form
+              className="form library-editor"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveDraft();
+              }}
             >
-              {status.text}
-            </p>
-          )}
-        </form>
-      ) : (
-        <main className="prompt-library-main">
-          <div className="prompt-library-toolbar">
-            <label className="prompt-library-search">
-              <span className="prompt-library-search-icon" aria-hidden="true">⌕</span>
-              <input
-                ref={searchRef}
-                type="text"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                aria-label={t("搜索")}
-                placeholder={t("搜索名称或正文")}
-                spellCheck={false}
-              />
-              {query && (
-                <button
-                  type="button"
-                  className="prompt-library-search-clear"
-                  aria-label={t("清除")}
-                  onClick={() => {
-                    setQuery("");
-                    searchRef.current?.focus();
-                  }}
-                >
-                  ×
-                </button>
-              )}
-            </label>
-            {!loading && !loadError && (
-              <span className="prompt-library-count quiet">
-                {t("{count} 项", { count: visiblePrompts.length })}
-              </span>
-            )}
-            <button type="button" className="btn btn-primary prompt-library-new" onClick={openNew}>
-              {t("新建")}
-              <span className="prompt-library-shortcut mono" aria-hidden="true">Ctrl N</span>
-            </button>
-          </div>
-
-          <div className="prompt-library-content-area">
-            {loading ? (
-              <div className="prompt-library-loading" role="status">
-                <span className="busy-line" aria-hidden="true" />
-                <span>{t("加载中")}</span>
-              </div>
-            ) : loadError ? (
-              <div className="prompt-library-empty" role="alert">
-                <h2>{t("失败")}</h2>
-                <p>{loadError}</p>
-                <button type="button" className="text-btn link" onClick={() => void load()}>
-                  {t("重试")}
+              <div className="library-actions">
+                <h2 className="panel-title">
+                  {t(editing.id ? "编辑" : "新建")}
+                </h2>
+                <button type="button" className="link" onClick={closeEditor}>
+                  {t("返回")}
                 </button>
               </div>
-            ) : prompts.length === 0 ? (
-              <div className="prompt-library-empty" role="status">
-                <p className="prompt-library-empty-mark mono" aria-hidden="true">01</p>
-                <h2>{t("这里还空着")}</h2>
-                <button type="button" className="text-btn link" onClick={openNew}>{t("新建")}</button>
-              </div>
-            ) : visiblePrompts.length === 0 ? (
-              <div className="prompt-library-empty" role="status">
-                <p className="prompt-library-empty-mark mono" aria-hidden="true">00</p>
-                <h2>{t("没有匹配的 Prompt")}</h2>
-                <button
-                  type="button"
-                  className="text-btn link"
-                  onClick={() => {
-                    setQuery("");
-                    searchRef.current?.focus();
-                  }}
-                >
-                  {t("清除筛选")}
-                </button>
-              </div>
-            ) : (
-              <div className="prompt-library-list" aria-label={t("Prompt 库")}>
-                {visiblePrompts.map((prompt) => (
-                  <article
-                    className="prompt-library-row"
-                    key={prompt.id}
-                    aria-label={prompt.title || t("未命名")}
+              <label className="form-field">
+                <span className="form-label">{t("名称")}</span>
+                <input
+                  ref={titleRef}
+                  className="input"
+                  value={editing.title}
+                  onChange={(event) => editDraft({ title: event.target.value })}
+                  aria-label={t("名称")}
+                  maxLength={80}
+                  spellCheck={false}
+                />
+              </label>
+              <label className="form-field">
+                <span className="form-label">{t("正文")}</span>
+                <textarea
+                  ref={contentRef}
+                  className="input library-textarea"
+                  value={editing.content}
+                  onChange={(event) =>
+                    editDraft({ content: event.target.value })
+                  }
+                  aria-label={t("正文")}
+                  placeholder={t("粘贴或输入要长期保存的 Prompt")}
+                  maxLength={200_000}
+                  spellCheck={false}
+                />
+                {editing.content.length >= 180_000 && (
+                  <span className="small quiet">
+                    {t("{count} 字", { count: editing.content.length })} /
+                    200,000
+                  </span>
+                )}
+              </label>
+              <div className="library-actions">
+                <span>
+                  {editing.id && (
+                    <button
+                      type="button"
+                      className={`text-btn ${deleteArmed ? "signal" : "ink-2"}`}
+                      onClick={() => void remove()}
+                      disabled={saving || deleting}
+                    >
+                      {deleteArmed ? t("再点一次删除") : t("删除")}
+                    </button>
+                  )}
+                </span>
+                <span className="dialog-actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={closeEditor}
+                    disabled={saving || deleting}
                   >
-                    <div className="prompt-library-row-copy">
-                      <h2>{prompt.title || t("未命名")}</h2>
-                      <p>{prompt.content}</p>
-                    </div>
-                    <div className="prompt-library-row-actions">
-                      <button
-                        type="button"
-                        className="text-btn ink-2"
-                        onClick={() => void copy(prompt)}
-                        disabled={copyingId !== null}
-                      >
-                        {copyingId === prompt.id ? t("正在复制…") : t("复制")}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-btn ink-2"
-                        onClick={() => beginEdit(prompt)}
-                        disabled={copyingId !== null}
-                      >
-                        {t("编辑")}
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                    {t("取消")}
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={!editing.content.trim() || saving || deleting}
+                  >
+                    {saving ? t("保存中…") : t("保存")}
+                    <span aria-hidden="true">
+                      <Keys value="CommandOrControl+S" quiet />
+                    </span>
+                  </button>
+                </span>
               </div>
-            )}
-          </div>
-
+            </form>
+          ) : (
+            <>
+              <div className="library-toolbar">
+                <SearchField
+                  inputRef={searchRef}
+                  value={query}
+                  onChange={setQuery}
+                  label={t("搜索")}
+                  placeholder={t("搜索名称或正文")}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={openNew}
+                >
+                  {t("新建")}
+                  <span aria-hidden="true">
+                    <Keys value="CommandOrControl+N" quiet />
+                  </span>
+                </button>
+              </div>
+              {loading ? (
+                <div className="library-empty" role="status">
+                  <span className="busy-line" aria-hidden="true" />
+                  {t("加载中")}
+                </div>
+              ) : loadError ? (
+                <div className="library-empty" role="alert">
+                  <h2>{t("失败")}</h2>
+                  <p>{loadError}</p>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => void load()}
+                  >
+                    {t("重试")}
+                  </button>
+                </div>
+              ) : prompts.length === 0 ? (
+                <div className="library-empty" role="status">
+                  <h2>{t("这里还空着")}</h2>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={openNew}
+                  >
+                    {t("新建")}
+                  </button>
+                </div>
+              ) : visiblePrompts.length === 0 ? (
+                <div className="library-empty" role="status">
+                  <h2>{t("没有匹配的 Prompt")}</h2>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      setQuery("");
+                      searchRef.current?.focus();
+                    }}
+                  >
+                    {t("清除筛选")}
+                  </button>
+                </div>
+              ) : (
+                <div className="library-list" aria-label={t("Prompt 库")}>
+                  {visiblePrompts.map((prompt) => (
+                    <article
+                      className="library-row"
+                      key={prompt.id}
+                      aria-label={prompt.title || t("未命名")}
+                    >
+                      <div className="library-row-content">
+                        <h2>{prompt.title || t("未命名")}</h2>
+                        <p>{prompt.content}</p>
+                      </div>
+                      <div className="library-row-actions">
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => void copy(prompt)}
+                          disabled={copyingId !== null}
+                        >
+                          {copyingId === prompt.id ? t("正在复制…") : t("复制")}
+                        </button>
+                        <button
+                          type="button"
+                          className="text-btn"
+                          onClick={() => beginEdit(prompt)}
+                          disabled={copyingId !== null}
+                        >
+                          {t("编辑")}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
           {status && (
             <p
-              className={`prompt-library-status is-${status.kind}`}
+              className={`library-status ${status.kind === "error" ? "signal" : "ink-2"}`}
               role={status.kind === "error" ? "alert" : "status"}
               aria-live="polite"
             >
               {status.text}
             </p>
           )}
-        </main>
-      )}
-    </div>
+        </div>
+      </main>
+    </LibraryWindow>
   );
 }

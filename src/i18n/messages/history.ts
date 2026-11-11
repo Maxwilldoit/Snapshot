@@ -13,7 +13,6 @@ export const historyEnglish: Record<string, string> = {
   "全选 {count} 张": "Select All ({count})",
   "取消": "Cancel",
   "清除筛选": "Clear Filter",
-  "{count} 项": "1 item|{count} items",
   "打开快照文件夹": "Open Screenshots Folder",
   "选择快照": "Select Screenshots",
   "打开了：之后的截图会留在这里": "Turned on. New screenshots will be saved here.",
@@ -24,7 +23,7 @@ export const historyEnglish: Record<string, string> = {
   "选整组": "Select Group",
   "图片文件会从本机一起删掉，没法恢复。": "The image files will be deleted from your computer. This can’t be undone.",
 
-  "截图": "Screenshots",
+  "截图": "Screenshot",
   "录制": "Screen Recording",
   "润色": "Enhanced",
   "这里还空着": "No Prompts Yet",

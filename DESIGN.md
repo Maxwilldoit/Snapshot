@@ -8,7 +8,12 @@ desktop visual language; this work does not introduce a new theme or UI framewor
 
 ## Existing tokens
 
-`src/styles/variables.css` is the source of truth:
+`src/styles/variables.css` defines shared tokens. `src/styles/main-window.css`
+defines the native app surface and aliases those shared tokens to its palette.
+Main, Prompt library, and Pet Gallery use that surface; transparent windows retain
+their existing palette. Native app tokens are `--win`, `--pane`, `--group`,
+`--text1` through `--text4`, `--accent`, `--sep`, `--fill`, `--btn`, and `--red`.
+Reuse these mappings rather than introducing a third palette. Shared tokens:
 
 - Surfaces: `--paper`, `--paper-raised`, `--paper-sunk`.
 - Text: `--ink`, `--ink-2`, `--ink-3`, `--ink-4`; `--ink-fill` for filled controls.

@@ -149,7 +149,7 @@ describe("Prompt 库窗口", () => {
     await library.user.clear(search);
     await library.user.type(search, "不存在的关键词");
     expect(await screen.findByText("没有匹配的 Prompt")).toBeTruthy();
-    await library.user.click(screen.getByRole("button", { name: "清除" }));
+    await library.user.click(within(search.closest("label")!).getByRole("button", { name: "清除搜索" }));
     expect(row("整理需求")).toBeTruthy();
   });
 

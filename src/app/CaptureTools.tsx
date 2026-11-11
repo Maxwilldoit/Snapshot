@@ -15,7 +15,7 @@ import { formatDuration } from "../lib/format";
 import { iconUrl } from "../lib/media";
 import { localizeMessage, useI18n } from "../lib/i18n";
 import { useNow } from "../hooks/useLive";
-import { Menu, MenuHeading, MenuItem, MenuSeparator, useMenuAnchor } from "../components/Menu";
+import { Menu, MenuItem, MenuSeparator, useMenuAnchor } from "../components/Menu";
 import { MediaImage } from "../components/MediaImage";
 import { Keys } from "../components/ui/Keys";
 import { windowPickerLabels } from "../windows/QuickMenuWindow";
@@ -177,7 +177,6 @@ export function CaptureTools() {
 
   return (
     <span className="mw-tools mw-capture-tools">
-      <span className="mw-vsep" aria-hidden="true" />
       <button
         type="button"
         className="tb-btn"
@@ -187,7 +186,7 @@ export function CaptureTools() {
         onClick={(event) => openMenu(captureMenu, recordMenu, event.currentTarget)}
       >
         <ScanLine aria-hidden="true" />
-        {t("截取")}
+        {t("截图")}
       </button>
       {recording.active ? (
         <button type="button" className="tb-btn is-recording" onClick={() => void stop()} aria-label={t("停止录制 · {target}", { target: recording.target ?? t("窗口") })}>
@@ -201,7 +200,7 @@ export function CaptureTools() {
           aria-haspopup="menu"
           aria-expanded={recordMenu.open}
           disabled={!recordingAvailable}
-          title={recordingAvailable ? undefined : t("不可用")}
+          title={recordingAvailable ? undefined : t("录屏在当前环境不可用")}
           {...prefetchHandlers}
           onClick={(event) => openMenu(recordMenu, captureMenu, event.currentTarget)}
         >
@@ -211,8 +210,7 @@ export function CaptureTools() {
       )}
 
       {captureMenu.open && (
-        <Menu anchor={captureMenu.anchor} onClose={captureMenu.close} label={t("选择要截取的窗口")}>
-          <MenuHeading>{t("选择要截取的窗口")}</MenuHeading>
+        <Menu align="start" anchor={captureMenu.anchor} onClose={captureMenu.close} label={t("选择要截取的窗口")}>
           {windowItems((item) => void capture(item))}
           <MenuSeparator />
           <MenuItem onSelect={() => void capture("fullscreen")} trailing={fullscreenKeys ? <Keys value={fullscreenKeys} quiet /> : undefined}>
@@ -221,8 +219,7 @@ export function CaptureTools() {
         </Menu>
       )}
       {recordMenu.open && (
-        <Menu anchor={recordMenu.anchor} onClose={recordMenu.close} label={t("选择要录制的窗口")}>
-          <MenuHeading>{t("选择要录制的窗口")}</MenuHeading>
+        <Menu align="start" anchor={recordMenu.anchor} onClose={recordMenu.close} label={t("选择要录制的窗口")}>
           {windowItems((item) => void record(item))}
           <MenuSeparator />
           <MenuItem

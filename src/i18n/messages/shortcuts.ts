@@ -1,14 +1,9 @@
 export const shortcutsEnglish: Record<string, string> = {
-  "窗口快照": "Window Screenshot",
-  "全屏快照": "Full-Screen Screenshot",
   "滚动长截图": "Scrolling Screenshot",
-  "窗口录制": "Window Recording",
   "润色 Prompt": "Enhance Prompt",
   "打开 Prompt 库": "Open Prompt Library",
   "呼出快捷菜单": "Show Quick Menu",
 
-  "快捷键绑定已保存，全局快捷键仍保持暂停": "Shortcuts saved. They stay paused until you turn them back on.",
-  "快捷键已保存，立即生效": "Shortcuts saved",
   "全局快捷键已暂停，按键已释放": "Shortcuts paused",
   "全局快捷键已恢复": "Shortcuts turned on",
   "快捷键：{name}，当前按键：{keys}": "{name} shortcut: {keys}",
@@ -20,9 +15,6 @@ export const shortcutsEnglish: Record<string, string> = {
   "清除": "Clear",
   "暂停全局快捷键": "Pause Shortcuts",
   "启用全局快捷键": "Use global shortcuts",
-  "已关闭：下面的快捷键都不响应，按键让给其他程序。设好的组合会保留。": "Off. These shortcuts won’t respond, so other apps can use the keys. Your key combinations are kept.",
-  "在任何应用里都能用下面的组合键。": "These shortcuts work in any app.",
-  "点按录制": "Click to set",
   "按下快捷键…": "Press keys…",
 
   "快照保存位置已更改": "Screenshot folder changed",
@@ -81,7 +73,6 @@ export const shortcutsEnglish: Record<string, string> = {
   "模型设置已保存": "Model settings saved",
   "润色用的模型": "Enhancement model",
   "接口地址": "Base URL",
-  "已保存；留空就不改": "Saved — leave blank to keep it",
   "删除已保存的 Key": "Remove Saved Key",
   "已删除保存的 API Key": "API key removed",
   "可选": "Optional",

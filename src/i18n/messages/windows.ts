@@ -15,8 +15,6 @@ export const windowsEnglish: Record<string, string> = {
   "正在停止并保存录像…": "Saving recording…",
   "录制还在继续": "Still recording",
   "录制已保存": "Recording saved",
-  "还没填模型接口，润色用不了。请在主窗口的「偏好设置」里填写。": "To enhance prompts, set up a model in Settings first.",
-  "快照": "Screenshot",
   "全屏截图": "Full-Screen Screenshot",
   "停止录制 · {target}": "Stop Recording · {target}",
   "窗口": "Window",
@@ -26,8 +24,6 @@ export const windowsEnglish: Record<string, string> = {
 
   "应用快照快捷菜单": "Snapshot Quick Menu",
   "原文": "Original",
-  "{sourceCount} → {resultCount} 字": "{sourceCount} → {resultCount} characters",
-  "正在按「{template}」润色 · {seconds} 秒": "Enhancing with “{template}” · {seconds}s",
   "重试": "Try Again",
   "看结果": "Show Result",
   "看原文": "Show Original",

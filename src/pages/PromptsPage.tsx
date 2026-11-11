@@ -1,20 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listPromptHistory, onPromptHistoryChanged, showPromptLibrary } from "../lib/backend";
+import { listPromptHistory, onPromptHistoryChanged, runAction, showPromptLibrary } from "../lib/backend";
 import { groupByDay } from "../lib/format";
 import { PromptHistoryRow } from "../components/PromptHistoryRow";
 import { LoadingState } from "../components/LoadingState";
 import { Toolbar } from "../app/Shell";
-import { SearchField } from "./HistoryPage";
+import { SearchField } from "../components/SearchField";
+import { PromptSettings } from "../components/PromptSettings";
+import { Keys } from "../components/ui/Keys";
+import { acceleratorOf } from "./ShortcutsPage";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { PromptHistoryEntry } from "../types";
 
 /** Prompt 记录：每次成功润色的原文、结果和所用规则，按天分组；点一条展开全文 */
 export function PromptsPage() {
-  const { notify } = useApp();
+  const { notify, settings, conflicts } = useApp();
   const { t } = useI18n();
   const [records, setRecords] = useState<PromptHistoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+  const shortcut = settings.shortcutsPaused ? null : acceleratorOf(settings, "polish");
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +58,9 @@ export function PromptsPage() {
       >
         {t("打开 Prompt 库")}
       </button>
+      <button type="button" className="tb-btn" aria-expanded={showSettings} aria-controls="prompt-settings" onClick={() => setShowSettings((value) => !value)}>
+        {t("设置")}
+      </button>
     </Toolbar>
   );
 
@@ -70,7 +78,11 @@ export function PromptsPage() {
     body = (
       <div className="empty mw-empty">
         <h2 className="empty-title">{t("还没有 Prompt 记录")}</h2>
-        <p className="empty-body">{t("在快捷菜单里润色成功后，原文和润色结果会按时间显示在这里。")}</p>
+        <div className="empty-actions">
+          <button type="button" className="btn btn-primary" onClick={() => void runAction("polish").catch((error) => notify(errorText(error), "error"))}>
+            {t("润色 Prompt")}{shortcut && !conflicts.includes(shortcut) && <span aria-hidden="true"><Keys value={shortcut} quiet /></span>}
+          </button>
+        </div>
       </div>
     );
   } else if (filtered.length === 0) {
@@ -101,7 +113,9 @@ export function PromptsPage() {
   return (
     <div className="mw-page prompts-page">
       {toolbar}
-      <div className="mw-scroll">{body}</div>
+      <div className={`mw-scroll ${showSettings ? "pane" : ""}`}>
+        {showSettings ? <PromptSettings /> : body}
+      </div>
     </div>
   );
 }

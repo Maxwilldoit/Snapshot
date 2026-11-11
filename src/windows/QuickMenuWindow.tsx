@@ -10,6 +10,7 @@ import {
   onPaletteOpened,
   onSettingsChanged,
   polishText,
+  platformCapabilities,
   readClipboardText,
   resizeQuickMenu,
   runAction,
@@ -23,11 +24,11 @@ import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 import { readAutoCopy } from "../lib/prefs";
 import { MediaImage } from "../components/MediaImage";
 import { Keys } from "../components/ui/Keys";
-import type { CapturableWindow, RecordingStatus, Settings, ShortcutAction } from "../types";
+import type { CapturableWindow, RecordingStatus, Settings, ShortcutAction, PlatformCapabilities } from "../types";
 
 type View = "menu" | "windows" | "polish";
 type Status = { kind: "busy" | "ok" | "error"; text: string };
-type Item = { id: string; label: ReactNode; hint?: ReactNode; run: () => void };
+type Item = { id: string; label: ReactNode; hint?: ReactNode; disabled?: boolean; reason?: string; run: () => void };
 
 /** 成功类提示停留多久后自动收起 */
 const OK_HIDE_DELAY_MS = 900;
@@ -67,6 +68,7 @@ export function QuickMenuWindow() {
   const { t } = useI18n();
   useWindowTitle(t("快速操作"));
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [caps, setCaps] = useState<PlatformCapabilities | null>(null);
   const [view, setView] = useState<View>("menu");
   const [cursor, setCursor] = useState(0);
   const [pickerMode, setPickerMode] = useState<"capture" | "record">("capture");
@@ -86,7 +88,6 @@ export function QuickMenuWindow() {
   const [running, setRunning] = useState(false);
   const [peek, setPeek] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(null);
-  const [startedAt, setStartedAt] = useState(0);
   const runToken = useRef(0);
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -99,6 +100,7 @@ export function QuickMenuWindow() {
 
   const refresh = useCallback(() => {
     loadSettings().then(setSettings).catch(() => {});
+    platformCapabilities().then((value) => setCaps(value ?? null)).catch(() => {});
     getRecordingStatus().then((value) => value && setRecording(value)).catch(() => {});
     getShortcutConflicts()
       .then((list) => setConflicts(Array.isArray(list) ? list : []))
@@ -191,6 +193,7 @@ export function QuickMenuWindow() {
   const accelerator = (action: ShortcutAction) =>
     settings?.shortcuts.find((item) => item.action === action)?.accelerator ?? null;
   const shortcutHint = (action: ShortcutAction) => {
+    if (settings?.shortcutsPaused) return null;
     const value = accelerator(action);
     if (!value) return null;
     if (conflicts.includes(value)) return <span className="signal small">{t("快捷键被占用")}</span>;
@@ -318,7 +321,6 @@ export function QuickMenuWindow() {
       setPolishError(null);
       setResult(null);
       setPeek(false);
-      setStartedAt(Date.now());
       try {
         const polished = await polishText(text, template);
         if (token !== runToken.current) return;
@@ -350,7 +352,7 @@ export function QuickMenuWindow() {
     setView("polish");
     showStatus(null);
     if (!settings?.baseUrl || !settings?.model) {
-      setPolishError(t("还没填模型接口，润色用不了。请在主窗口的「偏好设置」里填写。"));
+      setPolishError(t("请先在 Prompt 页的设置中填写模型接口。"));
       return;
     }
     void run(trimmed, template);
@@ -387,7 +389,7 @@ export function QuickMenuWindow() {
     const list: Item[] = [
       {
         id: "capture",
-        label: t("快照"),
+        label: t("截图"),
         hint: shortcutHint("snapshot"),
         run: () => void openPicker("capture"),
       },
@@ -396,6 +398,14 @@ export function QuickMenuWindow() {
         label: t("全屏截图"),
         hint: shortcutHint("fullscreen"),
         run: () => void runAction("fullscreen").catch(() => {}),
+      },
+      {
+        id: "scrolling",
+        label: t("长截图"),
+        hint: shortcutHint("scrolling"),
+        disabled: Boolean(caps && !caps.scrolling?.available),
+        reason: t("长截图需要 Linux X11 和 xdotool"),
+        run: () => void runAction("scrolling").catch((error) => showStatus({ kind: "error", text: errorText(error) })),
       },
       recording.active
         ? {
@@ -412,7 +422,7 @@ export function QuickMenuWindow() {
           }
         : {
             id: "record",
-            label: t("录制"),
+            label: t("录屏"),
             hint: shortcutHint("record"),
             run: () => void openPicker("record"),
           },
@@ -431,7 +441,7 @@ export function QuickMenuWindow() {
     ];
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, recording, conflicts, now, t]);
+  }, [settings, caps, recording, conflicts, now, t]);
 
   const visibleWindows = windows ?? [];
 
@@ -451,6 +461,15 @@ export function QuickMenuWindow() {
       ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
       ?.scrollIntoView?.({ block: "nearest" });
   }, [cursor, view, windows]);
+
+  function nextCursor(value: number, direction: number) {
+    if (!rowCount) return 0;
+    for (let step = 1; step <= rowCount; step += 1) {
+      const index = (value + direction * step + rowCount) % rowCount;
+      if (view !== "menu" || !items[index]?.disabled) return index;
+    }
+    return value;
+  }
 
   function onKeyDown(event: React.KeyboardEvent) {
     if (view === "polish") {
@@ -477,15 +496,15 @@ export function QuickMenuWindow() {
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setCursor((value) => (rowCount ? (value + 1) % rowCount : 0));
+      setCursor((value) => nextCursor(value, 1));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setCursor((value) => (rowCount ? (value - 1 + rowCount) % rowCount : 0));
+      setCursor((value) => nextCursor(value, -1));
     } else if (event.key === "Enter") {
       // 授权页的按钮保留浏览器默认键盘激活，不能被窗口列表的回车处理吞掉。
       if (event.target instanceof HTMLButtonElement) return;
       event.preventDefault();
-      if (view === "menu") items[cursor]?.run();
+      if (view === "menu" && !items[cursor]?.disabled) items[cursor]?.run();
       else if (visibleWindows[cursor]) void pickWindow(visibleWindows[cursor]);
     } else if (event.key === "Escape") {
       event.preventDefault();
@@ -516,20 +535,15 @@ export function QuickMenuWindow() {
               <div className="palette-source small">
                 <span className="quiet">{t("原文")}</span>
                 <span className="palette-source-text">{source}</span>
-                {result && (
-                  <span className="mono quiet">
-                    {t("{sourceCount} → {resultCount} 字", { sourceCount: source.length, resultCount: result.length })}
-                  </span>
-                )}
+
               </div>
               <div className="palette-result" tabIndex={-1} ref={resultRef} aria-live="polite">
                 {running ? (
                   <p className="palette-busy">
                     <span className="busy-line" aria-hidden="true" />
                     <span>
-                      {t("正在按「{template}」润色 · {seconds} 秒", {
+                      {t("正在按「{template}」润色…", {
                         template: templateName,
-                        seconds: Math.floor((now - startedAt) / 1000),
                       })}
                     </span>
                   </p>
@@ -582,7 +596,9 @@ export function QuickMenuWindow() {
                       role="option"
                       aria-selected={index === cursor}
                       className={`palette-item ${index === cursor ? "is-on" : ""}`}
-                      onMouseMove={() => setCursor(index)}
+                      disabled={item.disabled}
+                      title={item.disabled ? item.reason : undefined}
+                      onMouseMove={() => !item.disabled && setCursor(index)}
                       onClick={item.run}
                     >
                       <span className="palette-label">{item.label}</span>
@@ -596,8 +612,11 @@ export function QuickMenuWindow() {
                   {capturePermissionRequired && (
                     <div className="palette-permission">
                       <p className="small" role="alert">{t("需要「屏幕录制」权限才能读取和截取窗口")}</p>
-                      <p className="small ink-2">{t("请在系统设置 → 隐私与安全性 → 屏幕录制中允许应用快照，然后重新读取。若已开启仍无法读取，请退出并重新打开应用。")}</p>
-                      <p className="small ink-2">{t("若更新后已开启权限并重启仍提示授权，请在屏幕录制设置中移除旧的应用快照，再添加「应用程序」中的 snapshot.app 并开启权限。")}</p>
+                      <details className="permission-help small ink-2">
+                        <summary>{t("授权帮助")}</summary>
+                        <p>{t("请在系统设置 → 隐私与安全性 → 屏幕录制中允许应用快照，然后重新读取。若已开启仍无法读取，请退出并重新打开应用。")}</p>
+                        <p>{t("若更新后已开启权限并重启仍提示授权，请在屏幕录制设置中移除旧的应用快照，再添加「应用程序」中的 snapshot.app 并开启权限。")}</p>
+                      </details>
                       <div className="palette-permission-actions">
                         <button type="button" className="btn btn-small" disabled={pickerLoading} onClick={() => void authorizeCapture()}>{t("打开系统设置")}</button>
                         <button type="button" className="text-btn small" disabled={pickerLoading} onClick={() => void openPicker(pickerMode, true)}>{t("重新读取")}</button>

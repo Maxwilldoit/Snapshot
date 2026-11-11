@@ -16,6 +16,7 @@ import "./styles/variables.css";
 import "./styles.css";
 import "./styles/app.css";
 import "./styles/main-window.css";
+import "./styles/library.css";
 
 function mount() {
   const label = getCurrentWindow().label;
@@ -23,6 +24,7 @@ function mount() {
   document.documentElement.classList.toggle("transparent-window", usesTransparentSurface);
   // 主窗口的新外观只挂在 data-window="main" 下，桌宠、快捷菜单等其它窗口不受影响
   document.documentElement.dataset.window = label;
+  document.documentElement.dataset.surface = ["main", "prompt-library", "pet-catalog"].includes(label) ? "app" : "overlay";
   document.body.classList.toggle("transparent-window", usesTransparentSurface);
 
   // 每个 WebView 都在首帧前应用系统颜色和完整动效，不读取旧外观偏好。

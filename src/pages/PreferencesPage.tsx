@@ -4,10 +4,7 @@ import { importCustomSound, savePreferences } from "../lib/backend";
 import { previewHintSound } from "../lib/sound";
 import { Switch } from "../components/ui/Switch";
 import { Choices } from "../components/ui/Choices";
-import { usePresence } from "../lib/motion";
-import { ModelSettingsDialog } from "../components/ModelSettingsDialog";
 import { errorText, useApp } from "../app/context";
-import { RulesPanel } from "./RulesPanel";
 import { RecordingPanel, SnapshotStorageRows } from "./ShortcutsPage";
 import { Toolbar } from "../app/Shell";
 import { PET_SCALE } from "../lib/petSize";
@@ -57,6 +54,10 @@ function SnapshotPanel() {
             value={settings.autoSaveLocal}
             onChange={(value) => void update({ autoSaveLocal: value })}
           />
+        </div>
+        <div className="row">
+          <label className="row-label" htmlFor="pref-hideAfterCopy">{t("复制后隐藏主窗口")}</label>
+          <Switch id="pref-hideAfterCopy" label={t("复制后隐藏主窗口")} value={settings.hideAfterCopy} onChange={(value) => void update({ hideAfterCopy: value })} />
         </div>
         <SnapshotStorageRows />
       </div>
@@ -262,60 +263,6 @@ export function PetPanel({ assetId }: { assetId?: string } = {}) {
   );
 }
 
-/** 这台机器能做什么（各端 adapter 实时报告）+ 模型 */
-function MachinePanel() {
-  const { settings, caps } = useApp();
-  const { t } = useI18n();
-  const [editingModel, setEditingModel] = useState(false);
-  const modelDialog = usePresence(editingModel || null);
-  const { onSaved, notify } = useApp();
-
-  const capabilities = caps
-    ? [
-        { label: t("窗口录制"), ...caps.recording },
-        ...(caps.scrolling ? [{ label: t("滚动长截图"), ...caps.scrolling }] : []),
-      ]
-    : [];
-
-  return (
-    <section className="panel">
-      <h2 className="panel-title">{t("本机与模型")}</h2>
-      <div className="rows">
-        <div className="row">
-          <span className="row-label">{t("润色用的模型")}</span>
-          <span className="row-links small">
-            <span className={settings.model ? "mono ink-2" : "signal"}>{settings.model || t("还没填")}</span>
-            <button type="button" className="link" onClick={() => setEditingModel(true)}>
-              {settings.model ? t("修改") : t("去填写")}
-            </button>
-          </span>
-        </div>
-        {caps && (
-          <div className="row">
-            <span className="row-label">{t("系统")}</span>
-            <span className="mono small ink-2">{caps.os} · {caps.displayServer}</span>
-          </div>
-        )}
-        {capabilities.map((capability) => (
-          <div className="row" key={capability.label}>
-            <span className="row-label">{capability.label}</span>
-            <span className={`small ${capability.available ? "ink-2" : "signal"}`}>{capability.available ? t("可用") : t("不可用")}</span>
-          </div>
-        ))}
-      </div>
-      {modelDialog.item && (
-        <ModelSettingsDialog
-          settings={settings}
-          onSaved={onSaved}
-          notify={notify}
-          onClose={() => setEditingModel(false)}
-          leaving={modelDialog.leaving}
-        />
-      )}
-    </section>
-  );
-}
-
 /** 设置 · 截图与录制：左栏截图，右栏截图时和录制 */
 export function CapturePage() {
   const { t } = useI18n();
@@ -337,35 +284,28 @@ export function CapturePage() {
   );
 }
 
-/** 设置 · 通用：语言和启动、本机与模型在左，润色规则在右 */
+/** 通用只管理应用级偏好；模型和规则在 Prompt 页。 */
 export function GeneralPage() {
   const { t } = useI18n();
   return (
     <div className="mw-page">
       <Toolbar title={t("通用")} />
       <div className="mw-scroll pane">
-        <div className="form cols">
-          <div className="page-col">
-            <LanguagePanel />
-            <MachinePanel />
-          </div>
-          <div className="page-col">
-            <RulesPanel />
-          </div>
+        <div className="form form-narrow">
+          <LanguagePanel />
         </div>
       </div>
     </div>
   );
 }
 
-/** 界面语言、开机启动、复制后隐藏主窗口 */
+/** 应用级偏好：语言和开机启动。 */
 function LanguagePanel() {
   const { preference, setLanguagePreference, t } = useI18n();
   const { settings, caps } = useApp();
   const update = usePrefs();
-  const toggles: Array<{ key: "launchOnBoot" | "hideAfterCopy"; label: string; disabled?: boolean }> = [
+  const toggles: Array<{ key: "launchOnBoot"; label: string; disabled?: boolean }> = [
     { key: "launchOnBoot", label: t("开机时静默启动"), disabled: caps ? !caps.autostart.available : false },
-    { key: "hideAfterCopy", label: t("复制后隐藏主窗口") },
   ];
   return (
     <section className="panel">

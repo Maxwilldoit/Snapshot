@@ -112,10 +112,6 @@ export function MenuItem({
   );
 }
 
-export function MenuHeading({ children }: { children: ReactNode }) {
-  return <div className="mw-menu-heading" role="presentation">{children}</div>;
-}
-
 export function MenuSeparator() {
   return <div className="mw-menu-sep" role="separator" />;
 }

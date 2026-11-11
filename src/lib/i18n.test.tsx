@@ -19,13 +19,13 @@ function LanguageProbe() {
 
 describe("interface language", () => {
   it("translates product copy and interpolates dynamic values", () => {
-    expect(translate("en", "窗口快照")).toBe("Window Screenshot");
-    expect(translate("en", "{count} 项", { count: 3 })).toBe("3 items");
-    expect(translate("zh", "{count} 项", { count: 3 })).toBe("3 项");
+    expect(translate("en", "窗口截图")).toBe("Window Screenshot");
+    expect(translate("en", "{count} 个冲突", { count: 3 })).toBe("3 conflicts");
+    expect(translate("zh", "{count} 个冲突", { count: 3 })).toBe("3 个冲突");
   });
 
   it("picks singular or plural English and keeps Chinese untouched", () => {
-    expect(translate("en", "{count} 项", { count: 1 })).toBe("1 item");
+    expect(translate("en", "{count} 个冲突", { count: 1 })).toBe("1 conflict");
     expect(translate("en", "{count} 字", { count: "1,024" })).toBe("1,024 characters");
     expect(translate("en", "{count} 字", { count: "1" })).toBe("1 character");
     expect(translate("en", "{count} 个冲突", { count: 2 })).toBe("2 conflicts");

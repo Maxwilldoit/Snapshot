@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen, Search, X } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import {
   deleteSnapshots,
   listSnapshots,
   onSnapshotsChanged,
   openSnapshotsDir,
   savePreferences,
+  runAction,
 } from "../lib/backend";
 import { formatBytes, formatClock, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
@@ -14,31 +15,17 @@ import { JustifiedGrid } from "../components/JustifiedGrid";
 import { Lightbox } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
+import { SearchField } from "../components/SearchField";
+import { Keys } from "../components/ui/Keys";
 import { Toolbar } from "../app/Shell";
 import { acceleratorOf } from "./ShortcutsPage";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { SnapshotRecord } from "../types";
 
-/** 工具栏里的搜索框：截图页和 Prompt 记录页共用 */
-export function SearchField({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {
-  const { t } = useI18n();
-  return (
-    <label className="search mw-search">
-      <Search aria-hidden="true" />
-      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={label} aria-label={label} />
-      {value && (
-        <button type="button" className="search-clear" aria-label={t("清除筛选")} onClick={() => onChange("")}>
-          <X aria-hidden="true" />
-        </button>
-      )}
-    </label>
-  );
-}
-
 /** 截图记录：按天分组、每组排成两端对齐的截图墙；点一张放大，「选择」后可以批量删除 */
 export function HistoryPage() {
-  const { settings, onSaved, notify, pendingPreviewId, consumePreviewId } = useApp();
+  const { settings, onSaved, notify, conflicts, pendingPreviewId, consumePreviewId } = useApp();
   const { t } = useI18n();
   const [records, setRecords] = useState<SnapshotRecord[] | null>(null);
   const [query, setQuery] = useState("");
@@ -210,7 +197,6 @@ export function HistoryPage() {
   // 英文按钮更长，挤在一起时「删除 N 张」会压到「截取」上
   const toolbar = selecting ? (
     <Toolbar
-      capture={false}
       title={
         <>
           {t("已选 {count} 张", { count: selected.size })}
@@ -248,18 +234,18 @@ export function HistoryPage() {
   let body;
   if (total === 0) {
     const shortcut = acceleratorOf(settings, "snapshot");
-    body = settings.autoSaveLocal ? (
+    body = settings.autoSaveLocal || settings.afterCapture === "saveas" ? (
       <div className="empty mw-empty">
         <h2 className="empty-title">{t("还没有截图")}</h2>
-        <p className="empty-body">
-          {t("截取窗口后，截图会按天显示在这里。")}
-          {shortcut && <span className="empty-more">{t("按 {keys} 可以直接截取当前窗口。", { keys: shortcut })}</span>}
-        </p>
+        <div className="empty-actions">
+          <button type="button" className="btn btn-primary" onClick={() => void runAction("capture").catch((error) => notify(errorText(error), "error"))}>
+            {t("截图")}{shortcut && !settings.shortcutsPaused && !conflicts.includes(shortcut) && <span aria-hidden="true"><Keys value={shortcut} quiet /></span>}
+          </button>
+        </div>
       </div>
     ) : (
       <div className="empty mw-empty">
-        <h2 className="empty-title">{t("还没有截图")}</h2>
-        <p className="empty-body">{t("「截图同时存进历史」现在是关的，截图只进剪贴板。")}</p>
+        <h2 className="empty-title">{t("截图历史已关闭")}</h2>
         <div className="empty-actions">
           <button
             type="button"

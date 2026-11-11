@@ -13,7 +13,7 @@ type Draft = { name: string; content: string };
 type Editing = { rule: PromptTemplate | null; nonce: number };
 
 /**
- * 润色规则：一行一条，只放名字、字数和「编辑」，条数再多也不会挤。
+ * 润色规则：一行一条，只放名字和「编辑」，条数再多也不会挤。
  * - 点名字：换成这条（左边那道竖线滑过去），立刻生效，Prompt 页、时间线、剪贴板润色都用它。
  * - 点「编辑」：弹窗里改名字和正文，点保存才生效；有改动时关窗要再确认一次。
  * - 弹窗底部：删除（按两次）、内置规则改乱了可以恢复原文、把当前内容存成一条新规则。
@@ -157,9 +157,7 @@ export function RulesPanel() {
             <button type="button" role="radio" aria-checked={rule.id === activeId} className="rule-pick" onClick={() => choose(rule.id)}>
               <span className="rule-title">{t(rule.name.trim() || "未命名")}</span>
             </button>
-            <span className="mono small quiet rule-count">
-              {t("{count} 字", { count: rule.content.length.toLocaleString() })}
-            </span>
+
             <button
               type="button"
               className="text-btn small ink-2 rule-edit"
@@ -291,9 +289,7 @@ function RuleDialog({
       >
         <div className="dialog-rule-head">
           <h2 className="dialog-title" id="rule-dialog-title">{rule ? t("编辑规则") : t("新建规则")}</h2>
-          <span className="mono small quiet">
-            {t("{count} 字", { count: content.length.toLocaleString() })}
-          </span>
+
         </div>
         <label className="form-field">
           <span className="form-label">{t("名称")}</span>
