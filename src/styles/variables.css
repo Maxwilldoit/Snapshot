@@ -4,8 +4,9 @@
  */
 :root {
   color-scheme: light;
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
-    -apple-system, BlinkMacSystemFont, "Noto Sans SC", system-ui, sans-serif;
+  /* Latin UI fonts first, CJK after: CJK fonts draw ’ and “ ” full-width, which looks broken in English. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Cantarell, Ubuntu, "Noto Sans",
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
 
   --paper: #ffffff;

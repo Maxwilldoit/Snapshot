@@ -181,7 +181,7 @@ pub(crate) async fn polish_clipboard(
         .map_err(|error| format!("写入剪贴板失败：{error}"))?;
     Ok(ui_text(
         "润色完成，结果已替换剪贴板",
-        "Rewrite complete. The clipboard has been updated.",
+        "Enhanced. The result is on your clipboard.",
     )
     .into())
 }

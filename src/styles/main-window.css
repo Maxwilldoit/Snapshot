@@ -6,9 +6,10 @@
  */
 
 html[data-window="main"], html[data-window="annotate"] {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "PingFang SC",
-    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
-    Cantarell, Ubuntu, system-ui, sans-serif;
+  /* Latin UI fonts come before the CJK ones: on Linux a CJK font would otherwise draw ’ and “ ” full-width in English. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Cantarell, Ubuntu,
+    "Noto Sans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "JetBrains Mono", "DejaVu Sans Mono", monospace;
   --accent: #007aff;
   --text1: #1d1d1f; --text2: rgba(60, 60, 67, 0.78); --text3: rgba(60, 60, 67, 0.5); --text4: rgba(60, 60, 67, 0.3);
@@ -121,12 +122,13 @@ html[data-window="main"] .mw-toolbar {
 }
 html[data-window="main"] .mw:not(.is-mac) .mw-toolbar { padding-right: 0; }
 html[data-window="main"] .mw-title {
-  display: flex; align-items: baseline; gap: 8px; min-width: 0; margin: 0;
+  display: flex; align-items: baseline; gap: 8px; flex: 0 0 auto; min-width: 0; max-width: 45%; margin: 0;
   font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 html[data-window="main"] .mw-subtitle { font-size: 11px; font-weight: 400; color: var(--text3); }
 html[data-window="main"] .mw-fill { flex: 1 1 auto; align-self: stretch; }
 html[data-window="main"] .mw-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+html[data-window="main"] .mw-toolbar > .mw-tools:not(.mw-capture-tools) { flex-shrink: 1; min-width: 0; }
 html[data-window="main"] .mw-capture-tools { gap: 4px; }
 html[data-window="main"] .mw:not(.is-mac) .mw-capture-tools { margin-right: 6px; }
 html[data-window="main"] .mw-vsep { width: 0.5px; height: 20px; margin: 0 6px 0 2px; background: var(--sep); }
@@ -150,7 +152,7 @@ html[data-window="main"] .mw .window-controls button:hover { background: var(--f
 html[data-window="main"] .mw .window-controls button.is-close:hover { background: #c42b1c; color: #fff; }
 
 html[data-window="main"] .mw-search {
-  display: flex; align-items: center; gap: 5px; width: 180px; height: 26px; padding: 0 7px;
+  display: flex; align-items: center; gap: 5px; flex: 0 1 180px; min-width: 120px; height: 26px; padding: 0 7px;
   border: 0; border-radius: 6px; background: var(--fill); color: var(--text3);
   transition: box-shadow 0.15s;
 }
@@ -499,3 +501,11 @@ html[data-window="main"][data-vt="page"]::view-transition-new(page) { animation:
 /* 浅色侧栏再提亮一点，减小与右侧纯白的反差 */
 html[data-window="main"]:not([data-theme="dark"]) { --side: #f3f3f5; }
 html[data-window="main"]:not([data-theme="dark"]) .mw.is-mac .sidebar { background: rgba(255, 255, 255, 0.5); }
+
+/* English labels are wider: on a narrow Windows/Linux window (with its own min/max/close buttons)
+   Capture and Record fall back to icons so the page title and window controls keep their room. */
+@media (max-width: 899px) {
+  html[data-window="main"][lang="en"] .mw:not(.is-mac) .mw-capture-tools .tb-btn:not(.is-recording) {
+    width: 28px; padding: 0; gap: 0; justify-content: center; font-size: 0;
+  }
+}

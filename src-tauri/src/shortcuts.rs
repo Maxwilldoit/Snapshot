@@ -302,15 +302,12 @@ pub(crate) fn toggle_from_tray(app: &AppHandle) {
             use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
             activity::record_error(
                 &app,
-                ui_text("快捷键设置未生效", "Shortcut settings did not apply"),
+                ui_text("快捷键设置未生效", "Couldn’t change shortcuts"),
                 &error,
             );
             app.dialog()
                 .message(error)
-                .title(ui_text(
-                    "快捷键设置未生效",
-                    "Shortcut settings did not apply",
-                ))
+                .title(ui_text("快捷键设置未生效", "Couldn’t change shortcuts"))
                 .kind(MessageDialogKind::Error)
                 .show(|_| {});
         }
@@ -320,7 +317,7 @@ pub(crate) fn toggle_from_tray(app: &AppHandle) {
 pub(crate) fn conflict_message(failed: &[String]) -> String {
     if interface_is_english() {
         format!(
-            "These shortcuts could not be registered and may be used by another app: {}",
+            "These shortcuts couldn’t be turned on. Another app may be using them: {}",
             failed.join(", ")
         )
     } else {

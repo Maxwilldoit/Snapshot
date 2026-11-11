@@ -39,20 +39,30 @@ export function applyDocumentLanguage(language: Language) {
 
 function interpolate(text: string, params?: TranslationParams) {
   if (!params) return text;
-  return text.replace(/\{(\w+)\}/g, (match, key: string) =>
-    Object.prototype.hasOwnProperty.call(params, key) ? String(params[key]) : match,
-  );
+  return text.replace(/\{(\w+)(?::(lower))?\}/g, (match, key: string, modifier?: string) => {
+    if (!Object.prototype.hasOwnProperty.call(params, key)) return match;
+    const value = String(params[key]);
+    return modifier === "lower" ? value.toLowerCase() : value;
+  });
+}
+
+/** English copy may carry a singular form before "|": "1 item|{count} items". */
+function pluralize(text: string, params?: TranslationParams) {
+  const split = text.indexOf("|");
+  if (split < 0) return text;
+  const count = Number(String(params?.count ?? "").replace(/[^\d.-]/g, ""));
+  return count === 1 ? text.slice(0, split) : text.slice(split + 1);
 }
 
 export function translate(language: Language, source: string, params?: TranslationParams): string {
-  const text = language === "en" ? (englishMessages[source] ?? source) : source;
+  const text = language === "en" ? pluralize(englishMessages[source] ?? source, params) : source;
   return interpolate(text, params);
 }
 
 export function localizeMessage(message: string, language = getActiveLanguage()): string {
   if (language !== "en") return message;
-  const exact = backendErrorEnglish[message];
-  if (exact) return exact;
+  const exact = backendErrorEnglish[message] ?? englishMessages[message];
+  if (exact) return pluralize(exact);
   for (const [pattern, replacement] of backendErrorPatterns) {
     if (pattern.test(message)) return message.replace(pattern, replacement);
   }

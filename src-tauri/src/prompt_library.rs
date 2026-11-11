@@ -124,7 +124,7 @@ pub(crate) async fn show_prompt_library(app: AppHandle) -> Result<(), String> {
             "prompt-library",
             tauri::WebviewUrl::App("index.html".into()),
         )
-        .title(ui_text("Prompt 库 · Snapshot", "Prompt Library · Snapshot"))
+        .title(ui_text("Prompt 库 · Snapshot", "Prompt Library"))
         .inner_size(900.0, 640.0)
         .min_inner_size(600.0, 480.0)
         .resizable(true)

@@ -223,14 +223,14 @@ pub(crate) fn toggle_recording(
                     .to_string();
                 activity::record_error(
                     &app,
-                    ui_text("录制没能保存", "Recording was not saved"),
+                    ui_text("录制没能保存", "The recording wasn’t saved"),
                     &reason,
                 );
                 let _ = app.emit("recording-changed", &status);
                 let _ = app.emit("pet-event", "recording.failure");
                 Err(format!(
                     "{}：{reason}",
-                    ui_text("录制没能保存", "Recording was not saved")
+                    ui_text("录制没能保存", "The recording wasn’t saved")
                 ))
             }
         };

@@ -15,15 +15,15 @@ pub(crate) fn set_app_language(
     let english = language == "en";
     super::INTERFACE_ENGLISH.store(english, Ordering::Relaxed);
     if let Some(item) = state.tray_open_item.lock().as_ref() {
-        item.set_text(ui_text("打开设置", "Open Settings"))
+        item.set_text(ui_text("打开设置", "Settings…"))
             .map_err(|error| error.to_string())?;
     }
     if let Some(item) = state.shortcut_pause_item.lock().as_ref() {
-        item.set_text(ui_text("暂停全局快捷键", "Pause global shortcuts"))
+        item.set_text(ui_text("暂停全局快捷键", "Pause Shortcuts"))
             .map_err(|error| error.to_string())?;
     }
     if let Some(item) = state.tray_quit_item.lock().as_ref() {
-        item.set_text(ui_text("退出", "Quit"))
+        item.set_text(ui_text("退出", "Quit Snapshot"))
             .map_err(|error| error.to_string())?;
     }
     let updated = {
@@ -368,13 +368,13 @@ async fn settle_hidden_quick_menu(window: tauri::WebviewWindow) {
 
 pub(crate) fn action_failure_title(action: &str) -> &'static str {
     match action {
-        "snapshot" | "capture" => ui_text("截图失败", "Capture failed"),
-        "fullscreen" => ui_text("全屏截图失败", "Fullscreen capture failed"),
-        "scrolling" => ui_text("滚动长截图失败", "Scrolling capture failed"),
-        "record" => ui_text("录制失败", "Recording failed"),
-        "polish" => ui_text("润色失败", "Rewrite failed"),
-        "prompts" => ui_text("Prompt 库打开失败", "Could not open Prompt library"),
-        _ => ui_text("操作失败", "Action failed"),
+        "snapshot" | "capture" => ui_text("截图失败", "Couldn’t take the screenshot"),
+        "fullscreen" => ui_text("全屏截图失败", "Couldn’t take a full-screen screenshot"),
+        "scrolling" => ui_text("滚动长截图失败", "Couldn’t take the scrolling screenshot"),
+        "record" => ui_text("录制失败", "Couldn’t record"),
+        "polish" => ui_text("润色失败", "Couldn’t enhance the prompt"),
+        "prompts" => ui_text("Prompt 库打开失败", "Couldn’t open the Prompt Library"),
+        _ => ui_text("操作失败", "Something went wrong"),
     }
 }
 
@@ -490,7 +490,7 @@ async fn perform_with_trace(
                 app,
                 &state,
                 image,
-                ui_text("滚动长截图", "Scrolling capture"),
+                ui_text("滚动长截图", "Scrolling Screenshot"),
                 None,
                 trace.cloned().unwrap_or_else(CaptureTrace::start),
             )

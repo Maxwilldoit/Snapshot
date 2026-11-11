@@ -115,13 +115,23 @@ pub(crate) fn mime_for_snapshot_file(file_name: &str) -> &'static str {
     }
 }
 
+/// English toasts are built from whole sentences; an empty clipboard note is simply left out.
+pub(crate) fn english_sentence(head: &str, tail: &str) -> String {
+    if tail.is_empty() {
+        head.to_string()
+    } else {
+        format!("{head} {tail}")
+    }
+}
+
+/// English: a full sentence such as "The clipboard clears in 30 seconds.", or empty for "never".
 pub(crate) fn format_clear_label(setting: &str) -> String {
     if interface_is_english() {
         return match setting {
-            "30s" => "The clipboard will clear in 30 seconds".into(),
-            "5m" => "The clipboard will clear in 5 minutes".into(),
-            "never" => "The clipboard will not be cleared automatically".into(),
-            _ => "The clipboard will clear in 60 seconds".into(),
+            "30s" => "The clipboard clears in 30 seconds.".into(),
+            "5m" => "The clipboard clears in 5 minutes.".into(),
+            "never" => String::new(),
+            _ => "The clipboard clears in 60 seconds.".into(),
         };
     }
     match setting {
@@ -426,7 +436,7 @@ pub(crate) fn copy_snapshot(
     clipboard::copy_image(&app, &state, image, &title, Some(record.id.clone()))?;
     let clear_label = format_clear_label(&state.settings.lock().clipboard_auto_clear);
     if interface_is_english() {
-        Ok(format!("Copied {} · {clear_label}", record.app_name))
+        Ok(english_sentence(&format!("Copied {}.", record.app_name), &clear_label))
     } else {
         Ok(format!("已复制 {}，{clear_label}", record.app_name))
     }

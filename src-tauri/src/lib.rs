@@ -429,7 +429,7 @@ pub fn run() {
                 eprintln!("snapshot: {}", shortcuts::conflict_message(&failed));
                 activity::record_error(
                     app.handle(),
-                    ui_text("快捷键没注册上", "Shortcuts were not registered"),
+                    ui_text("快捷键没注册上", "Some shortcuts couldn’t be turned on"),
                     &failed.join("、"),
                 );
                 *state.shortcut_conflicts.lock() = failed;

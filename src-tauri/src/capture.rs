@@ -136,7 +136,7 @@ fn capture_area(
 /// 把光标合成失败的原因压成短中文，附在截图成功 toast 后。
 fn cursor_degrade_note(error: &str) -> String {
     if interface_is_english() {
-        return " (The pointer could not be included; the capture was saved without it.)".into();
+        return " The pointer couldn’t be included.".into();
     }
     let head = error.split(" / ").next().unwrap_or(error).trim();
     let short: String = head.chars().take(48).collect();
@@ -241,34 +241,28 @@ pub(crate) fn finalize_capture(
 
     let suffix = cursor_degraded.unwrap_or_default();
     if interface_is_english() {
-        return if annotate {
+        let head = if annotate {
             if archived {
-                Ok(format!(
-                    "Opened annotation for {app_name} · saved to history{suffix}"
-                ))
+                format!("Opened {app_name} in Markup and saved it to History.")
             } else if settings.auto_save_local {
-                Ok(format!(
-                    "Opened annotation for {app_name} · history save failed{suffix}"
-                ))
+                format!("Opened {app_name} in Markup, but couldn’t save it to History.")
             } else {
-                Ok(format!("Opened annotation for {app_name}{suffix}"))
+                format!("Opened {app_name} in Markup.")
             }
         } else if only_save {
-            Ok(format!("Saved {app_name} to history{suffix}"))
+            format!("Saved {app_name} to History.")
         } else {
             let clear_label = snapshots::format_clear_label(&settings.clipboard_auto_clear);
-            if archived {
-                Ok(format!(
-                    "Copied {app_name} and saved it to history · {clear_label}{suffix}"
-                ))
+            let copied = if archived {
+                format!("Copied {app_name} and saved it to History.")
             } else if settings.auto_save_local {
-                Ok(format!(
-                    "Copied {app_name} · history save failed · {clear_label}{suffix}"
-                ))
+                format!("Copied {app_name}, but couldn’t save it to History.")
             } else {
-                Ok(format!("Copied {app_name} · {clear_label}{suffix}"))
-            }
+                format!("Copied {app_name}.")
+            };
+            snapshots::english_sentence(&copied, &clear_label)
         };
+        return Ok(format!("{head}{suffix}"));
     }
     if annotate {
         if archived {
@@ -463,16 +457,17 @@ pub(crate) fn annotate_copy(
     }
     activity::record(
         &app,
-        activity::Activity::new("capture", ui_text("标注图", "Annotated image"))
+        activity::Activity::new("capture", ui_text("标注图", "Marked-up image"))
             .meta(format!("{} × {}", image.width(), image.height()))
             .snapshot(snapshot_id.clone()),
     );
     clipboard::copy_image(&app, &state, image, "标注图", snapshot_id)?;
     // 窗口由前端在按钮打勾、提示停留片刻后收起（annotate_close），这里不立刻隐藏
-    Ok(format!(
-        "已复制标注图，{}",
-        snapshots::format_clear_label(&settings.clipboard_auto_clear)
-    ))
+    let clear_label = snapshots::format_clear_label(&settings.clipboard_auto_clear);
+    if interface_is_english() {
+        return Ok(snapshots::english_sentence("Copied.", &clear_label));
+    }
+    Ok(format!("已复制标注图，{clear_label}"))
 }
 
 /// 另存为。返回 `None` 表示用户在对话框里取消了：标注保留、窗口不收起。
@@ -488,7 +483,7 @@ pub(crate) async fn annotate_save(
     if !save_image_as_dialog(&app, &image, &format)? {
         return Ok(None);
     }
-    Ok(Some(ui_text("已保存标注图", "Annotated image saved").into()))
+    Ok(Some(ui_text("已保存标注图", "Image saved.").into()))
 }
 
 #[tauri::command]
@@ -499,7 +494,7 @@ pub(crate) fn annotate_save_copy(
 ) -> Result<String, String> {
     let image = decode_png_base64(&image_data)?;
     let title = if interface_is_english() {
-        format!("{} · Annotation", state.annotate_title.lock())
+        format!("{} · Markup", state.annotate_title.lock())
     } else {
         format!("{} · 标注", state.annotate_title.lock())
     };
@@ -507,7 +502,7 @@ pub(crate) fn annotate_save_copy(
     let _ = app.emit("snapshots-changed", ());
     Ok(ui_text(
         "标注副本已保存到历史记录",
-        "Annotated copy saved to history",
+        "Saved a copy to History.",
     )
     .into())
 }
@@ -553,7 +548,7 @@ pub(crate) fn capture_fullscreen_image(
     let monitor = primary_monitor()?;
     let name = monitor
         .name()
-        .unwrap_or_else(|_| ui_text("全屏", "Full screen").into());
+        .unwrap_or_else(|_| ui_text("全屏", "Full Screen").into());
     let area = match (monitor.x(), monitor.y(), monitor.width(), monitor.height()) {
         (Ok(x), Ok(y), Ok(width), Ok(height)) => Some(Area {
             x,
