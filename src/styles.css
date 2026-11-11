@@ -353,9 +353,10 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 /* 颜色和粗细：按钮里是当前颜色的圆点（大小表示粗细），点开是 6 个预设色 + 细/中/粗 */
 .annotate-style { position: relative; flex: 0 0 auto; }
 .an-swatch { display: block; border-radius: 50%; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.28), inset 0 0 0 0.5px rgba(255, 255, 255, 0.2); }
-.an-swatch.is-size-0 { width: 10px; height: 10px; }
-.an-swatch.is-size-1 { width: 13px; height: 13px; }
-.an-swatch.is-size-2 { width: 16px; height: 16px; }
+/* 马赛克那一格：灰色小方块，一看就是「打码」 */
+.an-swatch.is-mosaic, .annotate-swatch.is-mosaic, .annotate-size-preview .is-mosaic {
+  background: repeating-conic-gradient(#8e939b 0 25%, #d5d8dd 0 50%) 0 0 / 6px 6px;
+}
 .annotate-pop {
   position: absolute; top: calc(100% + 8px); left: 50%; z-index: 5; transform: translateX(-50%);
   display: flex; flex-direction: column; gap: 10px; padding: 10px;
@@ -378,13 +379,28 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 }
 .annotate-swatch:active { transform: scale(0.9); }
 .annotate-swatch.is-on { box-shadow: 0 0 0 2px var(--pop), 0 0 0 3.5px var(--accent); }
-.annotate-sizes { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--fill); }
-.annotate-size {
-  display: grid; place-items: center; flex: 1 1 0; height: 24px; padding: 0; border: 0; border-radius: 5px;
-  background: none; color: var(--text1); cursor: default; transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+.annotate-swatch[aria-disabled="true"] { opacity: 0.3; }
+.annotate-swatch[aria-disabled="true"]:active { transform: none; }
+/* 粗细：一条线性滑杆，右边是实际粗细的预览点 */
+.annotate-size { display: flex; align-items: center; gap: 10px; height: 24px; }
+.annotate-size input {
+  flex: 1 1 auto; min-width: 0; height: 24px; margin: 0; background: none; cursor: default;
+  -webkit-appearance: none; appearance: none;
 }
-.annotate-size span { border-radius: 50%; background: currentColor; }
-.annotate-size.is-on { background: var(--btn); box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.18); }
+.annotate-size input:focus { outline: none; }
+.annotate-size input::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(to right, var(--accent) 0 var(--an-size, 30%), var(--fill) var(--an-size, 30%) 100%);
+}
+.annotate-size input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+  background: #ffffff; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.28);
+  transition: transform 90ms ease-out;
+}
+.annotate-size input:active::-webkit-slider-thumb { transform: scale(1.08); }
+.annotate-size input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent), 0 1px 3px rgba(0, 0, 0, 0.28); }
+.annotate-size-preview { display: grid; place-items: center; flex: 0 0 16px; width: 16px; height: 16px; }
+.annotate-size-preview span { display: block; border-radius: 50%; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); }
 .annotate-stage {
   position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;
   padding: 16px; overflow: hidden;

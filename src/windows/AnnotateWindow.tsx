@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { Archive, Check, Circle, Download, Eraser, Highlighter, MousePointer2, MoveUpRight, PenLine, Redo2, Square, Type, Undo2 } from "lucide-react";
+import { Check, Circle, Download, Highlighter, History, MousePointer2, MoveUpRight, PenLine, Redo2, Square, Type, Undo2 } from "lucide-react";
 import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 import {
   COLORS,
+  MOSAIC,
+  SIZE_DEFAULT,
+  SIZE_MAX,
+  SIZE_MIN,
+  clampSize,
   handleAt,
   isTooSmall,
   lineHeight,
@@ -13,6 +18,8 @@ import {
   resizeShape,
   snapAngle,
   squareFrom,
+  strokeWidth,
+  supportsMosaic,
   topHit,
   type DrawTool,
   type Handle,
@@ -46,14 +53,42 @@ const mod = isMac ? "⌘" : "Ctrl+";
 const shift = isMac ? "⇧" : "Shift+";
 
 type Drag =
-  | { kind: "draw"; id: number; before: Shape[]; anchor: Point }
+  /** `pick`：按下的地方压着一个对象；这一下若只是点（没拖出形状），就改为选中它 */
+  | { kind: "draw"; id: number; before: Shape[]; anchor: Point; pick: number | null }
   | { kind: "move"; id: number; before: Shape[]; start: Point; origin: Shape; moved: boolean }
   | { kind: "resize"; id: number; before: Shape[]; handle: Handle; origin: Shape; moved: boolean };
 type Editing = { id: number; isNew: boolean; before: Shape[] };
 type Finish = "annotate_copy" | "annotate_save_copy" | "annotate_save";
 type Toast = { text: string; key: number; leaving: boolean };
 
-const TOOL_KEYS: Record<string, Tool> = { v: "select", a: "arrow", r: "rect", o: "ellipse", p: "pen", h: "highlight", t: "text", n: "step", m: "mosaic" };
+/** 工具栏从左到右的顺序：数字键 1–8 按这个顺序，字母键是同一组工具的助记别名 */
+const TOOL_ORDER: Tool[] = ["select", "arrow", "rect", "ellipse", "pen", "highlight", "text", "step"];
+const TOOL_LETTERS: Record<string, Tool> = { v: "select", a: "arrow", r: "rect", o: "ellipse", p: "pen", h: "highlight", t: "text", n: "step" };
+const letterOf = (tool: Tool) => Object.keys(TOOL_LETTERS).find((letter) => TOOL_LETTERS[letter] === tool)!.toUpperCase();
+/** 按物理键位认数字（数字行和小键盘都行），AZERTY 之类不按 ⇧ 也出数字的键盘照样能用 */
+const toolForKey = (event: KeyboardEvent): Tool | undefined => {
+  const digit = /^(?:Digit|Numpad)([1-9])$/.exec(event.code ?? "")?.[1] ?? (/^[1-9]$/.test(event.key) ? event.key : undefined);
+  if (digit) return TOOL_ORDER[Number(digit) - 1];
+  return TOOL_LETTERS[event.key.toLowerCase()];
+};
+
+/** 粗细记在本机，下次打开标注还是上次的粗细 */
+const SIZE_STORAGE = "snapshot.annotate.size";
+const loadSize = () => {
+  try {
+    const stored = window.localStorage?.getItem(SIZE_STORAGE);
+    return stored == null ? SIZE_DEFAULT : clampSize(Number(stored));
+  } catch {
+    return SIZE_DEFAULT;
+  }
+};
+const storeSize = (value: number) => {
+  try {
+    window.localStorage?.setItem(SIZE_STORAGE, String(value));
+  } catch {
+    // 存不了就只在这次窗口里生效
+  }
+};
 
 function StepIcon() {
   return (
@@ -64,18 +99,16 @@ function StepIcon() {
   );
 }
 
-function MosaicIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="an-glyph">
-      <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M2.6 2.6h3.8v3.8H2.6zM6.4 6.4h3.2v3.2H6.4zM9.6 2.6h3.8v3.8H9.6zM2.6 9.6h3.8v3.8H2.6zM9.6 9.6h3.8v3.8H9.6z" fill="currentColor" opacity="0.85" />
-    </svg>
-  );
-}
-
 /**
- * 截后标注：箭头、方框、椭圆、画笔、荧光笔、文字、步骤编号、马赛克。
- * 每个标注都是对象：点中可移动、拖把手改大小、换颜色粗细、Delete 删除、双击文字改字，撤销/重做覆盖全部操作。
+ * 截后标注：箭头、方框、椭圆、画笔、荧光笔、文字、编号。马赛克是颜色里的一格：
+ * 选中它时，方框/椭圆打码整块，画笔/荧光笔沿笔迹打码；箭头、文字、编号照旧用上一次的真颜色。
+ *
+ * 只有一条规则：**拖 = 画，点 = 选**。
+ * - 画图工具按下就画新的一笔，哪怕起点压在别的标注上（从箭头尖再拉一支、在方框边上再框一个都行）；
+ *   只点一下不拖，才选中下面那个标注。选中后，它的把手和本身可以直接拖着改。
+ * - 画完不自动选中：下一笔不会误拖到上一笔，颜色粗细也只管下一笔。
+ * - 「选择」工具（V）只选不画。文字、编号是点一下就放的工具；文字工具点在文字上是改字。
+ * - 正在打字时键盘全归输入框：单键工具、Delete、方向键、⌘Z、⌘C 都按文字编辑来；Esc / 回车收起输入框并保留文字。
  * 关闭用窗口自己的关闭键（或 Esc / ⌘W），工具栏里不重复一个「关闭」。
  */
 export function AnnotateWindow() {
@@ -114,8 +147,12 @@ export function AnnotateWindow() {
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
   const [display, setDisplay] = useState<{ width: number; height: number } | null>(null);
   const [tool, setTool] = useState<Tool>("arrow");
+  /** 当前颜色，可能是马赛克；`lastColor` 是最近一次选的真颜色，给不能打码的工具用 */
   const [color, setColor] = useState<string>(COLORS[0]);
-  const [size, setSize] = useState<Size>(1);
+  const [lastColor, setLastColor] = useState<string>(COLORS[0]);
+  const [size, setSize] = useState<Size>(loadSize);
+  /** 拖粗细滑杆时实时改选中的对象，松手才记一步撤销 */
+  const sizeBefore = useRef<Shape[] | null>(null);
   const [styleOpen, setStyleOpenState] = useState(false);
   const [styleClosing, setStyleClosing] = useState(false);
   const [pill, setPill] = useState<{ x: number; width: number; animate: boolean } | null>(null);
@@ -417,15 +454,9 @@ export function AnnotateWindow() {
     // 新建的文字没打字就点走了：等于没发生过，不占一步撤销
     if (unchanged || (current.isNew && (!shape || !text.trim()))) setShapes(current.before);
     else commit(current.before, next);
+    // 和其他工具一样：落好就不留选中
+    select(null);
     return shapesRef.current;
-  }
-
-  function cancelText() {
-    const current = editingRef.current;
-    if (!current) return;
-    setEditing(null);
-    setShapes(current.before);
-    if (current.isNew) select(null);
   }
 
   // ---------- 指针 ----------
@@ -433,6 +464,7 @@ export function AnnotateWindow() {
   function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
     if (!ready || busy || event.button !== 0 || drag.current) return;
     setStyleOpen(false);
+    endSize();
     escArmedAt.current = 0;
     if (editingRef.current) {
       commitText();
@@ -445,28 +477,30 @@ export function AnnotateWindow() {
     const selected = shapeById(selectedRef.current);
     event.currentTarget.setPointerCapture?.(event.pointerId);
 
+    // 已经选中的那个：在任何工具下都能直接拖把手、拖本身
     const handle = selected ? handleAt(selected, point, handleReach(selected, unit)) : null;
     if (selected && handle) {
       drag.current = { kind: "resize", id: selected.id, before, handle, origin: selected, moved: false };
       return;
     }
     const hit = topHit(before, point, HIT_SLOP * unit, ratio, measure());
-    if (hit) {
-      if (tool === "text" && hit.type === "text") {
-        startEditing(hit, false, before);
-        return;
-      }
-      select(hit.id);
-      drag.current = { kind: "move", id: hit.id, before, start: point, origin: hit, moved: false };
+    if (selected && hit?.id === selected.id) {
+      drag.current = { kind: "move", id: selected.id, before, start: point, origin: selected, moved: false };
       return;
     }
     if (tool === "select") {
-      select(null);
+      select(hit?.id ?? null);
+      if (hit) drag.current = { kind: "move", id: hit.id, before, start: point, origin: hit, moved: false };
       return;
     }
+    select(null);
     const id = nextId.current++;
-    const base = { id, color, size };
+    const base = { id, color: colorFor(tool), size };
     if (tool === "text") {
+      if (hit?.type === "text") {
+        startEditing(hit, false, before);
+        return;
+      }
       const shape: TextShape = { ...base, type: "text", x: point.x, y: point.y - lineHeight(size, ratio) / 2, text: "" };
       setShapes([...before, shape]);
       startEditing(shape, true, before);
@@ -475,7 +509,6 @@ export function AnnotateWindow() {
     if (tool === "step") {
       if (!reducedMotion()) appearRef.current.set(id, { start: performance.now(), pop: true });
       commit(before, [...before, { ...base, type: "step", x: point.x, y: point.y, n: nextStep(before) }]);
-      select(id);
       return;
     }
     const drawTool = tool as Exclude<DrawTool, "text" | "step">;
@@ -483,9 +516,8 @@ export function AnnotateWindow() {
       drawTool === "arrow" ? { ...base, type: "arrow", x1: point.x, y1: point.y, x2: point.x, y2: point.y }
       : drawTool === "pen" || drawTool === "highlight" ? { ...base, type: drawTool, points: [point] }
       : { ...base, type: drawTool, x: point.x, y: point.y, w: 0, h: 0 };
-    select(null);
     hoverRef.current = null;
-    drag.current = { kind: "draw", id, before, anchor: point };
+    drag.current = { kind: "draw", id, before, anchor: point, pick: hit?.id ?? null };
     setLive([...before, shape]);
   }
 
@@ -496,7 +528,9 @@ export function AnnotateWindow() {
     const selected = shapeById(selectedRef.current);
     const handle = selected ? handleAt(selected, point, handleReach(selected, unit)) : null;
     const hit = handle ? null : topHit(shapesRef.current, point, HIT_SLOP * unit, ratioRef.current, measure());
-    const hoverId = hit?.id ?? null;
+    // 画图工具下按下去是画，不是选：只有「选择」工具才给悬停细框，免得看着像要被拖走
+    const onSelected = hit != null && hit.id === selected?.id;
+    const hoverId = tool === "select" ? hit?.id ?? null : null;
     if (hoverId !== hoverRef.current) {
       hoverRef.current = hoverId;
       schedule();
@@ -504,9 +538,8 @@ export function AnnotateWindow() {
     canvas.style.cursor =
       handle === "nw" || handle === "se" ? "nwse-resize"
       : handle === "ne" || handle === "sw" ? "nesw-resize"
-      : handle ? "move"
-      : hit ? (tool === "text" && hit.type === "text" ? "text" : "move")
-      : tool === "select" ? "default"
+      : handle || onSelected ? "move"
+      : tool === "select" ? (hit ? "move" : "default")
       : tool === "text" ? "text"
       : "crosshair";
   }
@@ -530,7 +563,7 @@ export function AnnotateWindow() {
         const native = event.nativeEvent as PointerEvent;
         const extra = typeof native.getCoalescedEvents === "function" ? native.getCoalescedEvents().map((item) => canvasPoint(item as unknown as React.PointerEvent<HTMLCanvasElement>)) : [];
         next = { ...shape, points: [...shape.points, ...(extra.length ? extra : [point])] };
-      } else if (shape.type === "rect" || shape.type === "ellipse" || shape.type === "mosaic") {
+      } else if (shape.type === "rect" || shape.type === "ellipse") {
         const end = event.shiftKey ? squareFrom(current.anchor, point) : point;
         next = { ...shape, x: Math.min(current.anchor.x, end.x), y: Math.min(current.anchor.y, end.y), w: Math.abs(end.x - current.anchor.x), h: Math.abs(end.y - current.anchor.y) };
       }
@@ -554,12 +587,13 @@ export function AnnotateWindow() {
     if (current.kind === "draw") {
       const shape = shapeById(current.id);
       if (!shape || isTooSmall(shape, MIN_DRAG * screenScale())) {
+        // 只点了一下：没画出东西；点在标注上就选中它，点在空白处就什么都不选
         setShapes(current.before);
+        select(current.pick);
         schedule();
         return;
       }
       commit(current.before, shapesRef.current);
-      select(shape.id);
     } else if (current.moved) {
       commit(current.before, shapesRef.current);
     }
@@ -591,6 +625,7 @@ export function AnnotateWindow() {
   // ---------- 编辑命令 ----------
 
   function undo() {
+    endSize();
     if (editingRef.current) commitText();
     if (!ready || busy || drag.current || !past.current.length) return;
     const previous = past.current[past.current.length - 1];
@@ -603,6 +638,7 @@ export function AnnotateWindow() {
   }
 
   function redo() {
+    endSize();
     if (editingRef.current) commitText();
     if (!ready || busy || drag.current || !future.current.length) return;
     const next = future.current[future.current.length - 1];
@@ -623,37 +659,62 @@ export function AnnotateWindow() {
     select(null);
   }
 
-  function clearAll() {
-    if (editingRef.current) cancelText();
-    if (!ready || busy || !shapesRef.current.length) return;
-    animateDiff(shapesRef.current, []);
-    commit(shapesRef.current, []);
-    select(null);
-  }
-
   function nudge(dx: number, dy: number) {
     const shape = shapeById(selectedRef.current);
     if (!shape) return;
     commit(shapesRef.current, replace(shapesRef.current, moveShape(shape, dx, dy)));
   }
 
-  /** 颜色、粗细：用于下一笔，也立即改到选中的那个 */
-  function applyStyle(change: { color?: string; size?: Size }) {
+  /** 这个工具下一笔用的颜色：马赛克只给能打码的工具，其余用最近的真颜色 */
+  function colorFor(kind: Tool | Shape["type"]) {
+    return color === MOSAIC && !supportsMosaic(kind) ? lastColor : color;
+  }
+
+  /** 颜色：用于下一笔，也立即改到选中的那个（选中的不能打码时，马赛克那格是灰的） */
+  function applyColor(value: string) {
     if (busy) return;
-    if (change.color) setColor(change.color);
-    if (change.size !== undefined) setSize(change.size);
     const shape = shapeById(selectedRef.current);
-    if (!shape) return;
-    const next = { ...shape, ...change } as Shape;
+    if (value === MOSAIC && !(shape ? supportsMosaic(shape.type) : supportsMosaic(tool) || tool === "select")) return;
+    setColor(value);
+    if (value !== MOSAIC) setLastColor(value);
+    if (!shape || shape.color === value) return;
+    const next = { ...shape, color: value } as Shape;
     if (editingRef.current?.id === shape.id) setShapes(replace(shapesRef.current, next));
     else commit(shapesRef.current, replace(shapesRef.current, next));
   }
+
+  /** 粗细：拖动时实时改到选中的那个，一次拖动只占一步撤销（见 endSize） */
+  function applySize(value: number) {
+    if (busy) return;
+    const next = clampSize(value);
+    setSize(next);
+    storeSize(next);
+    const shape = shapeById(selectedRef.current);
+    if (!shape || shape.size === next) return;
+    if (editingRef.current?.id !== shape.id && !sizeBefore.current) sizeBefore.current = shapesRef.current;
+    setShapes(replace(shapesRef.current, { ...shape, size: next } as Shape));
+  }
+  function endSize() {
+    const before = sizeBefore.current;
+    sizeBefore.current = null;
+    if (before && before !== shapesRef.current) commit(before, shapesRef.current);
+  }
+  // 弹层收起（点外面、Esc、开始画）时把还没记的粗细变化记上
+  useEffect(() => {
+    if (!styleOpen) endSize();
+  }, [styleOpen]);
 
   function chooseTool(next: Tool) {
     if (busy) return;
     if (editingRef.current) commitText();
     setTool(next);
-    if (next !== "select") select(null);
+    if (next !== "select") {
+      select(null);
+      if (hoverRef.current) {
+        hoverRef.current = null;
+        schedule();
+      }
+    }
   }
 
   // ---------- 导出 ----------
@@ -728,9 +789,20 @@ export function AnnotateWindow() {
 
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
   keyHandler.current = (event: KeyboardEvent) => {
-    if (event.isComposing || event.target instanceof HTMLTextAreaElement) return;
+    if (event.isComposing) return;
     const command = isMac ? event.metaKey : event.ctrlKey;
     const key = event.key.toLowerCase();
+    // 正在打字：只有存/关窗口这几个整窗命令穿过来，其余（⌘Z、⌘C、Delete、方向键、单键）都归输入框
+    if (event.target instanceof HTMLTextAreaElement) {
+      if (command && (key === "s" || key === "w")) {
+        event.preventDefault();
+        if (key === "w") void close();
+        else void finish(event.shiftKey ? "annotate_save" : "annotate_save_copy");
+      }
+      return;
+    }
+    // 粗细滑杆有焦点时，方向键、Home/End 归滑杆
+    if (event.target instanceof HTMLInputElement && /^(Arrow|Home$|End$|Page)/.test(event.key)) return;
     const step = (event.shiftKey ? 10 : 1) * ratioRef.current;
     if (event.key === "Escape") {
       event.preventDefault();
@@ -760,13 +832,15 @@ export function AnnotateWindow() {
       event.preventDefault();
       nudge(event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0, event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0);
     } else if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
-      event.preventDefault();
+      // 回车只用来改选中的文字；复制用 ⌘C 或「复制」按钮，免得画完顺手一按就把窗口收了
       const selected = shapeById(selectedRef.current);
-      if (selected?.type === "text") startEditing(selected, false, shapesRef.current);
-      else void finish("annotate_copy");
-    } else if (!event.shiftKey && TOOL_KEYS[key]) {
+      if (selected?.type === "text") {
+        event.preventDefault();
+        startEditing(selected, false, shapesRef.current);
+      }
+    } else if (!event.shiftKey && toolForKey(event)) {
       event.preventDefault();
-      chooseTool(TOOL_KEYS[key]);
+      chooseTool(toolForKey(event)!);
     }
   };
   useEffect(() => {
@@ -838,12 +912,10 @@ export function AnnotateWindow() {
         onBlur={() => commitText()}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) return;
-          if (event.key === "Enter" && !event.shiftKey) {
+          // 回车落字（⇧回车换行）；Esc 也只是收起输入框，打好的字留着
+          if ((event.key === "Enter" && !event.shiftKey) || event.key === "Escape") {
             event.preventDefault();
             commitText();
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            cancelText();
           }
         }}
       />
@@ -862,13 +934,13 @@ export function AnnotateWindow() {
   // 导出和「已复制」确认这一小会儿只拦操作（各命令自己看 busy），不把整条工具栏变灰，免得闪一下
   const locked = !ready;
   void historyTick;
-  const toolButton = (value: Tool, label: string, key: string, icon: ReactNode) => (
+  const toolButton = (value: Tool, label: string, icon: ReactNode) => (
     <button
       type="button"
       className={`an-btn is-icon${tool === value ? " is-on" : ""}`}
       data-tool={value}
       aria-label={label}
-      title={`${label}  ${key}`}
+      title={`${label}  ${TOOL_ORDER.indexOf(value) + 1} / ${letterOf(value)}`}
       aria-pressed={tool === value}
       disabled={locked}
       onClick={() => chooseTool(value)}
@@ -880,9 +952,14 @@ export function AnnotateWindow() {
     "#ff3b30": t("红色"), "#ffcc00": t("黄色"), "#34c759": t("绿色"), "#007aff": t("蓝色"), "#1d1d1f": t("黑色"), "#ffffff": t("白色"),
   };
   const selectedShape = shapes.find((shape) => shape.id === selectedId);
-  const shownColor = selectedShape?.color ?? color;
+  // 弹层和工具栏那一格都显示「这一下会用什么」：选中的就看它，没选中就看当前工具
+  const target: Tool | Shape["type"] = selectedShape?.type ?? tool;
+  const shownColor = selectedShape?.color ?? colorFor(tool);
   const shownSize = selectedShape?.size ?? size;
-  const sizeNames = [t("细"), t("中"), t("粗")];
+  const mosaicAllowed = supportsMosaic(target) || target === "select";
+  /** 粗细预览点：跟着粗细线性变大，最细时也看得见 */
+  const dot = (value: number, base: number, max: number) => Math.min(max, base + strokeWidth(value, 1));
+  const swatchFill = (value: string) => (value === MOSAIC ? undefined : value);
 
   return (
     <div className={`annotate-root${isMac ? " is-mac" : ""}${busy ? " is-busy" : ""}`}>
@@ -895,17 +972,16 @@ export function AnnotateWindow() {
               style={{ width: pill.width, transform: `translateX(${pill.x}px)` }}
             />
           ) : null}
-          {toolButton("select", t("选择"), "V", <MousePointer2 aria-hidden="true" />)}
+          {toolButton("select", t("选择"), <MousePointer2 aria-hidden="true" />)}
           <span className="annotate-sep" aria-hidden="true" />
-          {toolButton("arrow", t("箭头"), "A", <MoveUpRight aria-hidden="true" />)}
-          {toolButton("rect", t("矩形"), "R", <Square aria-hidden="true" />)}
-          {toolButton("ellipse", t("椭圆"), "O", <Circle aria-hidden="true" />)}
-          {toolButton("pen", t("画笔"), "P", <PenLine aria-hidden="true" />)}
-          {toolButton("highlight", t("荧光笔"), "H", <Highlighter aria-hidden="true" />)}
+          {toolButton("arrow", t("箭头"), <MoveUpRight aria-hidden="true" />)}
+          {toolButton("rect", t("矩形"), <Square aria-hidden="true" />)}
+          {toolButton("ellipse", t("椭圆"), <Circle aria-hidden="true" />)}
+          {toolButton("pen", t("画笔"), <PenLine aria-hidden="true" />)}
+          {toolButton("highlight", t("荧光笔"), <Highlighter aria-hidden="true" />)}
           <span className="annotate-sep" aria-hidden="true" />
-          {toolButton("text", t("文字"), "T", <Type aria-hidden="true" />)}
-          {toolButton("step", t("编号"), "N", <StepIcon />)}
-          {toolButton("mosaic", t("马赛克"), "M", <MosaicIcon />)}
+          {toolButton("text", t("文字"), <Type aria-hidden="true" />)}
+          {toolButton("step", t("编号"), <StepIcon />)}
         </div>
         <span className="annotate-sep" aria-hidden="true" />
         <div className="annotate-style" ref={styleRef}>
@@ -919,7 +995,10 @@ export function AnnotateWindow() {
             disabled={locked}
             onClick={() => setStyleOpen((open) => !open)}
           >
-            <span className={`an-swatch is-size-${shownSize}`} style={{ background: shownColor }} />
+            <span
+              className={`an-swatch${shownColor === MOSAIC ? " is-mosaic" : ""}`}
+              style={{ background: swatchFill(shownColor), width: 8 + shownSize * 0.75, height: 8 + shownSize * 0.75 }}
+            />
           </button>
           {(styleOpen || styleClosing) && (
             <div
@@ -939,25 +1018,40 @@ export function AnnotateWindow() {
                     title={colorNames[value]}
                     className={`annotate-swatch${shownColor === value ? " is-on" : ""}`}
                     style={{ background: value }}
-                    onClick={() => applyStyle({ color: value })}
+                    onClick={() => applyColor(value)}
                   />
                 ))}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={shownColor === MOSAIC}
+                  aria-label={t("马赛克")}
+                  title={mosaicAllowed ? t("马赛克") : t("马赛克只能用于矩形、椭圆、画笔和荧光笔")}
+                  aria-disabled={!mosaicAllowed}
+                  className={`annotate-swatch is-mosaic${shownColor === MOSAIC ? " is-on" : ""}`}
+                  onClick={() => applyColor(MOSAIC)}
+                />
               </div>
-              <div className="annotate-sizes" role="radiogroup" aria-label={t("粗细")}>
-                {([0, 1, 2] as Size[]).map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={shownSize === value}
-                    aria-label={sizeNames[value]}
-                    title={sizeNames[value]}
-                    className={`annotate-size${shownSize === value ? " is-on" : ""}`}
-                    onClick={() => applyStyle({ size: value })}
-                  >
-                    <span style={{ width: 4 + value * 4, height: 4 + value * 4 }} />
-                  </button>
-                ))}
+              <div className="annotate-size">
+                <input
+                  type="range"
+                  aria-label={t("粗细")}
+                  min={SIZE_MIN}
+                  max={SIZE_MAX}
+                  step={0.5}
+                  value={shownSize}
+                  style={{ "--an-size": `${((shownSize - SIZE_MIN) / (SIZE_MAX - SIZE_MIN)) * 100}%` } as React.CSSProperties}
+                  onChange={(event) => applySize(Number(event.target.value))}
+                  onPointerUp={endSize}
+                  onKeyUp={endSize}
+                  onBlur={endSize}
+                />
+                <span className="annotate-size-preview" aria-hidden="true">
+                  <span
+                    className={shownColor === MOSAIC ? "is-mosaic" : undefined}
+                    style={{ width: dot(shownSize, 3, 16), height: dot(shownSize, 3, 16), background: swatchFill(shownColor) }}
+                  />
+                </span>
               </div>
             </div>
           )}
@@ -970,9 +1064,6 @@ export function AnnotateWindow() {
           <button type="button" className="an-btn is-icon" aria-label={t("重做")} title={`${t("重做")}  ${shift}${mod}Z`} disabled={locked || !future.current.length} onClick={redo}>
             <Redo2 aria-hidden="true" />
           </button>
-          <button type="button" className="an-btn is-icon" aria-label={t("清空标注")} title={t("清空标注")} disabled={locked || !shapes.length} onClick={clearAll}>
-            <Eraser aria-hidden="true" />
-          </button>
         </div>
         <span className="annotate-fill" data-tauri-drag-region />
         <div className="annotate-group is-actions">
@@ -980,7 +1071,7 @@ export function AnnotateWindow() {
             {done === "annotate_save" ? <Check aria-hidden="true" className="an-check" /> : <Download aria-hidden="true" />}
           </button>
           <button type="button" className={`an-btn is-icon${done === "annotate_save_copy" ? " is-done" : ""}`} aria-label={t("存入截图记录")} title={`${t("存入截图记录")}  ${mod}S`} disabled={locked} onClick={() => void finish("annotate_save_copy")}>
-            {done === "annotate_save_copy" ? <Check aria-hidden="true" className="an-check" /> : <Archive aria-hidden="true" />}
+            {done === "annotate_save_copy" ? <Check aria-hidden="true" className="an-check" /> : <History aria-hidden="true" />}
           </button>
           <button
             type="button"

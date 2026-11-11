@@ -3,13 +3,14 @@
  * 画布只在显示和导出时把它们画出来（render.ts），原图像素从不被改写。
  */
 
-export type Tool = "select" | "arrow" | "rect" | "ellipse" | "pen" | "highlight" | "text" | "step" | "mosaic";
+export type Tool = "select" | "arrow" | "rect" | "ellipse" | "pen" | "highlight" | "text" | "step";
 export type DrawTool = Exclude<Tool, "select">;
-export type Size = 0 | 1 | 2;
+/** 粗细：线条的逻辑点数（1–12，线性），字号、编号、荧光笔、马赛克块都按它等比换算 */
+export type Size = number;
 export type Point = { x: number; y: number };
 
 type Base = { id: number; color: string; size: Size };
-export type BoxShape = Base & { type: "rect" | "ellipse" | "mosaic"; x: number; y: number; w: number; h: number };
+export type BoxShape = Base & { type: "rect" | "ellipse"; x: number; y: number; w: number; h: number };
 export type ArrowShape = Base & { type: "arrow"; x1: number; y1: number; x2: number; y2: number };
 export type StrokeShape = Base & { type: "pen" | "highlight"; points: Point[] };
 export type TextShape = Base & { type: "text"; x: number; y: number; text: string };
@@ -21,22 +22,33 @@ export type Rect = { x: number; y: number; w: number; h: number };
 
 /** 6 个预设色，红色默认；白色给深色截图用 */
 export const COLORS = ["#ff3b30", "#ffcc00", "#34c759", "#007aff", "#1d1d1f", "#ffffff"] as const;
+/**
+ * 马赛克当作一种「颜色」：矩形/椭圆打码整块，画笔/荧光笔沿着笔迹打码。
+ * 箭头、文字、编号没有「马赛克版」，它们用最近一次选的真颜色。
+ */
+export const MOSAIC = "mosaic";
+export const isMosaic = (shape: Pick<Shape, "color">) => shape.color === MOSAIC;
+export const supportsMosaic = (type: Shape["type"] | Tool) => type === "rect" || type === "ellipse" || type === "pen" || type === "highlight";
 
-/** 各尺寸的逻辑点数（乘以截图的像素密度得到原图像素） */
-const STROKE_PT = [2, 4, 7];
-const HIGHLIGHT_PT = [12, 20, 32];
-const TEXT_PT = [14, 20, 30];
-const STEP_RADIUS_PT = [10, 14, 19];
-const MOSAIC_PT = [6, 10, 16];
+/** 粗细滑杆的范围（逻辑点）；默认 4，相当于原来的「中」 */
+export const SIZE_MIN = 1;
+export const SIZE_MAX = 12;
+export const SIZE_DEFAULT = 4;
+export const clampSize = (value: number) => (Number.isFinite(value) ? Math.min(SIZE_MAX, Math.max(SIZE_MIN, value)) : SIZE_DEFAULT);
 
-export const strokeWidth = (size: Size, ratio: number) => STROKE_PT[size] * ratio;
-export const highlightWidth = (size: Size, ratio: number) => HIGHLIGHT_PT[size] * ratio;
-export const fontSize = (size: Size, ratio: number) => TEXT_PT[size] * ratio;
-export const stepRadius = (size: Size, ratio: number) => STEP_RADIUS_PT[size] * ratio;
-export const mosaicBlock = (size: Size, ratio: number) => Math.max(4, Math.round(MOSAIC_PT[size] * ratio));
+/** 都是粗细的线性函数（逻辑点，乘以截图的像素密度得到原图像素）：粗细 2/4/7 时和原来的细/中/粗一致 */
+export const strokeWidth = (size: Size, ratio: number) => size * ratio;
+export const highlightWidth = (size: Size, ratio: number) => (size * 4 + 4) * ratio;
+export const fontSize = (size: Size, ratio: number) => (size * 3 + 8) * ratio;
+export const stepRadius = (size: Size, ratio: number) => (size * 1.5 + 8) * ratio;
+export const mosaicBlock = (size: Size, ratio: number) => Math.max(4, Math.round((size * 2 + 2) * ratio));
 export const lineHeight = (size: Size, ratio: number) => fontSize(size, ratio) * 1.25;
 
-export const isBox = (shape: Shape): shape is BoxShape => shape.type === "rect" || shape.type === "ellipse" || shape.type === "mosaic";
+/** 笔迹的宽度：马赛克笔刷和荧光笔一样宽，太细的码挡不住东西 */
+export const brushWidth = (shape: StrokeShape, ratio: number) =>
+  shape.type === "pen" && !isMosaic(shape) ? strokeWidth(shape.size, ratio) : highlightWidth(shape.size, ratio);
+
+export const isBox = (shape: Shape): shape is BoxShape => shape.type === "rect" || shape.type === "ellipse";
 
 /** 下一个步骤编号：现有最大号 + 1（删掉中间的不会重号） */
 export const nextStep = (shapes: Shape[]) =>
@@ -49,7 +61,7 @@ export const normalize = (a: Point, b: Point): Rect => ({
   h: Math.abs(b.y - a.y),
 });
 
-/** ⇧：矩形/椭圆/马赛克变成正方形 */
+/** ⇧：矩形/椭圆变成正方形 */
 export function squareFrom(anchor: Point, point: Point): Point {
   const dx = point.x - anchor.x;
   const dy = point.y - anchor.y;
@@ -77,7 +89,6 @@ export function bounds(shape: Shape, ratio: number, measure?: (shape: TextShape,
   switch (shape.type) {
     case "rect":
     case "ellipse":
-    case "mosaic":
       return { x: shape.x, y: shape.y, w: shape.w, h: shape.h };
     case "arrow":
       return normalize({ x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 });
@@ -85,7 +96,7 @@ export function bounds(shape: Shape, ratio: number, measure?: (shape: TextShape,
     case "highlight": {
       const xs = shape.points.map((point) => point.x);
       const ys = shape.points.map((point) => point.y);
-      const half = (shape.type === "pen" ? strokeWidth(shape.size, ratio) : highlightWidth(shape.size, ratio)) / 2;
+      const half = brushWidth(shape, ratio) / 2;
       return { x: Math.min(...xs) - half, y: Math.min(...ys) - half, w: Math.max(...xs) - Math.min(...xs) + half * 2, h: Math.max(...ys) - Math.min(...ys) + half * 2 };
     }
     case "text": {
@@ -112,16 +123,16 @@ const inside = (point: Point, rect: Rect, pad = 0) =>
   point.x >= rect.x - pad && point.x <= rect.x + rect.w + pad && point.y >= rect.y - pad && point.y <= rect.y + rect.h + pad;
 
 /**
- * 点中了这个对象没有。空心的矩形/椭圆只认边线附近，里面留给继续画；
- * 马赛克、文字、编号认整块。`tolerance` 是原图像素。
+ * 点中了这个对象没有。空心的矩形/椭圆只认边线附近；
+ * 打了马赛克的方框/椭圆、文字、编号认整块。`tolerance` 是原图像素。
  */
 export function hits(shape: Shape, point: Point, tolerance: number, ratio: number, measure?: (shape: TextShape, line: string) => number) {
   switch (shape.type) {
-    case "mosaic":
     case "text":
     case "step":
       return inside(point, bounds(shape, ratio, measure), tolerance / 2);
     case "rect": {
+      if (isMosaic(shape)) return inside(point, shape, tolerance / 2);
       const reach = tolerance + strokeWidth(shape.size, ratio) / 2;
       return inside(point, shape, reach) && !inside(point, { x: shape.x + reach, y: shape.y + reach, w: shape.w - reach * 2, h: shape.h - reach * 2 });
     }
@@ -131,6 +142,7 @@ export function hits(shape: Shape, point: Point, tolerance: number, ratio: numbe
       if (rx < 1 || ry < 1) return inside(point, shape, tolerance);
       const nx = (point.x - (shape.x + rx)) / rx;
       const ny = (point.y - (shape.y + ry)) / ry;
+      if (isMosaic(shape)) return Math.hypot(nx, ny) <= 1 + tolerance / 2 / Math.min(rx, ry);
       const reach = (tolerance + strokeWidth(shape.size, ratio) / 2) / Math.min(rx, ry);
       return Math.abs(Math.hypot(nx, ny) - 1) <= reach;
     }
@@ -138,7 +150,7 @@ export function hits(shape: Shape, point: Point, tolerance: number, ratio: numbe
       return distanceToSegment(point, { x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 }) <= tolerance + strokeWidth(shape.size, ratio);
     case "pen":
     case "highlight": {
-      const reach = tolerance + (shape.type === "pen" ? strokeWidth(shape.size, ratio) : highlightWidth(shape.size, ratio)) / 2;
+      const reach = tolerance + brushWidth(shape, ratio) / 2;
       if (shape.points.length === 1) return Math.hypot(point.x - shape.points[0].x, point.y - shape.points[0].y) <= reach;
       return shape.points.some((p, index) => index > 0 && distanceToSegment(point, shape.points[index - 1], p) <= reach);
     }
@@ -153,7 +165,7 @@ export function topHit(shapes: Shape[], point: Point, tolerance: number, ratio: 
   return null;
 }
 
-/** 可拖的把手：方框类四个角，箭头两端；文字、编号、笔迹只能整体移动（大小用 S/M/L） */
+/** 可拖的把手：方框类四个角，箭头两端；文字、编号、笔迹只能整体移动（大小用粗细滑杆） */
 export function handles(shape: Shape): Array<{ handle: Handle; point: Point }> {
   if (isBox(shape)) {
     return [

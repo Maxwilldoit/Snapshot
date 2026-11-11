@@ -1,14 +1,16 @@
 import {
   bounds,
+  brushWidth,
+  isMosaic,
   fontSize,
   handles,
-  highlightWidth,
   lineHeight,
   mosaicBlock,
   pixelate,
   stepRadius,
   strokeWidth,
   textLines,
+  type Rect,
   type Shape,
   type TextShape,
 } from "./model";
@@ -107,6 +109,43 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, { type: 
   ctx.stroke();
 }
 
+/**
+ * 马赛克：真正改写这块像素（取的是已经画好的画面），导出的图里看不出原来的内容。
+ * 方框直接写回；椭圆、笔迹先在小画布上按形状裁掉多余部分再贴回去。
+ * `mask` 在小画布坐标系里画出要保留的形状（填充或描边），不传就是整块。
+ */
+function drawMosaic(ctx: CanvasRenderingContext2D, box: Rect, block: number, scene: Scene, alpha: number, mask?: (layer: CanvasRenderingContext2D) => void) {
+  // 按形状裁的（椭圆、笔迹）把格子对齐到整张图：边画边长时，已经打好的格子不会跟着跳
+  const grid = mask ? block : 1;
+  const x = Math.max(0, Math.floor(box.x / grid) * grid);
+  const y = Math.max(0, Math.floor(box.y / grid) * grid);
+  const right = Math.min(scene.width, Math.ceil((box.x + box.w) / grid) * grid);
+  const bottom = Math.min(scene.height, Math.ceil((box.y + box.h) / grid) * grid);
+  if (right - x < 1 || bottom - y < 1) return;
+  const region = ctx.getImageData(x, y, right - x, bottom - y);
+  pixelate(region.data, region.width, region.height, block);
+  if (!mask && (alpha >= 1 || typeof document === "undefined")) {
+    ctx.putImageData(region, x, y);
+    return;
+  }
+  // putImageData 不认透明度也不认形状：放到小画布上裁好形状，再按透明度贴回来
+  if (typeof document === "undefined") return;
+  const layer = document.createElement("canvas");
+  layer.width = region.width;
+  layer.height = region.height;
+  const layerCtx = layer.getContext("2d");
+  if (!layerCtx) return;
+  layerCtx.putImageData(region, 0, 0);
+  if (mask) {
+    layerCtx.save();
+    layerCtx.translate(-x, -y);
+    layerCtx.globalCompositeOperation = "destination-in";
+    mask(layerCtx);
+    layerCtx.restore();
+  }
+  ctx.drawImage(layer, x, y);
+}
+
 function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, scene: Scene, alpha = 1, scale = 1) {
   const { ratio } = scene;
   if (alpha <= 0) return;
@@ -117,30 +156,27 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, scene: Scene, al
     ctx.scale(scale, scale);
     ctx.translate(-shape.x, -shape.y);
   }
-  switch (shape.type) {
-    case "mosaic": {
-      const x = Math.max(0, Math.floor(shape.x));
-      const y = Math.max(0, Math.floor(shape.y));
-      const right = Math.min(scene.width, Math.ceil(shape.x + shape.w));
-      const bottom = Math.min(scene.height, Math.ceil(shape.y + shape.h));
-      if (right - x < 1 || bottom - y < 1) break;
-      // 真正改写这块像素（取的是已经画好的画面），导出的图里看不出原来的内容
-      const region = ctx.getImageData(x, y, right - x, bottom - y);
-      pixelate(region.data, region.width, region.height, mosaicBlock(shape.size, ratio));
-      if (alpha >= 1 || typeof document === "undefined") {
-        ctx.putImageData(region, x, y);
-        break;
-      }
-      // putImageData 不认透明度：淡入淡出时先放到小画布上再按透明度贴回来
-      const layer = document.createElement("canvas");
-      layer.width = region.width;
-      layer.height = region.height;
-      const layerCtx = layer.getContext("2d");
-      if (!layerCtx) break;
-      layerCtx.putImageData(region, 0, 0);
-      ctx.drawImage(layer, x, y);
-      break;
+  if (isMosaic(shape)) {
+    const block = mosaicBlock(shape.size, ratio);
+    if (shape.type === "rect") drawMosaic(ctx, shape, block, scene, alpha);
+    else if (shape.type === "ellipse") {
+      drawMosaic(ctx, shape, block, scene, alpha, (layer) => {
+        layer.beginPath();
+        layer.ellipse(shape.x + shape.w / 2, shape.y + shape.h / 2, Math.max(0.5, shape.w / 2), Math.max(0.5, shape.h / 2), 0, 0, Math.PI * 2);
+        layer.fill();
+      });
+    } else if ((shape.type === "pen" || shape.type === "highlight") && shape.points.length) {
+      drawMosaic(ctx, bounds(shape, ratio), block, scene, alpha, (layer) => {
+        layer.lineCap = "round";
+        layer.lineJoin = "round";
+        layer.lineWidth = brushWidth(shape, ratio);
+        strokePath(layer, shape.points);
+      });
     }
+    ctx.restore();
+    return;
+  }
+  switch (shape.type) {
     case "rect":
       ctx.strokeStyle = shape.color;
       ctx.lineWidth = strokeWidth(shape.size, ratio);
@@ -167,10 +203,8 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, scene: Scene, al
         // 荧光笔：正片叠底，压在文字上文字仍然清楚
         ctx.globalAlpha = 0.4 * alpha;
         ctx.globalCompositeOperation = "multiply";
-        ctx.lineWidth = highlightWidth(shape.size, ratio);
-      } else {
-        ctx.lineWidth = strokeWidth(shape.size, ratio);
       }
+      ctx.lineWidth = brushWidth(shape, ratio);
       strokePath(ctx, shape.points);
       break;
     case "text": {

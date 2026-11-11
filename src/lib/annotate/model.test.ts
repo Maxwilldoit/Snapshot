@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  MOSAIC,
+  SIZE_DEFAULT,
+  SIZE_MAX,
+  SIZE_MIN,
+  clampSize,
+  fontSize,
   handleAt,
+  highlightWidth,
+  mosaicBlock,
+  stepRadius,
+  strokeWidth,
   hits,
   isTooSmall,
   moveShape,
@@ -42,9 +52,27 @@ describe("标注对象", () => {
     expect(hits(rect, { x: 200, y: 150 }, 6, 1)).toBe(false);
     expect(hits(arrow, { x: 50, y: 5 }, 6, 1)).toBe(true);
     expect(hits(arrow, { x: 50, y: 30 }, 6, 1)).toBe(false);
-    const mosaic: BoxShape = { ...rect, id: 3, type: "mosaic" };
+    // 打了马赛克的方框/椭圆认整块；马赛克笔迹按荧光笔的宽度认
+    const mosaic: BoxShape = { ...rect, id: 3, color: MOSAIC };
     expect(hits(mosaic, { x: 200, y: 150 }, 6, 1)).toBe(true);
     expect(topHit([rect, mosaic], { x: 100, y: 150 }, 6, 1)?.id).toBe(3);
+    expect(hits({ ...mosaic, type: "ellipse" }, { x: 200, y: 150 }, 6, 1)).toBe(true);
+    expect(hits({ ...mosaic, type: "ellipse" }, { x: 105, y: 105 }, 6, 1)).toBe(false);
+    const brush = { id: 5, type: "pen" as const, color: MOSAIC, size: 4, points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] };
+    expect(hits(brush, { x: 50, y: 15 }, 6, 1)).toBe(true);
+    expect(hits({ ...brush, color: "#ff3b30" }, { x: 50, y: 15 }, 6, 1)).toBe(false);
+  });
+
+  it("粗细是线性的：2/4/7 和原来的细/中/粗一样大，超出范围收回来", () => {
+    expect([2, 4, 7].map((size) => strokeWidth(size, 1))).toEqual([2, 4, 7]);
+    expect([2, 4, 7].map((size) => highlightWidth(size, 1))).toEqual([12, 20, 32]);
+    expect([2, 4, 7].map((size) => mosaicBlock(size, 1))).toEqual([6, 10, 16]);
+    expect(fontSize(4, 2)).toBe(40);
+    expect(stepRadius(4, 1)).toBe(14);
+    expect(fontSize(6, 1) - fontSize(5, 1)).toBe(fontSize(9, 1) - fontSize(8, 1));
+    expect(clampSize(0)).toBe(SIZE_MIN);
+    expect(clampSize(99)).toBe(SIZE_MAX);
+    expect(clampSize(Number.NaN)).toBe(SIZE_DEFAULT);
   });
 
   it("移动整个对象；拖角以对角为锚点，翻过去也保持正的宽高", () => {
