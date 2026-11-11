@@ -122,7 +122,9 @@ describe("shutter sound", () => {
         return Promise.resolve();
       }
     }
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(new Blob(["RIFF"], { type: "audio/wav" })));
+    // Node 22's undici Response doesn't take jsdom's Blob as a body, so stub just what the code reads
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      ({ ok: true, status: 200, blob: async () => new Blob(["RIFF"], { type: "audio/wav" }) }) as unknown as Response);
     let next = 0;
     const revoke = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

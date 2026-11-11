@@ -49,7 +49,9 @@ describe("PetMedia", () => {
 
   it("on Linux plays media:// WebM through a Blob URL and revokes it on unmount", async () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["webm"], { type: "video/webm" }))));
+    // Node 22's undici Response doesn't take jsdom's Blob as a body, so stub just what the code reads
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      ({ ok: true, status: 200, blob: async () => new Blob(["webm"], { type: "video/webm" }) }) as unknown as Response));
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pet-idle");
     const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     const { container, unmount } = render(<PetMedia src="media://localhost/pet%2Fone%2Fidle.webm" entry="idle.webm" playing={false} />);
