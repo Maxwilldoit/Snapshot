@@ -489,17 +489,17 @@ export function PromptLibraryWindow() {
               )}
             </>
           )}
-          {status && (
-            <p
-              className={`library-status ${status.kind === "error" ? "signal" : "ink-2"}`}
-              role={status.kind === "error" ? "alert" : "status"}
-              aria-live="polite"
-            >
-              {status.text}
-            </p>
-          )}
         </div>
       </main>
+      {status && (
+        <p
+          className={`library-status ${status.kind === "error" ? "signal" : "ink-2"}`}
+          role={status.kind === "error" ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {status.text}
+        </p>
+      )}
     </LibraryWindow>
   );
 }

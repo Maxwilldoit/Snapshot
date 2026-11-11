@@ -30,7 +30,9 @@
 .library-actions .panel-title {
   margin: 0;
 }
-.library-editor {
+html[data-surface="app"] .form.library-editor {
+  display: flex;
+  flex-direction: column;
   max-width: 840px;
   gap: 20px;
 }
@@ -88,9 +90,11 @@
   font-weight: 600;
 }
 .library-status {
-  margin: 20px 0 0;
-  padding-top: 12px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 24px 12px;
   border-top: 0.5px solid var(--sep);
+  background: var(--win);
   font-size: var(--text-small);
 }
 .pet-catalog-details {

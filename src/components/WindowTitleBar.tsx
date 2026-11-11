@@ -10,6 +10,10 @@ type WindowTitleBarProps = {
   onError: (message: string) => void;
 };
 
+function isMacPlatform() {
+  return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform ?? "");
+}
+
 /**
  * 最小化、最大化、关闭三个按钮。窗口没有系统标题栏（decorations: false），只能自己画。
  * variant="mac" 画成左上角的红黄绿三个圆点，其余平台是右上角的三个方块按钮；做的事完全一样。
@@ -56,15 +60,17 @@ export function WindowControls({ variant = "win", onError }: { variant?: "win" |
 /** 独立窗口也可复用的主题标题栏，不依赖主窗口的 AppContext。 */
 export function WindowTitleBar({ children, right, tall = false, className = "", onError }: WindowTitleBarProps) {
   const { t } = useI18n();
+  const mac = isMacPlatform();
   return (
     <header
       className={`titlebar ${tall ? "is-tall" : ""} ${className}`}
       data-tauri-drag-region
     >
+      {mac && <WindowControls variant="mac" onError={onError} />}
       {children ?? <span className="titlebar-name" data-tauri-drag-region>{t("应用快照")}</span>}
       <span className="titlebar-fill" data-tauri-drag-region />
       {right}
-      <WindowControls onError={onError} />
+      {!mac && <WindowControls onError={onError} />}
     </header>
   );
 }

@@ -78,6 +78,7 @@ html[data-surface="app"] .traffic-lights .is-close { background: #ff5f57; }
 html[data-surface="app"] .traffic-lights .is-min { background: #febc2e; }
 html[data-surface="app"] .traffic-lights .is-max { background: #28c840; }
 html[data-surface="app"] .traffic-lights button:focus-visible { outline-offset: 1px; border-radius: 50%; }
+html[data-surface="app"] .mw-toolbar > .traffic-lights { align-self: center; margin-right: 12px; }
 
 /* ---------- 侧栏 ---------- */
 

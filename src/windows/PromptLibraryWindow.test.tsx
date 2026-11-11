@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { emit } from "@tauri-apps/api/event";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { invokeArgs, setupTauriMock, type IPCHandler } from "../test/tauri";
 import { PromptLibraryWindow } from "./PromptLibraryWindow";
 
@@ -142,7 +142,9 @@ describe("Prompt 库窗口", () => {
         text: "请逐条检查边界条件，并列出可复现的问题。",
       });
     });
-    expect((await screen.findByRole("status")).textContent).toBe("Prompt 已复制");
+    const status = await screen.findByRole("status");
+    expect(status.textContent).toBe("Prompt 已复制");
+    expect(status.closest(".mw-scroll")).toBeNull();
     expect(row("代码审查")).toBeTruthy();
     expect(commandCalls(library.calls, "hide_prompt_library")).toHaveLength(0);
 
@@ -223,6 +225,17 @@ describe("Prompt 库窗口", () => {
 
     await library.user.keyboard("{Escape}");
     await waitFor(() => expect(commandCalls(library.calls, "hide_prompt_library")).toHaveLength(1));
+  });
+
+  it("macOS 使用左侧红黄绿按钮，不画 Windows 风格窗口控件", async () => {
+    const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    try {
+      await renderLibrary(initialPrompts);
+      expect(document.querySelector(".library-window .traffic-lights")).toBeTruthy();
+      expect(document.querySelector(".library-window .window-controls")).toBeNull();
+    } finally {
+      platform.mockRestore();
+    }
   });
 
   it("窗口再次打开时刷新数据但不丢当前未保存的草稿", async () => {
