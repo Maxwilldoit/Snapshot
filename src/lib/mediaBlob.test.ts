@@ -5,6 +5,10 @@ const LINUX = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like
 const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)";
 const WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";
 
+// Node 22's undici Response doesn't take jsdom's Blob as a body, so stub just what the code reads
+const fetched = (blob: Blob | null, status = 200) =>
+  ({ ok: status >= 200 && status < 300, status, blob: async () => blob ?? new Blob([]) }) as unknown as Response;
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -25,7 +29,7 @@ describe("media:// 音视频在 Linux 上换成 Blob", () => {
   it("同一地址只取一次，最后一个使用者松手才撤销；取不到时退回原地址", async () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(LINUX);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-      String(input).includes("missing") ? new Response(null, { status: 404 }) : new Response(new Blob(["webm"], { type: "video/webm" })));
+      String(input).includes("missing") ? fetched(null, 404) : fetched(new Blob(["webm"], { type: "video/webm" })));
     vi.stubGlobal("fetch", fetchMock);
     let next = 0;
     const create = vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:pet-${++next}`);
