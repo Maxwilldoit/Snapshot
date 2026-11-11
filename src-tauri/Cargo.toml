@@ -28,7 +28,7 @@ dirs = "7"
 gif = "0.14"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
-parking_lot = "0.12"
+parking_lot = "0.13"
 # media:// 协议的路径解码；依赖树里本来就有（url 用它），不新增 crate
 percent-encoding = "2"
 regex = "1.11"
