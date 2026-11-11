@@ -5,10 +5,8 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn display_spec() -> Result<String, String> {
-    super::session::x11_display().ok_or_else(|| {
-        "无 X11 DISPLAY，无法用 x11grab 抓带光标静帧 / no DISPLAY for x11grab cursor frame"
-            .to_string()
-    })
+    super::session::x11_display()
+        .ok_or_else(|| "无 X11 DISPLAY，无法用 x11grab 抓带光标静帧".to_string())
 }
 
 fn capture_rect_with_cursor(x: i32, y: i32, width: u32, height: u32) -> Result<RgbaImage, String> {
@@ -40,12 +38,10 @@ fn capture_rect_with_cursor(x: i32, y: i32, width: u32, height: u32) -> Result<R
         ])
         .arg(&path)
         .status()
-        .map_err(|_| {
-            "未找到 ffmpeg，无法抓带光标静帧 / ffmpeg not found for cursor still".to_string()
-        })?;
+        .map_err(|_| "未找到 ffmpeg，无法抓带光标静帧".to_string())?;
     if !status.success() {
         let _ = std::fs::remove_file(&path);
-        return Err("ffmpeg x11grab 抓带光标静帧失败 / ffmpeg x11grab cursor frame failed".into());
+        return Err("ffmpeg x11grab 抓带光标静帧失败".into());
     }
     let image = image::open(&path)
         .map_err(|error| format!("读取光标静帧失败：{error}"))?

@@ -49,41 +49,35 @@ pub fn pick_recording_backend() -> Result<RecordingBackend, String> {
         });
     }
     Err(format!(
-        "当前是 {} 会话且没有 X11 DISPLAY，窗口录制需要 X11/XWayland 或可用的 xdg-desktop-portal ScreenCast / recording needs X11 DISPLAY or ScreenCast portal",
+        "当前是 {} 会话且没有 X11 DISPLAY，窗口录制需要 X11/XWayland 或可用的 xdg-desktop-portal ScreenCast",
         display_server_label()
     ))
 }
 
 fn ensure_ffmpeg() -> Result<(), String> {
     if Command::new("ffmpeg").arg("-version").output().is_err() {
-        return Err(
-            "未找到 ffmpeg，请安装后将它加入 PATH（如 apt install ffmpeg） / ffmpeg not found on PATH"
-                .into(),
-        );
+        return Err("未找到 ffmpeg，请安装后将它加入 PATH（如 apt install ffmpeg）".into());
     }
     Ok(())
 }
 
 /// 探测 session bus 上 ScreenCast portal 是否存在（不弹授权框）。
 pub fn portal_screencast_available() -> Result<(), String> {
-    let conn = zbus::blocking::Connection::session().map_err(|error| {
-        format!(
-            "无法连接 session D-Bus（ScreenCast 需要）：{error} / session D-Bus unavailable: {error}"
-        )
-    })?;
+    let conn = zbus::blocking::Connection::session()
+        .map_err(|error| format!("无法连接 session D-Bus（ScreenCast 需要）：{error}"))?;
     let proxy = zbus::blocking::Proxy::new(
         &conn,
         "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop",
         "org.freedesktop.DBus.Introspectable",
     )
-    .map_err(|error| format!("xdg-desktop-portal 不可用：{error} / portal missing: {error}"))?;
+    .map_err(|error| format!("xdg-desktop-portal 不可用：{error}"))?;
     let xml: String = proxy
         .call("Introspect", &())
-        .map_err(|error| format!("无法探测 portal：{error} / cannot introspect portal: {error}"))?;
+        .map_err(|error| format!("无法探测 portal：{error}"))?;
     if !xml.contains("org.freedesktop.portal.ScreenCast") {
         return Err(
-            "桌面未提供 org.freedesktop.portal.ScreenCast（请安装 xdg-desktop-portal 及对应后端，如 portal-gtk / portal-gnome / portal-kde） / ScreenCast portal interface missing"
+            "桌面未提供 org.freedesktop.portal.ScreenCast（请安装 xdg-desktop-portal 及对应后端，如 portal-gtk / portal-gnome / portal-kde）"
                 .into(),
         );
     }
@@ -437,36 +431,32 @@ fn start_portal_recording(
     portal_screencast_available()?;
 
     let monitor = Monitor::all()
-        .map_err(|error| {
-            format!("无法列出显示器（ScreenCast）：{error} / cannot list monitors: {error}")
-        })?
+        .map_err(|error| format!("无法列出显示器（ScreenCast）：{error}"))?
         .into_iter()
         .next()
-        .ok_or_else(|| "没有可用显示器 / no monitor available for ScreenCast".to_string())?;
+        .ok_or_else(|| "没有可用显示器".to_string())?;
 
     // 此处会触发门户选择器；无图形会话 / 用户取消会失败。
     let (video_recorder, frame_rx) = monitor.video_recorder().map_err(|error| {
         format!(
-            "启动 xdg-desktop-portal ScreenCast 失败：{error}。请在图形 Wayland 会话中允许屏幕共享，并确认已安装 xdg-desktop-portal 与桌面后端。 / ScreenCast failed: {error}"
+            "启动 xdg-desktop-portal ScreenCast 失败：{error}。请在图形 Wayland 会话中允许屏幕共享，并确认已安装 xdg-desktop-portal 与桌面后端。"
         )
     })?;
 
-    video_recorder.start().map_err(|error| {
-        format!("ScreenCast start 失败：{error} / ScreenCast start failed: {error}")
-    })?;
+    video_recorder
+        .start()
+        .map_err(|error| format!("ScreenCast start 失败：{error}"))?;
 
     // 等首帧以确定真实分辨率（门户裁剪/缩放可能与 Monitor 元数据不一致）
     let first = frame_rx
         .recv_timeout(Duration::from_secs(90))
-        .map_err(|_| {
-            "等待 ScreenCast 画面超时（请在弹窗中选择屏幕/窗口并允许共享） / timed out waiting for ScreenCast frames — approve the portal dialog".to_string()
-        })?;
+        .map_err(|_| "等待 ScreenCast 画面超时（请在弹窗中选择屏幕/窗口并允许共享）".to_string())?;
 
     let width = first.width.max(2) & !1;
     let height = first.height.max(2) & !1;
     if width < 2 || height < 2 {
         let _ = video_recorder.stop();
-        return Err("ScreenCast 画面尺寸无效 / invalid ScreenCast frame size".into());
+        return Err("ScreenCast 画面尺寸无效".into());
     }
 
     let mut command = Command::new("ffmpeg");

@@ -174,7 +174,7 @@ pub(crate) fn read_pet_layout(
             continue;
         };
         let (anchor_x, anchor_y) =
-            finite_anchor(animation.anchor).map_err(|error| format!("{entry} 的{error}"))?;
+            finite_anchor(animation.anchor).map_err(|_| format!("{entry} 的锚点不是有效数字"))?;
         let webm = entry
             .rsplit('.')
             .next()

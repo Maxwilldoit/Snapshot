@@ -48,11 +48,41 @@ for (const file of sourceFiles) {
   });
 }
 
+// Backend errors reach the UI as Chinese strings and are translated by localizeMessage
+// (errors.ts exact keys, then its patterns), so every Chinese error literal in Rust needs a match there.
+const errorsText = fs.readFileSync(path.join(messagesRoot, "errors.ts"), "utf8");
+const errorKeys = new Set(dictionary);
+for (const match of errorsText.matchAll(/^\s*"((?:\\.|[^"\\])+)"\s*:/gm)) errorKeys.add(JSON.parse(`"${match[1]}"`));
+const errorPatterns = [...errorsText.matchAll(/^\s*\[\/(.+)\/([a-z]*),\s*"/gm)].map((match) => new RegExp(match[1], match[2]));
+const rustErrors = [];
+const rustFiles = [];
+(function walkRust(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) walkRust(file);
+    else if (entry.name.endsWith(".rs")) rustFiles.push(file);
+  }
+})(path.join("src-tauri", "src"));
+const errorSite = /(?:\bErr\(|\.ok_or\(|\.ok_or_else\(\|\|\s*|\.map_err\(\|[^|]*\|\s*\{?\s*)\s*(format!\(\s*)?"((?:\\.|[^"\\])*)"/g;
+for (const file of rustFiles) {
+  const full = fs.readFileSync(file, "utf8");
+  const text = full.split("#[cfg(test)]")[0];
+  for (const match of text.matchAll(errorSite)) {
+    const literal = match[2].replace(/\\(["\\])/g, "$1").replace(/\\n/g, "\n");
+    if (!han.test(literal)) continue;
+    const sample = match[1] ? literal.replace(/\{\{/g, "\u0001").replace(/\}\}/g, "\u0002").replace(/\{[^}]*\}/g, "1").replace(/\u0001/g, "{").replace(/\u0002/g, "}") : literal;
+    if (errorKeys.has(sample) || errorPatterns.some((pattern) => pattern.test(sample))) continue;
+    const line = full.slice(0, match.index).split("\n").length;
+    rustErrors.push(`${file}:${line} ${JSON.stringify(literal)}`);
+  }
+}
+
 const missing = [...used].filter(([source]) => !dictionary.has(source));
-if (missing.length || unwrapped.length) {
+if (missing.length || unwrapped.length || rustErrors.length) {
   for (const [source, location] of missing) console.error(`Missing English copy: ${location} ${JSON.stringify(source)}`);
   for (const finding of unwrapped) console.error(`Unwrapped UI text: ${finding}`);
+  for (const finding of rustErrors) console.error(`Backend error without English: ${finding}`);
   process.exitCode = 1;
 } else {
-  console.log(`Checked ${used.size} translated UI strings; no missing English copy or unwrapped JSX text.`);
+  console.log(`Checked ${used.size} translated UI strings and the backend errors; no missing English copy or unwrapped JSX text.`);
 }

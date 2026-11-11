@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { clearApiKey, fetchModels, savePromptSettings } from "../lib/backend";
+import { errorText } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { Settings } from "../types";
 
@@ -50,7 +51,7 @@ export function ModelSettingsDialog({
       if (!model.trim() && models[0]) setModel(models[0]);
       notify(t("拉到了 {count} 个模型", { count: models.length }));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason));
     } finally {
       setFetchingModels(false);
     }
@@ -73,7 +74,7 @@ export function ModelSettingsDialog({
       notify(t("模型设置已保存"));
       onClose();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason));
     } finally {
       setSaving(false);
     }
@@ -87,7 +88,7 @@ export function ModelSettingsDialog({
       setApiKey("");
       notify(t("已删除保存的 API Key"));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason));
     } finally {
       setClearingKey(false);
     }

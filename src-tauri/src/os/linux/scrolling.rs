@@ -17,10 +17,7 @@ const OVERLAP_SEARCH_MIN: u32 = 24;
 /// 对指定窗口做滚动长截图（best-effort）。
 pub fn capture_scrolling_window(window_id: u32) -> Result<RgbaImage, String> {
     if is_wayland_session() || x11_display().is_none() {
-        return Err(
-            "滚动长截图需要 X11/`$DISPLAY`（xdotool 翻页）。纯 Wayland 尚不支持 / scrolling capture needs X11 DISPLAY; not available on pure Wayland"
-                .into(),
-        );
+        return Err("滚动长截图需要 X11/`$DISPLAY`（xdotool 翻页）。纯 Wayland 尚不支持".into());
     }
 
     ensure_xdotool()?;
@@ -29,7 +26,7 @@ pub fn capture_scrolling_window(window_id: u32) -> Result<RgbaImage, String> {
         .map_err(|error| error.to_string())?
         .into_iter()
         .find(|w| w.id().ok() == Some(window_id))
-        .ok_or_else(|| "目标窗口已经关闭 / target window closed".to_string())?;
+        .ok_or_else(|| "目标窗口已经关闭".to_string())?;
 
     if window.is_minimized().unwrap_or(false) {
         restore_minimized(window_id)?;
@@ -47,7 +44,7 @@ pub fn capture_scrolling_window(window_id: u32) -> Result<RgbaImage, String> {
             .map_err(|error| error.to_string())?
             .into_iter()
             .find(|w| w.id().ok() == Some(window_id))
-            .ok_or_else(|| "目标窗口已经关闭 / target window closed".to_string())?;
+            .ok_or_else(|| "目标窗口已经关闭".to_string())?;
         let next = capture_one(&window)?;
         let prev = frames.last().expect("frames non-empty");
         if images_nearly_equal(prev, &next) {
@@ -60,7 +57,7 @@ pub fn capture_scrolling_window(window_id: u32) -> Result<RgbaImage, String> {
         return frames
             .into_iter()
             .next()
-            .ok_or_else(|| "未能截取滚动帧 / no scrolling frames captured".into());
+            .ok_or_else(|| "未能截取滚动帧".into());
     }
 
     stitch_vertical(frames)
@@ -69,10 +66,7 @@ pub fn capture_scrolling_window(window_id: u32) -> Result<RgbaImage, String> {
 /// 本机能力里的「滚动长截图」也按这个判断，免得显示可用、一滚才报错
 pub(super) fn ensure_xdotool() -> Result<(), String> {
     if Command::new("xdotool").arg("-version").output().is_err() {
-        return Err(
-            "滚动长截图需要 xdotool，请安装后重试（如 apt install xdotool） / install xdotool for scrolling capture"
-                .into(),
-        );
+        return Err("滚动长截图需要 xdotool，请安装后重试（如 apt install xdotool）".into());
     }
     Ok(())
 }
@@ -81,9 +75,9 @@ fn activate_window(id: u32) -> Result<(), String> {
     let status = Command::new("xdotool")
         .args(["windowactivate", "--sync", &id.to_string()])
         .status()
-        .map_err(|_| "无法激活目标窗口（xdotool） / xdotool windowactivate failed".to_string())?;
+        .map_err(|_| "无法激活目标窗口（xdotool）".to_string())?;
     if !status.success() {
-        return Err("无法激活目标窗口 / failed to activate target window".into());
+        return Err("无法激活目标窗口".into());
     }
     thread::sleep(Duration::from_millis(120));
     Ok(())
@@ -111,14 +105,14 @@ fn scroll_window(id: u32) -> Result<(), String> {
         .status();
     match click {
         Ok(code) if code.success() => Ok(()),
-        _ => Err("无法向目标窗口发送翻页（xdotool） / xdotool scroll failed".into()),
+        _ => Err("无法向目标窗口发送翻页（xdotool）".into()),
     }
 }
 
 fn capture_one(window: &Window) -> Result<RgbaImage, String> {
     window
         .capture_image()
-        .map_err(|error| format!("滚动截取失败：{error} / scrolling frame failed: {error}"))
+        .map_err(|error| format!("滚动截取失败：{error}"))
 }
 
 fn images_nearly_equal(a: &RgbaImage, b: &RgbaImage) -> bool {
@@ -228,10 +222,7 @@ fn stitch_vertical(frames: Vec<RgbaImage>) -> Result<RgbaImage, String> {
     }
 
     if total_height > 32_000 {
-        return Err(
-            "拼接结果过高（可能重叠检测失败），已中止 / stitch height too large; overlap detection may have failed"
-                .into(),
-        );
+        return Err("拼接结果过高（可能重叠检测失败），已中止".into());
     }
 
     let mut canvas = RgbaImage::new(width, total_height);

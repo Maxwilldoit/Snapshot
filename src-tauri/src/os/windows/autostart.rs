@@ -50,8 +50,11 @@ pub fn apply(enabled: bool) -> Result<(), String> {
         }
     };
     if status != 0 {
-        let action = if enabled { "写入" } else { "移除" };
-        return Err(format!("无法{action}开机启动项（注册表错误 {status}）"));
+        return Err(if enabled {
+            format!("无法写入开机启动项（注册表错误 {status}）")
+        } else {
+            format!("无法移除开机启动项（注册表错误 {status}）")
+        });
     }
     Ok(())
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { snapshotUrl } from "../lib/media";
 import { annotateSnapshot, copySnapshot } from "../lib/backend";
+import { errorText } from "../app/context";
 import { formatBytes, formatClock, dayLabel } from "../lib/format";
 import { growFrom, shrinkTo } from "../lib/motion";
 import { useI18n } from "../lib/i18n";
@@ -100,7 +101,7 @@ export function Lightbox({
     try {
       setCopyMessage(await copySnapshot(record.id));
     } catch (error) {
-      setEditError(error instanceof Error ? error.message : String(error));
+      setEditError(errorText(error));
     } finally {
       setCopying(false);
     }
@@ -131,7 +132,7 @@ export function Lightbox({
     try {
       await annotateSnapshot(record.id);
     } catch (error) {
-      setEditError(error instanceof Error ? error.message : String(error));
+      setEditError(errorText(error));
     } finally {
       setEditing(false);
     }

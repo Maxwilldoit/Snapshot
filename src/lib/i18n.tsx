@@ -64,7 +64,9 @@ export function localizeMessage(message: string, language = getActiveLanguage())
   const exact = backendErrorEnglish[message] ?? englishMessages[message];
   if (exact) return pluralize(exact);
   for (const [pattern, replacement] of backendErrorPatterns) {
-    if (pattern.test(message)) return message.replace(pattern, replacement);
+    const match = pattern.exec(message);
+    // 嵌套的原因（「保存快照失败：…」里的「…」）也可能是一条后端原文，逐段再译一次
+    if (match) return replacement.replace(/\$(\d)/g, (_, group: string) => localizeMessage(match[Number(group)] ?? "", language));
   }
   return message;
 }
