@@ -195,58 +195,6 @@ export function shrinkTo(element: HTMLElement, to: DOMRect | null, ms: number = 
 }
 
 /**
- * 把一张图从 from 飞到 to 这块区域（按比例放进去、底边对齐），落地后淡掉。
- * 换伴侣用：点架子上的一只，它的第一帧飞上舞台，真正的动图在底下接住。
- */
-export function flyImage(
-  src: string,
-  from: DOMRect,
-  to: DOMRect,
-  { onLand, ms = DURATION.open + 120 }: { onLand?: () => void; ms?: number } = {},
-): Promise<void> {
-  if (motionReduced() || !from.width || !from.height || typeof document.body.animate !== "function") {
-    onLand?.();
-    return Promise.resolve();
-  }
-  const ghost = document.createElement("img");
-  ghost.src = src;
-  ghost.alt = "";
-  ghost.setAttribute("aria-hidden", "true");
-  Object.assign(ghost.style, {
-    position: "fixed",
-    left: `${from.left}px`,
-    top: `${from.top}px`,
-    width: `${from.width}px`,
-    height: `${from.height}px`,
-    zIndex: "60",
-    pointerEvents: "none",
-    transformOrigin: "0 0",
-  });
-  document.body.appendChild(ghost);
-  const scale = Math.min(to.width / from.width, to.height / from.height);
-  const x = to.left + (to.width - from.width * scale) / 2 - from.left;
-  const y = to.bottom - from.height * scale - from.top;
-  return ghost
-    .animate([{ transform: "none" }, { transform: `translate(${x}px, ${y}px) scale(${scale})` }], {
-      duration: ms,
-      easing: EASE_ENTER,
-      fill: "forwards",
-    })
-    .finished.then(() => {
-      // 落地：真图在底下现身，替身淡掉
-      onLand?.();
-      return ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: DURATION.exit + 80, fill: "forwards" }).finished;
-    })
-    .then(
-      () => ghost.remove(),
-      () => {
-        onLand?.();
-        ghost.remove();
-      },
-    );
-}
-
-/**
  * 列表重排时让其余元素滑到新位置，而不是瞬移（删掉几张快照后，后面的补上来）。
  * 用法：改数据前调 capture()，渲染后自动播放。子元素要带 data-flip-key。
  */

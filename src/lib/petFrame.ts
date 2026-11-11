@@ -67,7 +67,7 @@ function snapCeil(value: number) {
   return Math.abs(value - nearest) < 1e-6 ? nearest : Math.ceil(value);
 }
 
-export function frameOf(layout: PetLayout, entry: string): PetLayoutFrame | null {
+function frameOf(layout: PetLayout, entry: string): PetLayoutFrame | null {
   return layout.frames.find((frame) => frame.entry === entry) ?? null;
 }
 

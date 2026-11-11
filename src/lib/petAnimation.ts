@@ -2,7 +2,7 @@ import { petAnimationDuration } from "./backend";
 import { isWebmEntry, petUrl } from "./media";
 import { acquireMediaUrl } from "./mediaBlob";
 
-export const PET_ACTION_FALLBACK_MS = 3000;
+const PET_ACTION_FALLBACK_MS = 3000;
 
 const durations = new Map<string, Promise<number>>();
 

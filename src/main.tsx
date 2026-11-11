@@ -9,7 +9,6 @@ import { LaunchpadWindow } from "./windows/LaunchpadWindow";
 import { PetCatalogWindow } from "./windows/PetCatalogWindow";
 import { PromptLibraryWindow } from "./windows/PromptLibraryWindow";
 import { applyTheme, readTheme, watchSystemTheme } from "./lib/theme";
-import { applyMotion } from "./lib/prefs";
 import { suppressNativeContextMenu } from "./lib/contextMenu";
 import { viewTransition } from "./lib/motion";
 import { applyDocumentLanguage, I18nProvider, readLanguagePreference, resolveLanguage } from "./lib/i18n";
@@ -29,7 +28,6 @@ function mount() {
   // 每个 WebView 都在首帧前应用系统颜色和完整动效，不读取旧外观偏好。
   applyDocumentLanguage(resolveLanguage(readLanguagePreference()));
   applyTheme(readTheme());
-  applyMotion("full");
   // 开发时留着系统右键菜单，方便「检查元素」
   if (!import.meta.env.DEV) suppressNativeContextMenu();
 

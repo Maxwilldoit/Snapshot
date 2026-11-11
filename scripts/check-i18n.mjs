@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { referencedKeys } from "./i18n-usage.mjs";
 
 const sourceRoot = "src";
 const messagesRoot = path.join(sourceRoot, "i18n", "messages");
@@ -90,12 +91,18 @@ for (const file of rustFiles) {
 }
 
 const missing = [...used].filter(([source]) => !dictionary.has(source));
-if (missing.length || unwrapped.length || rustErrors.length || untranslatedBackend.length) {
+const references = referencedKeys(
+  sourceFiles.filter((file) => !path.resolve(file).startsWith(path.resolve(messagesRoot))).map((file) => ({ file, text: fs.readFileSync(file, "utf8") })),
+  rustFiles.map((file) => fs.readFileSync(file, "utf8")),
+);
+const unused = [...dictionary].filter((key) => !references.has(key));
+if (missing.length || unwrapped.length || rustErrors.length || untranslatedBackend.length || unused.length) {
+  for (const key of unused) console.error(`Unreferenced UI translation: ${JSON.stringify(key)}`);
   for (const [source, location] of missing) console.error(`Missing English copy: ${location} ${JSON.stringify(source)}`);
   for (const finding of unwrapped) console.error(`Unwrapped UI text: ${finding}`);
   for (const finding of rustErrors) console.error(`Backend error without English: ${finding}`);
   for (const finding of untranslatedBackend) console.error(`Backend text interpolated without localizeMessage: ${finding}`);
   process.exitCode = 1;
 } else {
-  console.log(`Checked ${used.size} translated UI strings and the backend errors; no missing English copy or unwrapped JSX text.`);
+  console.log(`Checked ${used.size} direct UI strings, ${dictionary.size} referenced translations, and backend errors; no missing or unreferenced copy.`);
 }

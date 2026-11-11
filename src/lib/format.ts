@@ -48,20 +48,6 @@ export function formatBytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-export function formatWhen(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  if (getActiveLanguage() === "en") {
-    if (diff < 60_000) return "Just now";
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} min ago`;
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hr ago`;
-    return new Date(timestamp).toLocaleString("en-US");
-  }
-  if (diff < 60_000) return "刚刚";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  return new Date(timestamp).toLocaleString();
-}
-
 const pad = (value: number) => String(value).padStart(2, "0");
 
 /** 14:32 */

@@ -681,7 +681,6 @@ pub fn run() {
             actions::resize_quick_menu,
             actions::hide_quick_menu,
             actions::run_action,
-            actions::show_main_window,
             #[cfg(not(target_os = "macos"))]
             launchpad::show_launchpad,
             #[cfg(not(target_os = "macos"))]

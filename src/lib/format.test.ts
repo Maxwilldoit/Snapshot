@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fileNameOf, formatBytes, formatWhen, normalizeKey, shortcutKeys } from "./format";
+import { fileNameOf, formatBytes, normalizeKey, shortcutKeys } from "./format";
 
 describe("format helpers", () => {
   it("keeps the current zero-byte and large-file labels", () => {
@@ -21,15 +21,9 @@ describe("format helpers", () => {
     expect(normalizeKey("Enter")).toBe("Enter");
   });
 
-  it("splits shortcut labels into keys and formats relative times", () => {
+  it("splits shortcut labels into keys", () => {
     expect(shortcutKeys(null)).toEqual([]);
     expect(shortcutKeys("CommandOrControl+Shift+K")).toEqual(["Ctrl", "Shift", "K"]);
-
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-23T00:00:00.000Z"));
-    expect(formatWhen(Date.now() - 59_999)).toBe("刚刚");
-    expect(formatWhen(Date.now() - 60_000)).toBe("1 分钟前");
-    expect(formatWhen(Date.now() - 3_600_000)).toBe("1 小时前");
   });
 
   it("uses macOS modifier symbols in the system order on a Mac", () => {

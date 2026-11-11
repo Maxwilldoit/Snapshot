@@ -11,7 +11,7 @@ import type { NavPage, PetAsset, PlatformCapabilities } from "../types";
 import { useI18n } from "../lib/i18n";
 
 /** 没有系统标题栏：macOS 上画成侧栏左上角的红黄绿，其余平台是工具栏最右边的三个按钮 */
-export function isMacWindow(caps: PlatformCapabilities | null) {
+function isMacWindow(caps: PlatformCapabilities | null) {
   if (caps?.os) return caps.os === "macos";
   return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform ?? "");
 }
@@ -53,7 +53,7 @@ export function Toolbar({ title, lead, children, capture = true }: { title: Reac
 type NavItem = { page: NavPage; label: string; icon: ReactNode; trailing?: ReactNode };
 
 /** 侧栏里伴侣的顺序：后导入的在前；导入时间一样就照原顺序。前台应用图标总在最后 */
-export function sortedPets(assets: PetAsset[]) {
+function sortedPets(assets: PetAsset[]) {
   return [...assets].sort((a, b) => (b.importedAt ?? 0) - (a.importedAt ?? 0));
 }
 

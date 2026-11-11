@@ -27,6 +27,7 @@ const manifest = ["--manifest-path", "src-tauri/Cargo.toml"];
 if (scope !== "rust") {
   npm("test");
   npm("build");
+  npm("check:unused");
 }
 if (scope !== "frontend") {
   cargo("fmt", ...manifest, "--check");

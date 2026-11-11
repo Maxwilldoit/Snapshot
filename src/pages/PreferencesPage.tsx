@@ -28,7 +28,7 @@ function usePrefs() {
 }
 
 /** 截完做什么、存不存历史，以及怎么存（剪贴板、格式、位置） */
-export function SnapshotPanel() {
+function SnapshotPanel() {
   const { settings } = useApp();
   const update = usePrefs();
   const { t } = useI18n();
@@ -65,7 +65,7 @@ export function SnapshotPanel() {
 }
 
 /** 截屏那一下：快门声、闪一下、带不带鼠标指针 */
-export function BehaviorPanel() {
+function BehaviorPanel() {
   const { settings, caps, notify, onSaved } = useApp();
   const update = usePrefs();
   const { t } = useI18n();
@@ -263,7 +263,7 @@ export function PetPanel({ assetId }: { assetId?: string } = {}) {
 }
 
 /** 这台机器能做什么（各端 adapter 实时报告）+ 模型 */
-export function MachinePanel() {
+function MachinePanel() {
   const { settings, caps } = useApp();
   const { t } = useI18n();
   const [editingModel, setEditingModel] = useState(false);
@@ -359,7 +359,7 @@ export function GeneralPage() {
 }
 
 /** 界面语言、开机启动、复制后隐藏主窗口 */
-export function LanguagePanel() {
+function LanguagePanel() {
   const { preference, setLanguagePreference, t } = useI18n();
   const { settings, caps } = useApp();
   const update = usePrefs();

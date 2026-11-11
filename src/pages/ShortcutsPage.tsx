@@ -58,7 +58,7 @@ function shortcutKey(event: React.KeyboardEvent): string {
 }
 
 /** 全局快捷键列表 + 保存条。改动先留在本页，按「保存」才交给后端校验、注册、落盘 */
-export function ShortcutsPanel() {
+function ShortcutsPanel() {
   const { settings, onSaved, notify, conflicts, setConflicts, caps } = useApp();
   const { t } = useI18n();
   const [shortcuts, setShortcuts] = useState(settings.shortcuts);

@@ -5,21 +5,21 @@
  * 松手落在哪一页只由位移和速度决定；弹簧从当前位移起步，不提前跳到前瞻位置。
  */
 
-export const COMMIT_FRACTION = 0.22;
+const COMMIT_FRACTION = 0.22;
 export const FLICK_VELOCITY = 0.55;
-export const LOOKAHEAD_MS = 120;
-export const VELOCITY_WINDOW_MS = 80;
+const LOOKAHEAD_MS = 120;
+const VELOCITY_WINDOW_MS = 80;
 /** 停手这么久，这一串滚轮就算结束。 */
 export const WHEEL_QUIET_MS = 400;
 /** 这个间隔里的一串事件算同一格。Windows 经常把一格拆成好几下上报。 */
 export const WHEEL_CLUSTER_MS = 80;
-export const SPRING_OMEGA = 0.018;
-export const SPRING_ZETA = 0.72;
-export const SPRING_DT_CAP = 32;
-export const SPRING_SUBSTEP = 4;
-export const SPRING_SETTLE_X = 0.6;
-export const SPRING_SETTLE_V = 0.02;
-export const SPRING_VELOCITY_CAP = 1.6;
+const SPRING_OMEGA = 0.018;
+const SPRING_ZETA = 0.72;
+const SPRING_DT_CAP = 32;
+const SPRING_SUBSTEP = 4;
+const SPRING_SETTLE_X = 0.6;
+const SPRING_SETTLE_V = 0.02;
+const SPRING_VELOCITY_CAP = 1.6;
 
 export type Spring = { x: number; v: number; target: number };
 export type Sample = { t: number; x: number };

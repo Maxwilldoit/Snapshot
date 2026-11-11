@@ -14,7 +14,7 @@ export type BoxShape = Base & { type: "rect" | "ellipse"; x: number; y: number; 
 export type ArrowShape = Base & { type: "arrow"; x1: number; y1: number; x2: number; y2: number };
 export type StrokeShape = Base & { type: "pen" | "highlight"; points: Point[] };
 export type TextShape = Base & { type: "text"; x: number; y: number; text: string };
-export type StepShape = Base & { type: "step"; x: number; y: number; n: number };
+type StepShape = Base & { type: "step"; x: number; y: number; n: number };
 export type Shape = BoxShape | ArrowShape | StrokeShape | TextShape | StepShape;
 
 export type Handle = "nw" | "ne" | "sw" | "se" | "start" | "end";
@@ -48,13 +48,13 @@ export const lineHeight = (size: Size, ratio: number) => fontSize(size, ratio) *
 export const brushWidth = (shape: StrokeShape, ratio: number) =>
   shape.type === "pen" && !isMosaic(shape) ? strokeWidth(shape.size, ratio) : highlightWidth(shape.size, ratio);
 
-export const isBox = (shape: Shape): shape is BoxShape => shape.type === "rect" || shape.type === "ellipse";
+const isBox = (shape: Shape): shape is BoxShape => shape.type === "rect" || shape.type === "ellipse";
 
 /** 下一个步骤编号：现有最大号 + 1（删掉中间的不会重号） */
 export const nextStep = (shapes: Shape[]) =>
   shapes.reduce((max, shape) => (shape.type === "step" ? Math.max(max, shape.n) : max), 0) + 1;
 
-export const normalize = (a: Point, b: Point): Rect => ({
+const normalize = (a: Point, b: Point): Rect => ({
   x: Math.min(a.x, b.x),
   y: Math.min(a.y, b.y),
   w: Math.abs(b.x - a.x),

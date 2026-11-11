@@ -19,29 +19,6 @@ export function broadcastPetAnimation(value: PetAnimation) {
   void emit(CHANGED, value);
 }
 
-/** 主窗口刚打开时问一声：桌宠现在播的是哪个 */
-export function askPetAnimation() {
-  if (!inTauri) return;
-  void emit(ASK);
-}
-
-export function onPetAnimation(callback: (value: PetAnimation) => void): () => void {
-  if (!inTauri) return () => {};
-  const pending = listen<PetAnimation>(CHANGED, ({ payload }) => callback(payload));
-  return () => {
-    void pending
-      .then(async (unlisten) => {
-        // 窗口或测试环境可能先一步撤掉 Tauri 事件桥，清理失败不应冒泡成未处理异常。
-        try {
-          await unlisten();
-        } catch {
-          // Listener is already gone with the WebView.
-        }
-      })
-      .catch(() => {});
-  };
-}
-
 export function onPetAnimationAsked(callback: () => void): () => void {
   if (!inTauri) return () => {};
   const pending = listen(ASK, () => callback());

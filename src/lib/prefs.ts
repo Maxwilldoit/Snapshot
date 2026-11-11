@@ -1,5 +1,3 @@
-export type MotionMode = "full" | "reduced";
-
 function read(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -14,11 +12,6 @@ function write(key: string, value: string) {
   } catch {
     // 存不下就只在本次会话生效
   }
-}
-
-/** 设置动效模式，具体时长和效果由 CSS 与动效函数决定。 */
-export function applyMotion(mode: MotionMode) {
-  document.documentElement.dataset.motion = mode;
 }
 
 const AUTO_COPY_KEY = "snapshot-auto-copy";

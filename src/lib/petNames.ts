@@ -112,10 +112,3 @@ export function entryLabel(entry: string, prefix = "", translate: EntryLabelTran
   }
   return key || stem;
 }
-
-/** 输入框润色时，猫换成敲键盘的那个动作（素材包里有的话） */
-export function typingEntry(entries: string[]): string | null {
-  return (
-    entries.find((entry) => /type|typing|keyboard|laptop|code|coding|敲键盘|打字/i.test(stemOf(entry))) ?? null
-  );
-}

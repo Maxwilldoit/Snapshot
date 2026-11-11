@@ -22,7 +22,7 @@ Keep existing capabilities and user data compatible while simplifying their pres
 
 Use Node 22 (`nvm use`), Rust from `rust-toolchain.toml`, and `npm ci`.
 
-- `npm run check`: frontend tests, translations, production build, Rust format, Clippy, and tests.
+- `npm run check`: frontend tests, translations, production build, Knip, Rust format, Clippy, and tests.
 - `npm run check:frontend` / `npm run check:rust`: the same checks split for CI.
 - `npm run check:i18n`: translation coverage.
 - `npm run check:unused`: Knip report; preserve code used by platform adapters and tests.

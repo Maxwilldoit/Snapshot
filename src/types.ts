@@ -212,7 +212,7 @@ export interface PetImportResult {
   failed: Array<{ path: string; reason: string }>;
 }
 
-export interface CapabilityStatus {
+interface CapabilityStatus {
   available: boolean;
 }
 

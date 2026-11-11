@@ -4,7 +4,7 @@ import { clampPetX, petFloorY, petHorizontalLimits } from "../lib/petBounds";
 import type { MediaBounds } from "../lib/petSize";
 import type { WalkDirection } from "../lib/petWalk";
 
-export const PET_AUTONOMY = {
+const PET_AUTONOMY = {
   idleMs: [2500, 7000] as const,
   walkMs: [2000, 6000] as const,
   walkSpeed: 68,

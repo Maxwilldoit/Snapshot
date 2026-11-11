@@ -3,7 +3,7 @@ import { petUrl, petWalkUrl } from "../lib/media";
 import type { PetMediaElement } from "../components/PetMedia";
 
 /** 新画面准备好后，旧画面在上层短暂淡出，避免 GIF 从半途硬切回首帧。 */
-export const PET_IMAGE_FADE_MS = 180;
+const PET_IMAGE_FADE_MS = 180;
 
 export interface PetImageFrame {
   key: string;
