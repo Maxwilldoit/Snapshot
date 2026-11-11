@@ -266,7 +266,7 @@ fn verify_archive(asset: &PetCatalogAsset, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() as u64 != asset.size_bytes {
         return Err("素材大小与目录不一致，请刷新素材库后重试".into());
     }
-    if !format!("{:x}", Sha256::digest(bytes)).eq_ignore_ascii_case(&asset.sha256) {
+    if !hex(&Sha256::digest(bytes)).eq_ignore_ascii_case(&asset.sha256) {
         return Err("素材校验失败，请刷新素材库后重试".into());
     }
     Ok(())
@@ -334,6 +334,10 @@ pub(crate) async fn install_catalog_pet(
     .map_err(|error| format!("素材导入未完成：{error}"))?
 }
 
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,7 +346,7 @@ mod tests {
         json!({"version": 1, "assets": [{
             "id": "test-pet", "name": "测试宠物", "description": "测试", "tags": ["像素"],
             "version": "1.0.0", "file": "test-pet-1.0.0.zip", "sizeBytes": 3,
-            "sha256": format!("{:x}", Sha256::digest(b"abc")),
+            "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             "downloadUrl": format!("{RELEASE_PREFIX}snapshot-assets-v1/test-pet-1.0.0.zip"),
             "previewUrl": format!("{PREVIEW_PREFIX}test-pet.png"),
             "licenseStatus": "未单独声明素材许可"
