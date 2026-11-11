@@ -6,7 +6,7 @@ import {
   onSettingsChanged,
   platformCapabilities,
 } from "./lib/backend";
-import { previewHintSound, primeHintSound } from "./lib/sound";
+import { prepareHintSound, previewHintSound, primeHintSound } from "./lib/sound";
 import { shortcutKeys } from "./lib/format";
 import { canViewTransition, viewTransition, type TransitionDirection } from "./lib/motion";
 import { AppContext, errorText, type AppContextValue, type Notice, type NoticeKind } from "./app/context";
@@ -103,6 +103,13 @@ export function App() {
   useEffect(() => {
     if (settings?.shortcutsPaused) setConflicts([]);
   }, [settings?.shortcutsPaused]);
+
+  // 自定义快门音提前读进内存，截图那一下直接播
+  const customShutter = settings?.shutterSound === "custom" ? settings.customSoundPath : null;
+  const settingsLoaded = settings !== null;
+  useEffect(() => {
+    if (settingsLoaded) prepareHintSound(customShutter);
+  }, [customShutter, settingsLoaded]);
 
   // 快捷键由后端在启动时注册；那一刻网页还没加载，注册不上的键等到这里再提示
   useEffect(() => {

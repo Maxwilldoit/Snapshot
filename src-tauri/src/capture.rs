@@ -74,7 +74,9 @@ pub(crate) fn capture_window(
             os::restore_minimized(target_id)?;
             trace.mark("window_restore");
         }
-        let app_name = window.app_name().unwrap_or_else(|_| "应用".into());
+        let app_name = window
+            .app_name()
+            .unwrap_or_else(|_| crate::ui_text("应用", "App").into());
         let include_cursor = state.settings.lock().include_cursor;
         let area = match (window.x(), window.y(), window.width(), window.height()) {
             (Ok(x), Ok(y), Ok(width), Ok(height)) => Some(Area {
@@ -442,6 +444,12 @@ fn decode_png_base64(data: &str) -> Result<RgbaImage, String> {
         .map_err(|error| format!("标注图解析失败：{error}"))
 }
 
+/// 标注图存进历史时的名字：「来源 · 标注」，跟着界面语言走。复制顺带存的和「存入截图记录」用同一个。
+fn markup_title(state: &AppState) -> String {
+    let source = state.annotate_title.lock().clone();
+    format!("{source} · {}", ui_text("标注", "Markup"))
+}
+
 #[tauri::command]
 pub(crate) async fn annotate_copy(app: AppHandle, image_data: String) -> Result<String, String> {
     on_worker(app, move |app, state| {
@@ -458,9 +466,10 @@ fn annotate_copy_now(
     let image = decode_png_base64(&image_data)?;
     let settings = state.settings.lock().clone();
     // 存历史失败不拦着复制，但要说出来：不然用户以为历史里有这张
+    let title = markup_title(state);
     let archived = settings
         .auto_save_local
-        .then(|| snapshots::store_snapshot(state, &image, "标注"));
+        .then(|| snapshots::store_snapshot(state, &image, &title));
     let archive_error = match &archived {
         Some(Err(error)) => {
             activity::record_error(
@@ -482,7 +491,13 @@ fn annotate_copy_now(
             .meta(format!("{} × {}", image.width(), image.height()))
             .snapshot(snapshot_id.clone()),
     );
-    clipboard::copy_image(app, state, image, "标注图", snapshot_id)?;
+    clipboard::copy_image(
+        app,
+        state,
+        image,
+        ui_text("标注图", "Marked-up image"),
+        snapshot_id,
+    )?;
     // 窗口由前端在按钮打勾、提示停留片刻后收起（annotate_close），这里不立刻隐藏
     if let Some(error) = archive_error {
         return Ok(format!("已复制，但没能存进历史记录：{error}"));
@@ -527,11 +542,7 @@ fn annotate_save_copy_now(
     image_data: String,
 ) -> Result<String, String> {
     let image = decode_png_base64(&image_data)?;
-    let title = if interface_is_english() {
-        format!("{} · Markup", state.annotate_title.lock())
-    } else {
-        format!("{} · 标注", state.annotate_title.lock())
-    };
+    let title = markup_title(state);
     snapshots::store_snapshot(state, &image, &title)?;
     let _ = app.emit("snapshots-changed", ());
     Ok(ui_text("标注副本已保存到历史记录", "Saved a copy to History.").into())

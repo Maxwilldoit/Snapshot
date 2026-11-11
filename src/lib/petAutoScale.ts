@@ -1,5 +1,6 @@
 import type { PetAsset } from "../types";
 import { isWebmEntry, petUrl } from "./media";
+import { acquireMediaUrl } from "./mediaBlob";
 
 type Bounds = { left: number; top: number; width: number; height: number };
 
@@ -153,8 +154,15 @@ export function measurePetScale(asset: PetAsset): Promise<number | null> {
             void video.play().then(guarded(() => sampleOverTime(sampler)), () => finish(null));
           }
         }, true);
-        video.src = src;
-        if (!settled) video.load();
+        const media = acquireMediaUrl(src);
+        releases.push(media.release);
+        const load = (url: string) => {
+          if (settled) return;
+          video.src = url;
+          video.load();
+        };
+        if (media.direct) load(src);
+        else void media.url.then(load);
       } else {
         const image = document.createElement("img");
         releases.push(() => image.removeAttribute("src"));

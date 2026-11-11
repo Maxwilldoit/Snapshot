@@ -117,8 +117,8 @@ export function ModelSettingsDialog({
             />
           </label>
           <div className="form-field">
-            <span className="form-label">
-              API Key
+            <span className={`form-label${settings.hasApiKey ? " has-action" : ""}`}>
+              <span>API Key</span>
               {settings.hasApiKey && (
                 <button
                   type="button"

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { isWebmEntry, petAlphaUrl, petThumbUrl, petUrl } from "../lib/media";
+import { usePlayableMediaUrl } from "../lib/mediaBlob";
 import { MacPetVideo } from "./MacPetVideo";
 
 export type PetMediaElement = HTMLImageElement | HTMLVideoElement;
@@ -39,6 +40,9 @@ export function PetMedia({
   const [failed, setFailed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const video = isWebmEntry(entry);
+  // macOS 走 MacPetVideo（另取透明通道），其余平台的 WebM 在 Linux 上要先换成 blob: 地址
+  const macVideo = video && src !== null && petAlphaUrl(src) !== null;
+  const videoSrc = usePlayableMediaUrl(src, video && !macVideo);
   const errorRef = useRef(onError);
   errorRef.current = onError;
 
@@ -46,14 +50,14 @@ export function PetMedia({
 
   useEffect(() => {
     const element = videoRef.current;
-    if (!element) return;
+    if (!element || !videoSrc) return;
     if (hidden || !playing) {
       if (!element.paused) element.pause();
       return;
     }
     const started = element.play();
     if (started) void started.catch(() => errorRef.current?.());
-  }, [entry, hidden, playing, loop, src]);
+  }, [entry, hidden, playing, loop, src, videoSrc]);
 
   if (!src || failed) return <>{fallback}</>;
 
@@ -62,12 +66,14 @@ export function PetMedia({
     if (alphaSrc) return <MacPetVideo key={src} src={src} alphaSrc={alphaSrc} entry={entry}
       className={className} style={style} alt={alt} hidden={hidden} playing={playing} loop={loop}
       onReady={onReady} onEnded={onEnded} onError={() => { setFailed(true); onError?.(); }} />;
+    // Blob 还在取（本地文件，通常一帧内就好）
+    if (!videoSrc) return null;
     return (
       <video
         ref={videoRef}
         className={className}
         style={style}
-        src={src}
+        src={videoSrc}
         crossOrigin="anonymous"
         muted
         loop={loop}

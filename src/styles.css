@@ -222,6 +222,9 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .form { display: grid; gap: 14px; margin-top: 16px; }
 .form-field { display: grid; gap: 4px; }
 .form-label { font-size: var(--text-small); color: var(--ink-3); }
+/* 标签右侧带一个文字操作（如「删除已保存的 Key」）：同一行两端对齐，不贴在一起 */
+.form-label.has-action { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.form-label.has-action .link { font-size: inherit; }
 .form-inline { display: flex; gap: 8px; }
 
 /* ---------- 空状态：靠左、靠上，不画大图标 ---------- */

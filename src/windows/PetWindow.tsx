@@ -24,7 +24,7 @@ import { petImageFrame, usePetImages, type PetImageFrame } from "../hooks/usePet
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
 import { coverPetPlacements, cropPetPlacement, groundForEntry, mediaPlacement, petRenderCanvas, placementForEntry, type PetPlacement, type PetRenderCanvas } from "../lib/petFrame";
 import { PET_SCALE, containedMediaBounds, petWindowSize, type MediaBounds } from "../lib/petSize";
-import { clampPetX, petFloorY, petHorizontalLimits, type PetWorkArea } from "../lib/petBounds";
+import { clampPetPixelX, clampPetX, petFloorY, petHorizontalLimits, type PetWorkArea } from "../lib/petBounds";
 import { ensurePetAutoScale, readPetBaseScale, watchPetBaseScales } from "../lib/petScale";
 import { nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
 import { clickableAnimations, ordinaryAnimations } from "../lib/petActions";
@@ -86,7 +86,8 @@ async function keepOnScreen(petWindow: Window, content: MediaBounds | null = nul
   if (!canMove()) return;
   const { position: origin } = monitor.workArea;
   const areas = monitors?.length ? monitors.map((item) => item.workArea) : [monitor.workArea];
-  const x = horizontal ? clampPetX(position.x, petHorizontalLimits(areas, position, size, content, scale)) : position.x;
+  // 可见内容的边距常带小数（如 4.5px），这里必须落到整数像素，否则 setPosition 失败、窗口停在屏幕外
+  const x = horizontal ? clampPetPixelX(position.x, petHorizontalLimits(areas, position, size, content, scale)) : position.x;
   const floor = petFloorY(monitor.workArea, size.height, content, scale, groundY);
   const y = floor === null ? position.y : Math.min(floor, Math.max(origin.y, position.y));
   if (x !== position.x || y !== position.y) await petWindow.setPosition(new PhysicalPosition(x, y));

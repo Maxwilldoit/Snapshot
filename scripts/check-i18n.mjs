@@ -32,11 +32,23 @@ const add = (source, file, index) => {
 };
 
 const unwrapped = [];
+const untranslatedBackend = [];
 for (const file of sourceFiles) {
   if (path.resolve(file).startsWith(path.resolve(messagesRoot))) continue;
   const text = fs.readFileSync(file, "utf8");
   for (const match of text.matchAll(/\bt\(\s*"((?:\\.|[^"\\])*)"/g)) add(JSON.parse(`"${match[1]}"`), file, match.index);
   for (const match of text.matchAll(/\btranslate\(\s*[^,]+,\s*"((?:\\.|[^"\\])*)"/g)) add(JSON.parse(`"${match[1]}"`), file, match.index);
+
+  // 后端原文（失败原因、错误信息）塞进翻译模板前要先过 localizeMessage / errorText，
+  // 否则英文界面里会出现「英文句子（中文原因）」这样的混排。
+  for (const match of text.matchAll(/\bt\(\s*"(?:\\.|[^"\\])*"\s*,\s*\{([^{}]*)\}/g)) {
+    for (const param of match[1].matchAll(/(\w+)\s*:\s*([\w$.?]+)\s*(?=,|$)/g)) {
+      if (/\.(?:reason|message|error|detail)$/.test(param[2])) {
+        const line = text.slice(0, match.index).split("\n").length;
+        untranslatedBackend.push(`${file}:${line} ${param[1]}: ${param[2]}`);
+      }
+    }
+  }
 
   const lines = text.split(/\r?\n/);
   lines.forEach((line, index) => {
@@ -78,10 +90,11 @@ for (const file of rustFiles) {
 }
 
 const missing = [...used].filter(([source]) => !dictionary.has(source));
-if (missing.length || unwrapped.length || rustErrors.length) {
+if (missing.length || unwrapped.length || rustErrors.length || untranslatedBackend.length) {
   for (const [source, location] of missing) console.error(`Missing English copy: ${location} ${JSON.stringify(source)}`);
   for (const finding of unwrapped) console.error(`Unwrapped UI text: ${finding}`);
   for (const finding of rustErrors) console.error(`Backend error without English: ${finding}`);
+  for (const finding of untranslatedBackend) console.error(`Backend text interpolated without localizeMessage: ${finding}`);
   process.exitCode = 1;
 } else {
   console.log(`Checked ${used.size} translated UI strings and the backend errors; no missing English copy or unwrapped JSX text.`);

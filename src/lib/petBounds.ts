@@ -109,3 +109,15 @@ export function petHorizontalLimits(
 export function clampPetX(x: number, limits: HorizontalLimits | null): number {
   return limits === null ? x : Math.min(limits.maxX, Math.max(limits.minX, x));
 }
+
+/**
+ * 写回原生窗口时用：setPosition 只收整数物理像素（带小数会被拒，窗口留在原地），
+ * 所以范围向内取整，取整后也不会越过工作区边缘；范围窄于一个像素时取最近的整数。
+ */
+export function clampPetPixelX(x: number, limits: HorizontalLimits | null): number {
+  if (limits === null) return Math.round(x);
+  const minX = Math.ceil(limits.minX);
+  const maxX = Math.floor(limits.maxX);
+  if (minX > maxX) return Math.round((limits.minX + limits.maxX) / 2);
+  return Math.min(maxX, Math.max(minX, Math.round(x)));
+}

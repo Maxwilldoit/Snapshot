@@ -218,7 +218,9 @@ fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>
                 CapturableWindow {
                     id,
                     pid,
-                    app_name: window.app_name().unwrap_or_else(|_| "应用".into()),
+                    app_name: window
+                        .app_name()
+                        .unwrap_or_else(|_| crate::ui_text("应用", "App").into()),
                     title,
                     minimized: window.is_minimized().unwrap_or(false),
                 },
@@ -280,7 +282,9 @@ pub(crate) fn start_tracker(app: AppHandle, tracker: Arc<Mutex<TrackerState>>) {
                     let next = TrackedWindow {
                         id,
                         pid,
-                        app_name: focused.app_name().unwrap_or_else(|_| "应用".into()),
+                        app_name: focused
+                            .app_name()
+                            .unwrap_or_else(|_| crate::ui_text("应用", "App").into()),
                         title: focused.title().unwrap_or_default(),
                     };
                     let mut state = tracker.lock();

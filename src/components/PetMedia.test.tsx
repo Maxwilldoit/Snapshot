@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { isWebmEntry } from "../lib/media";
 import { PetMedia } from "./PetMedia";
@@ -45,5 +45,18 @@ describe("PetMedia", () => {
     fireEvent.error(video);
     expect(failed).toHaveBeenCalledTimes(1);
     expect(container.querySelector("video")).toBeNull();
+  });
+
+  it("on Linux plays media:// WebM through a Blob URL and revokes it on unmount", async () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["webm"], { type: "video/webm" }))));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pet-idle");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const { container, unmount } = render(<PetMedia src="media://localhost/pet%2Fone%2Fidle.webm" entry="idle.webm" playing={false} />);
+    await waitFor(() => expect(container.querySelector("video")?.getAttribute("src")).toBe("blob:pet-idle"));
+    unmount();
+    expect(revoke).toHaveBeenCalledWith("blob:pet-idle");
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 });
