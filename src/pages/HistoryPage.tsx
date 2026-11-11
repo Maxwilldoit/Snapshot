@@ -206,8 +206,11 @@ export function HistoryPage() {
     );
   }
 
+  // 挑选模式下工具栏只放跟所选有关的操作（像「照片」那样），截取、录制先收起来：
+  // 英文按钮更长，挤在一起时「删除 N 张」会压到「截取」上
   const toolbar = selecting ? (
     <Toolbar
+      capture={false}
       title={
         <>
           {t("已选 {count} 张", { count: selected.size })}

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { addPetAssets } from "../lib/backend";
 import { fileNameOf } from "../lib/format";
-import { useI18n } from "../lib/i18n";
+import { localizeMessage, useI18n } from "../lib/i18n";
 import { errorText, useApp } from "./context";
 
 const ACCEPTED = /\.(zip|gif|webm)$/i;
@@ -33,7 +33,7 @@ export function usePetImport() {
       if (failures.length) {
         notify(
           (failures.length === 1 ? t("这 1 个没导进来：") : t("这 {count} 个没导进来：", { count: failures.length }))
-            + failures.map((item) => t("{file}（{reason}）", { file: fileNameOf(item.path), reason: item.reason })).join(t("、")),
+            + failures.map((item) => t("{file}（{reason}）", { file: fileNameOf(item.path), reason: localizeMessage(item.reason) })).join(t("、")),
           "error",
         );
       } else if (result.imported > 0) {

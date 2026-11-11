@@ -1,4 +1,5 @@
 import { soundUrl } from "./media";
+import { acquireMediaUrl } from "./mediaBlob";
 
 /** 播放提示音：有自定义文件就播文件，否则用 WebAudio 合成一声短促提示 */
 /**
@@ -65,21 +66,79 @@ function playSyntheticShutter(ctx: AudioContext, kind: "crisp" | "soft", gain: n
   shutterClick(ctx, now + 0.07, level * 0.7, false);
 }
 
-function playCustomShutter(path: string, gain: number) {
-  if (!customAudio || customAudioPath !== path) {
-    if (customAudio) customAudio.pause();
-    customAudio = new Audio(soundUrl(path));
-    customAudio.preload = "auto";
-    customAudioPath = path;
+// Linux 的 WebKitGTK 不能直接从自定义协议（media://）播放音频，会报 MEDIA_ERR_SRC_NOT_SUPPORTED，
+// 那里先整份读进 Blob 再交给 <audio>（见 mediaBlob.ts）；读一次就缓存，换文件时释放旧的对象地址。
+// macOS / Windows 照旧直接用地址，同步创建、同步播放。
+let customRelease: (() => void) | null = null;
+let customLoad: Promise<HTMLAudioElement> | null = null;
+
+function releaseCustomAudio() {
+  customAudio?.pause();
+  customAudio = null;
+  customAudioPath = null;
+  customLoad = null;
+  customRelease?.();
+  customRelease = null;
+}
+
+function createCustomAudio(source: string) {
+  const audio = new Audio(source);
+  audio.preload = "auto";
+  customAudio = audio;
+  return audio;
+}
+
+function loadCustomAudio(path: string): Promise<HTMLAudioElement> {
+  if (customLoad && customAudioPath === path) return customLoad;
+  releaseCustomAudio();
+  customAudioPath = path;
+  const media = acquireMediaUrl(soundUrl(path));
+  customRelease = media.release;
+  const load = media.direct
+    ? Promise.resolve(createCustomAudio(soundUrl(path)))
+    : media.url.then((source) => {
+      if (customAudioPath !== path) throw new Error("superseded");
+      return createCustomAudio(source);
+    });
+  customLoad = load;
+  load.catch(() => {
+    if (customLoad === load) customLoad = null;
+  });
+  return load;
+}
+
+/** 设置里的自定义音效变了就提前读好，截图时第一声不用再等读文件；传 null 释放缓存。 */
+export function prepareHintSound(customPath: string | null) {
+  if (!customPath) {
+    releaseCustomAudio();
+    return;
   }
+  void loadCustomAudio(customPath).catch(() => {});
+}
+
+function startCustomAudio(audio: HTMLAudioElement, gain: number) {
   try {
-    customAudio.pause();
-    customAudio.currentTime = 0;
+    audio.pause();
+    audio.currentTime = 0;
   } catch {
     // 文件刚换源时 currentTime 可能暂时不可写，不影响 play。
   }
-  customAudio.volume = gain;
-  customAudio.play().catch(() => {});
+  audio.volume = gain;
+  audio.play().catch(() => {});
+}
+
+function playCustomShutter(path: string, gain: number) {
+  const load = loadCustomAudio(path);
+  // 已经准备好的（含 macOS / Windows 的直接地址）在当前这次点击/按键里同步播
+  if (customAudio && customAudioPath === path) {
+    startCustomAudio(customAudio, gain);
+    return;
+  }
+  void load
+    .then((audio) => {
+      if (customAudioPath === path) startCustomAudio(audio, gain);
+    })
+    .catch(() => {});
 }
 
 export function previewHintSound(kind: "crisp" | "soft", customPath: string | null, volume: number) {

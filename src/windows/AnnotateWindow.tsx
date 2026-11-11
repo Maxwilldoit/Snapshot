@@ -497,6 +497,8 @@ export function AnnotateWindow() {
     const id = nextId.current++;
     const base = { id, color: colorFor(tool), size };
     if (tool === "text") {
+      // 不让这次按下的默认行为（mousedown 把焦点挪到 body）把刚弹出的输入框失焦收掉
+      event.preventDefault();
       if (hit?.type === "text") {
         startEditing(hit, false, before);
         return;

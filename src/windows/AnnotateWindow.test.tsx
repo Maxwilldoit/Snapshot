@@ -181,6 +181,24 @@ describe("截图标注：工具", () => {
     expect(frameTexts()).not.toContain("登录按钮");
   });
 
+  it("文字工具按下时拦住默认行为：浏览器随后的 mousedown 不会把刚弹出的输入框失焦收掉", async () => {
+    const { canvas } = await editor();
+    key({ key: "t" });
+    // 真实 WebView 里 pointerdown 没被取消时，接着的 mousedown 会把焦点挪到 body（WebKitGTK 上实测）
+    const proceeds = fireEvent.pointerDown(canvas, { button: 0, clientX: 20, clientY: 20 });
+    const input = await screen.findByRole("textbox") as HTMLTextAreaElement;
+    if (proceeds) input.blur();
+    fireEvent.pointerUp(canvas);
+    expect(proceeds).toBe(false);
+    expect(screen.getByRole("textbox")).toBe(input);
+
+    // 其它工具照旧不拦，拖拽、指针捕获等默认行为不变
+    fireEvent.keyDown(input, { key: "Escape" });
+    key({ key: "r" });
+    expect(fireEvent.pointerDown(canvas, { button: 0, clientX: 30, clientY: 30 })).toBe(true);
+    fireEvent.pointerUp(canvas);
+  });
+
   it("打字时键盘归输入框：单键、Delete、⌘Z 不碰画布；Esc 收起并保留文字", async () => {
     const { click, frameTexts } = await editor();
     key({ key: "t" });

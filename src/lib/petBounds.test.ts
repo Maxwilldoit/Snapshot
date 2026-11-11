@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPetX, petFloorY, petHorizontalLimits, type PetWorkArea } from "./petBounds";
+import { clampPetPixelX, clampPetX, petFloorY, petHorizontalLimits, type PetWorkArea } from "./petBounds";
 import type { MediaBounds } from "./petSize";
 
 const area = (x = 0, y = 0, width = 1000, height = 800): PetWorkArea => ({
@@ -196,5 +196,19 @@ describe("clampPetX", () => {
     expect(clampPetX(1000, limits)).toBe(850);
     expect(clampPetX(-50, limits)).toBe(-50);
     expect(clampPetX(850, limits)).toBe(850);
+  });
+});
+
+describe("clampPetPixelX", () => {
+  it("写回窗口的 x 总是整数，向内取整不越过工作区", () => {
+    // 1920 宽的工作区里，可见内容右缘在窗口内 191.8125px：上限 1728.1875 → 1728
+    const limits = { minX: -4.5, maxX: 1728.1875 };
+    expect(clampPetPixelX(1810, limits)).toBe(1728);
+    expect(clampPetPixelX(-20, limits)).toBe(-4);
+    expect(clampPetPixelX(600, limits)).toBe(600);
+    expect(clampPetPixelX(600.4, null)).toBe(600);
+    // 内容比工作区还宽、范围缩成一点时取最近的整数
+    expect(clampPetPixelX(0, { minX: 10.6, maxX: 10.6 })).toBe(11);
+    for (const x of [-1e4, -4.5, 0, 1728.5, 1e4]) expect(Number.isInteger(clampPetPixelX(x, limits))).toBe(true);
   });
 });

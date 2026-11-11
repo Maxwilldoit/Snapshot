@@ -1,5 +1,6 @@
 import { petAnimationDuration } from "./backend";
 import { isWebmEntry, petUrl } from "./media";
+import { acquireMediaUrl } from "./mediaBlob";
 
 export const PET_ACTION_FALLBACK_MS = 3000;
 
@@ -7,6 +8,7 @@ const durations = new Map<string, Promise<number>>();
 
 /** WebM 的时长由 WebView 读取元数据；GIF 仍由 Rust 逐帧累计。 */
 function webmDuration(src: string): Promise<number> {
+  const media = acquireMediaUrl(src);
   return new Promise((resolve) => {
     const video = document.createElement("video");
     let settled = false;
@@ -16,6 +18,7 @@ function webmDuration(src: string): Promise<number> {
       window.clearTimeout(timer);
       video.removeAttribute("src");
       video.load();
+      media.release();
       resolve(value);
     };
     const fromMetadata = () => {
@@ -28,8 +31,13 @@ function webmDuration(src: string): Promise<number> {
     video.addEventListener("loadedmetadata", fromMetadata, { once: true });
     video.addEventListener("durationchange", fromMetadata);
     video.addEventListener("error", () => finish(PET_ACTION_FALLBACK_MS), { once: true });
-    video.src = src;
-    video.load();
+    const load = (url: string) => {
+      if (settled) return;
+      video.src = url;
+      video.load();
+    };
+    if (media.direct) load(src);
+    else void media.url.then(load);
   });
 }
 

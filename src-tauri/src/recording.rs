@@ -138,7 +138,9 @@ fn list_tracked_window(app: &AppHandle, id: u32) -> Result<tracker::TrackedWindo
     Ok(tracker::TrackedWindow {
         id,
         pid: window.pid().unwrap_or_default(),
-        app_name: window.app_name().unwrap_or_else(|_| "应用".into()),
+        app_name: window
+            .app_name()
+            .unwrap_or_else(|_| crate::ui_text("应用", "App").into()),
         title: window.title().unwrap_or_default(),
     })
 }

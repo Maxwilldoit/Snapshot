@@ -10,6 +10,7 @@ import { PetCatalogWindow } from "./windows/PetCatalogWindow";
 import { PromptLibraryWindow } from "./windows/PromptLibraryWindow";
 import { applyTheme, readTheme, watchSystemTheme } from "./lib/theme";
 import { applyMotion } from "./lib/prefs";
+import { suppressNativeContextMenu } from "./lib/contextMenu";
 import { viewTransition } from "./lib/motion";
 import { applyDocumentLanguage, I18nProvider, readLanguagePreference, resolveLanguage } from "./lib/i18n";
 import "./styles/variables.css";
@@ -29,6 +30,8 @@ function mount() {
   applyDocumentLanguage(resolveLanguage(readLanguagePreference()));
   applyTheme(readTheme());
   applyMotion("full");
+  // 开发时留着系统右键菜单，方便「检查元素」
+  if (!import.meta.env.DEV) suppressNativeContextMenu();
 
   const unwatchTheme = watchSystemTheme((mode) => {
     if (label === "main") viewTransition("theme", () => applyTheme(mode));
