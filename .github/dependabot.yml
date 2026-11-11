@@ -24,6 +24,11 @@ updates:
     groups:
       windows-crates:
         patterns: ["windows", "windows-sys"]
+    ignore:
+      # zbus 6 drops the blocking API we use, and xcap / single-instance still
+      # pull zbus 5; move together once they upgrade
+      - dependency-name: zbus
+        update-types: ["version-update:semver-major"]
 
   # Actions 的版本最容易被忘掉，而过期的 action 会在某天突然被平台下线
   - package-ecosystem: github-actions
