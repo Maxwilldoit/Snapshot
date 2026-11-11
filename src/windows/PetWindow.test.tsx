@@ -225,7 +225,8 @@ describe("桌宠：点击切换，平时停在待机", () => {
   it("非方形宠物的可视底边贴住窗口底部，拖到任务栏时脚不会被透明留白悬空", async () => {
     render(<style>{petStyles}</style>);
     const { container } = await renderPet();
-    expect(getComputedStyle(shown(container).img).objectPosition).toBe("center bottom");
+    // jsdom 31 serialises keywords as percentages; both mean bottom-centred
+    expect(["center bottom", "50% 100%"]).toContain(getComputedStyle(shown(container).img).objectPosition);
   });
 
   it("不会自己换动作", async () => {
@@ -1267,9 +1268,10 @@ describe("桌宠：超出基准画布时把窗口撑大", () => {
     expect(decodeURIComponent(dunkImage.src)).toContain("dunk.gif");
     expect(grown.width).toBeGreaterThan(side);
     expect(grown.shiftY).toBeLessThan(0);
-    expect(dunkImage.style.left).toBe(`${grown.imageX - grown.shiftX}px`);
-    expect(dunkImage.style.top).toBe(`${grown.imageY - grown.shiftY}px`);
-    expect(dunkImage.style.width).toBe(`${grown.imageWidth}px`);
+    // jsdom 31 rounds serialised lengths (2.8999999999999986px -> 2.9px); compare numerically
+    expect(parseFloat(dunkImage.style.left)).toBeCloseTo(grown.imageX - grown.shiftX, 6);
+    expect(parseFloat(dunkImage.style.top)).toBeCloseTo(grown.imageY - grown.shiftY, 6);
+    expect(parseFloat(dunkImage.style.width)).toBeCloseTo(grown.imageWidth, 6);
     expect(dunkImage.style.height).toBe(`${grown.imageHeight}px`);
     expect(getComputedStyle(dunkImage).opacity).toBe("1");
     expect(getComputedStyle(dunkImage).animation).toBe("none");
