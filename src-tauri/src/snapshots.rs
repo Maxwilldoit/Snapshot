@@ -436,7 +436,10 @@ pub(crate) fn copy_snapshot(
     clipboard::copy_image(&app, &state, image, &title, Some(record.id.clone()))?;
     let clear_label = format_clear_label(&state.settings.lock().clipboard_auto_clear);
     if interface_is_english() {
-        Ok(english_sentence(&format!("Copied {}.", record.app_name), &clear_label))
+        Ok(english_sentence(
+            &format!("Copied {}.", record.app_name),
+            &clear_label,
+        ))
     } else {
         Ok(format!("已复制 {}，{clear_label}", record.app_name))
     }

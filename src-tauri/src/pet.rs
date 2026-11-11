@@ -428,6 +428,9 @@ fn pet_view_frame(
 /// WebKit present one frame at the wrong screen position, even with flushSync.
 #[cfg(target_os = "macos")]
 #[tauri::command]
+// 参数就是前端 invoke 传来的各个字段（位置、尺寸、裁切偏移、画布），由 Tauri 按名字逐个注入；
+// 打包成结构体只会让前端调用多一层包装，所以这里放开这条 lint。
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn set_pet_bounds(
     app: AppHandle,
     window: tauri::WebviewWindow,

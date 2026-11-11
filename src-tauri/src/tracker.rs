@@ -256,7 +256,10 @@ fn is_own_window(window: &Window) -> bool {
     // 三个窗口标题都在 tauri.conf.json 里：snapshot / 桌宠 / 快速操作。
     let title = window.title().unwrap_or_default();
     // 英文界面下这两个窗口的标题会换成英文，也要认得。
-    matches!(title.trim(), "snapshot" | "桌宠" | "快速操作" | "Pet" | "Quick Menu")
+    matches!(
+        title.trim(),
+        "snapshot" | "桌宠" | "快速操作" | "Pet" | "Quick Menu"
+    )
 }
 
 pub(crate) fn start_tracker(app: AppHandle, tracker: Arc<Mutex<TrackerState>>) {

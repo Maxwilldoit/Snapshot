@@ -394,7 +394,8 @@ fn annotate_window_logical_size(
 
     let scale = scale.max(0.1);
     let max_width = (work_width as f64 / scale - SCREEN_MARGIN * 2.0).clamp(MIN_WIDTH, MAX_WIDTH);
-    let max_height = (work_height as f64 / scale - SCREEN_MARGIN * 2.0).clamp(MIN_HEIGHT, MAX_HEIGHT);
+    let max_height =
+        (work_height as f64 / scale - SCREEN_MARGIN * 2.0).clamp(MIN_HEIGHT, MAX_HEIGHT);
     let chrome_width = PADDING * 2.0;
     let chrome_height = TOOLBAR_HEIGHT + PADDING * 2.0;
     let image_width = (image_width as f64 / scale).max(1.0);
@@ -403,8 +404,12 @@ fn annotate_window_logical_size(
         .min((max_height - chrome_height) / image_height)
         .min(1.0);
     (
-        (image_width * fit + chrome_width).round().clamp(MIN_WIDTH, max_width),
-        (image_height * fit + chrome_height).round().clamp(MIN_HEIGHT, max_height),
+        (image_width * fit + chrome_width)
+            .round()
+            .clamp(MIN_WIDTH, max_width),
+        (image_height * fit + chrome_height)
+            .round()
+            .clamp(MIN_HEIGHT, max_height),
     )
 }
 
@@ -500,11 +505,7 @@ pub(crate) fn annotate_save_copy(
     };
     snapshots::store_snapshot(&state, &image, &title)?;
     let _ = app.emit("snapshots-changed", ());
-    Ok(ui_text(
-        "标注副本已保存到历史记录",
-        "Saved a copy to History.",
-    )
-    .into())
+    Ok(ui_text("标注副本已保存到历史记录", "Saved a copy to History.").into())
 }
 
 #[tauri::command]
@@ -678,7 +679,10 @@ mod annotate_window_tests {
         let (width, height) = annotate_window_logical_size(3000, 1000, 1.0, 2560, 1440);
         assert_eq!(width, 1280.0);
         let image_height = height - 52.0 - 32.0;
-        assert!((((width - 32.0) / image_height) - 3.0).abs() < 0.02, "画布比例应保持 3:1");
+        assert!(
+            (((width - 32.0) / image_height) - 3.0).abs() < 0.02,
+            "画布比例应保持 3:1"
+        );
         // 很窄的竖长图：高度到顶，宽度只留到工具栏放得下的最小宽度
         assert_eq!(
             annotate_window_logical_size(800, 2400, 1.0, 2560, 1440),
