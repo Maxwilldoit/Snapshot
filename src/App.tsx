@@ -22,7 +22,7 @@ import type { NavPage, PlatformCapabilities, Settings } from "./types";
 import { useI18n, useWindowTitle } from "./lib/i18n";
 
 /** 侧栏的先后顺序决定换页时上下滑入的方向 */
-const NAV_ORDER: NavPage[] = ["history", "prompts", "pet", "capture", "shortcuts", "general"];
+const NAV_ORDER: NavPage[] = ["history", "prompts", "capture", "shortcuts", "general", "pet"];
 
 function directionFor(from: NavPage, to: NavPage): TransitionDirection {
   return NAV_ORDER.indexOf(to) >= NAV_ORDER.indexOf(from) ? "down" : "up";

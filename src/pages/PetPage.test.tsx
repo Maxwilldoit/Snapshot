@@ -42,8 +42,8 @@ const shelfSettings: Settings = {
   ],
 };
 
-/** 后导入的在前，导入时间相同保留原顺序；前台应用图标固定在最后 */
-const shelfOrder = ["new", "twin-z", "twin-a", "old", "legacy-z", "legacy-a", "app-icon"];
+/** 前台应用图标固定在最前；其余后导入的在前，导入时间相同保留原顺序 */
+const shelfOrder = ["app-icon", "new", "twin-z", "twin-a", "old", "legacy-z", "legacy-a"];
 
 function petGroup() {
   return screen.getByRole("group", { name: "桌面伴侣" });

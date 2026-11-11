@@ -125,6 +125,10 @@ export function SideNav() {
         <h2 className="nav-heading">{t("资料库")}</h2>
         {library.map(item)}
       </div>
+      <div className="nav-group">
+        <h2 className="nav-heading">{t("设置")}</h2>
+        {prefs.map(item)}
+      </div>
       <div className="nav-group" role="group" aria-label={t("桌面伴侣")}>
         <h2 className="nav-heading">
           {t("桌面伴侣")}
@@ -132,12 +136,8 @@ export function SideNav() {
             <Plus aria-hidden="true" />
           </button>
         </h2>
-        {pets.map(petRow)}
         {petRow(null)}
-      </div>
-      <div className="nav-group">
-        <h2 className="nav-heading">{t("设置")}</h2>
-        {prefs.map(item)}
+        {pets.map(petRow)}
       </div>
     </nav>
   );
