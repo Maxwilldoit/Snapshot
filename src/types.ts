@@ -168,6 +168,15 @@ export interface SnapshotRecord {
   createdAt: number;
 }
 
+/** 一段录屏成品。时长和画面尺寸由前端用 video 元素量，后端只给文件信息 */
+export interface RecordingRecord {
+  id: string;
+  fileName: string;
+  appName: string;
+  sizeBytes: number;
+  createdAt: number;
+}
+
 /** 后端记下的一件事：截了什么、录了什么、润色了什么、哪里失败了 */
 export interface ActivityEntry {
   id: string;

@@ -77,3 +77,27 @@ describe("素材库浏览器演示", () => {
     expect(second.settings.petHidden).toBe(false);
   });
 });
+
+describe("录屏浏览器演示", () => {
+  it("?demo 列出可播放的演示录像，删除后列表与媒体地址同步", async () => {
+    window.history.replaceState(null, "", "?demo");
+    try {
+      const backend = await preview();
+      const list = await backend.listRecordings();
+      expect(list.length).toBe(3);
+      for (const record of list) {
+        expect(record.fileName).toMatch(/\.mp4$/);
+        expect(record.sizeBytes).toBeGreaterThan(0);
+        expect(record.appName).toBeTruthy();
+      }
+      const { recordingUrl } = await import("./media");
+      expect(recordingUrl(list[0].id)).toMatch(/^data:video\/mp4;base64,/);
+
+      const kept = await backend.deleteRecordings([list[0].id]);
+      expect(kept.map((record) => record.id)).toEqual(list.slice(1).map((record) => record.id));
+      expect(await backend.listRecordings()).toHaveLength(2);
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+});

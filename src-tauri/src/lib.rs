@@ -673,6 +673,8 @@ pub fn run() {
             snapshots::get_snapshot_dir,
             recording::open_recordings_dir,
             recording::get_recording_dir,
+            recording::list_recordings,
+            recording::delete_recordings,
             snapshots::delete_snapshots,
             snapshots::copy_snapshot,
             activity::list_activity,

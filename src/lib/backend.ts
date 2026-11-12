@@ -11,6 +11,7 @@ import type {
   PlatformCapabilities,
   PreviousApp,
   PromptHistoryEntry,
+  RecordingRecord,
   RecordingStatus,
   SavedPrompt,
   Settings,
@@ -197,6 +198,12 @@ export const getRecordingDir = () => invoke<string>("get_recording_dir");
 /** 删掉选中的若干张；「全选再删」就是清空。返回删完后的列表 */
 export const deleteSnapshots = (ids: string[]) => invoke<SnapshotRecord[]>("delete_snapshots", { ids });
 
+/** 历史页的录像：后端扫保存目录，新的在前；正在录的那段不在内 */
+export const listRecordings = () => invoke<RecordingRecord[]>("list_recordings");
+
+/** 删掉选中的几段录像，返回删完后的列表 */
+export const deleteRecordings = (ids: string[]) => invoke<RecordingRecord[]>("delete_recordings", { ids });
+
 /** 把历史里的一张重新放回剪贴板 */
 export const copySnapshot = (id: string) => invoke<string>("copy_snapshot", { id });
 
@@ -204,6 +211,9 @@ export const annotateSnapshot = (id: string) => invoke<void>("annotate_snapshot"
 
 /** 截图入库或被删后，后端广播一次，列表据此刷新 */
 export const onSnapshotsChanged = (callback: () => void) => listen("snapshots-changed", () => callback());
+
+/** 录完一段或删掉录像后，后端广播一次，历史页据此刷新 */
+export const onRecordingsChanged = (callback: () => void) => listen("recordings-changed", () => callback());
 
 export const listActivity = () => invoke<ActivityEntry[]>("list_activity");
 

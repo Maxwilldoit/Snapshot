@@ -7,6 +7,7 @@
 //! 只认下面几种路径，每种都先在设置 / 索引里按 id 查到真实文件，页面拿不到任意文件的读权限：
 //!   snapshot/<快照 id>
 //!   thumb/<快照 id>              缩略图（没有就现做）
+//!   recording/<录像 id>          录屏成品，支持 HTTP Range（播放器要拖动进度条）
 //!   pet/<形象 id>[/<压缩包内的动作路径>]
 //!   pet-alpha/<形象 id>[/<动作路径>]  WebM 的独立透明通道（macOS 视频合成用）
 //!   pet-walk/<形象 id>/<动作路径>  拖动时播的走路动作（横穿画布的改成原地走）
@@ -38,7 +39,10 @@ pub(crate) fn handle(
         let path = percent_decode_str(request.uri().path().trim_start_matches('/'))
             .decode_utf8_lossy()
             .into_owned();
-        let response = into_response(serve(&app, &path));
+        let response = match path.strip_prefix("recording/") {
+            Some(id) => recording_response(&app, id, request.headers().get(header::RANGE)),
+            None => into_response(serve(&app, &path)),
+        };
         // macOS 的 WKURLSchemeTask 在主线程取消。若在后台线程回包，Wry 的
         // 有效性检查与 didReceiveResponse 之间可能被取消，抛出 "This task has
         // already been stopped"；release 的 panic=abort 无法捕获这个异常。
@@ -74,6 +78,39 @@ fn into_response(result: Result<Media, String>) -> Response<Vec<u8>> {
             .body(message.into_bytes()),
     };
     built.unwrap_or_default()
+}
+
+/// 录像单独一条路：文件可能几百 MB，按 Range 只读播放器要的那一段；
+/// 没有 Range（或解析不了）就整文件回 200。成品内容不再变，允许长期缓存。
+fn recording_response(
+    app: &AppHandle,
+    id: &str,
+    range: Option<&tauri::http::HeaderValue>,
+) -> Response<Vec<u8>> {
+    let state = app.state::<AppState>();
+    let range = range.and_then(|value| value.to_str().ok());
+    match recording::read_range(&state, id, range) {
+        Ok((total, span, bytes)) => {
+            let builder = Response::builder()
+                .header(header::CONTENT_TYPE, "video/mp4")
+                .header(header::ACCEPT_RANGES, "bytes")
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                .header(header::CACHE_CONTROL, "max-age=31536000, immutable");
+            let built = match span {
+                Some((start, end)) => builder
+                    .status(StatusCode::PARTIAL_CONTENT)
+                    .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))
+                    .body(bytes),
+                None => builder.body(bytes),
+            };
+            built.unwrap_or_default()
+        }
+        Err(message) => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(message.into_bytes())
+            .unwrap_or_default(),
+    }
 }
 
 fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {

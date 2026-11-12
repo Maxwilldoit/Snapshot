@@ -12,6 +12,9 @@ export const snapshotUrl = (id: string) => media(`snapshot/${id}`);
 /** 180px 高的缩略图，列表用它；老快照没有时后端现做一张 */
 export const thumbUrl = (id: string) => media(`thumb/${id}`);
 
+/** 录屏成品；后端支持 Range，`#t=0.1` 让 video 元素停在第一帧当封面 */
+export const recordingUrl = (id: string) => media(`recording/${id}`);
+
 /** 不指定动作时由后端取该形象的默认动作 */
 export const petUrl = (assetId: string, entry?: string | null) =>
   media(entry ? `pet/${assetId}/${entry}` : `pet/${assetId}`);

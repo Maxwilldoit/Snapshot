@@ -1,6 +1,7 @@
 import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, SavedPrompt, Settings, SnapshotRecord } from "../types";
+import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, RecordingRecord, SavedPrompt, Settings, SnapshotRecord } from "../types";
+import { demoVideos } from "./demoVideos";
 
 /**
  * 浏览器预览（直接 `npm run dev` 打开页面）用的假后端。
@@ -161,6 +162,15 @@ let snapshots: SnapshotRecord[] = demo
       const minutes = index < 4 ? [6, 33, 165, 254][index] : index < 8 ? 60 * 24 + index * 70 : 60 * 24 * 3 + index * 40;
       return { id: `snap-${index}`, fileName: `snap-${index}.png`, appName, width, height, sizeBytes, createdAt: minutesAgo(minutes) };
     })
+  : [];
+
+/** 演示录屏：和截图按时间混排。画面尺寸/时长由前端 video 元素量，这里只给文件信息 */
+let recordings: RecordingRecord[] = demo
+  ? [
+      { id: "rec-chrome", fileName: "应用快照-2026-11-12_09-40-00.mp4", appName: "Google Chrome", sizeBytes: 2_627, createdAt: minutesAgo(20) },
+      { id: "rec-wechat", fileName: "应用快照-2026-11-11_15-10-00.mp4", appName: "微信", sizeBytes: 2_276, createdAt: minutesAgo(60 * 24 + 40) },
+      { id: "rec-terminal", fileName: "Snapshot-2026-11-09_10-05-00.mp4", appName: "Windows Terminal", sizeBytes: 2_742, createdAt: minutesAgo(60 * 24 * 3 + 120) },
+    ]
   : [];
 
 const activity: ActivityEntry[] = demo
@@ -374,6 +384,8 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       return "~/Downloads";
     case "list_snapshots":
       return structuredClone(snapshots);
+    case "list_recordings":
+      return structuredClone(recordings);
     case "list_prompt_history":
       return structuredClone(promptHistory);
     case "list_saved_prompts":
@@ -407,6 +419,9 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     case "delete_snapshots":
       snapshots = snapshots.filter((item) => !(args.ids as string[]).includes(item.id));
       return structuredClone(snapshots);
+    case "delete_recordings":
+      recordings = recordings.filter((item) => !(args.ids as string[]).includes(item.id));
+      return structuredClone(recordings);
     case "copy_snapshot":
       return "预览模式下不会写剪贴板";
     case "annotate_snapshot":
@@ -446,6 +461,7 @@ export function installPreviewBackend() {
         const record = snapshots.find((item) => item.id === id);
         if (record) return demoSnapshotImage(record);
       }
+      if (kind === "recording" && demoVideos[id]) return demoVideos[id];
       if (kind === "pet" || kind === "pet-thumb") {
         const asset = settings.petAssets.find((item) => item.id === id);
         const item = catalogFixtures.find((fixture) => asset?.source === `https://github.com/Maxwilldoit/Pets#${fixture.id}`);
