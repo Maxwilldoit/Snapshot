@@ -262,13 +262,9 @@
   animation: rise-in var(--t-open) var(--ease-enter) both;
   animation-delay: calc(var(--i, 0) * var(--stagger));
 }
-.shot-caption { display: flex; flex-direction: column; max-width: 150px; font-size: var(--text-small); line-height: 18px; }
-.shot-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .shot.is-leaving { opacity: 0; transform: scale(0.92); }
 .shot.is-fresh { animation: shot-in var(--t-open) var(--ease-enter) both; }
-.shot.is-fresh .thumb { animation: fresh-mark 1.2s var(--ease-out) both; }
 @keyframes shot-in { from { opacity: 0; transform: translateY(-10px) scale(0.96); } }
-@keyframes fresh-mark { from { outline-color: var(--ink); } to { outline-color: transparent; } }
 
 .prompt-entry {
   border-bottom: 1px solid var(--rule-soft); border-radius: 2px;
@@ -341,11 +337,6 @@
 .pet-stage-image.is-landing { opacity: 0; animation: none; }
 .pet-stage-image.is-landed { animation: none; }
 .pet-floor { height: 2px; background: var(--ink-fill); flex: 0 0 auto; }
-.pet-name-line { display: flex; align-items: baseline; gap: 10px; margin-top: 14px; min-height: 26px; }
-.pet-name { margin: 0; font-size: var(--text-lead); line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
-.pet-actions { margin-top: 14px; }
-.pet-remove { align-self: flex-start; }
-.pet-page > .pet-current > .pet-name { margin-top: 14px; }
 
 .pet-collection { display: flex; flex-direction: column; gap: 32px; min-width: 0; }
 .pet-shelf-area { display: flex; flex-direction: column; min-width: 0; }
