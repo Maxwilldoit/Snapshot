@@ -14,7 +14,6 @@ export const windowsEnglish: Record<string, string> = {
   "开始录制 {target}": "Recording {target}",
   "正在停止并保存录像…": "Saving recording…",
   "录制还在继续": "Still recording",
-  "录制已保存": "Recording saved",
   "全屏截图": "Full-Screen Screenshot",
   "停止录制 · {target}": "Stop Recording · {target}",
   "窗口": "Window",

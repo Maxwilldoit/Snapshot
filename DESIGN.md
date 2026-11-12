@@ -58,12 +58,15 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
 - Keep recoverable errors and permission actions. Disabled functionality needs a
   discoverable reason, not a silent disappearance.
 - Remove success notices only when the resulting control or content visibly confirms
-  success. Keep recording completion feedback until recordings have a visible home.
+  success. Recordings now land in History (mixed with screenshots by time), so stopping
+  a recording dismisses the quick menu without a completion toast; keep the busy and
+  error feedback while saving.
 - Preserve persistent field labels. Placeholders provide optional examples, not labels.
 - Preserve meaningful time, selection, and position information; show secondary metadata
   on demand only when the interaction remains discoverable and keyboard accessible.
-- Keep Chinese and English terminology consistent: 截图/Screenshot, 录屏/Recording,
-  长截图/Scrolling screenshot. Use Window/Fullscreen where the distinction changes behavior.
+- Keep Chinese and English terminology consistent: 历史/History, 截图/Screenshot,
+  录屏/Recording, 长截图/Scrolling screenshot. Use Window/Fullscreen where the
+  distinction changes behavior.
 
 ## Motion
 

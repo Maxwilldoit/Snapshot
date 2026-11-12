@@ -207,7 +207,9 @@ describe("快捷菜单：录制", () => {
     });
 
     await user.click(await screen.findByRole("option", { name: /停止录制 · Visual Studio Code/ }));
-    expect(await screen.findByText("录制已保存")).toBeTruthy();
+    // 录屏进历史后不再弹「已保存」，直接收起快捷菜单
+    await waitFor(() => expect(calls.some((call) => call.command === "hide_quick_menu")).toBe(true));
+    expect(screen.queryByText("录制已保存")).toBeNull();
 
     expect(calls.find((call) => call.command === "toggle_recording")?.payload).toEqual({ targetId: null });
     expect(calls.some((call) => call.command === "list_capturable_windows")).toBe(false);

@@ -291,7 +291,12 @@ export function QuickMenuWindow() {
     try {
       const next = await toggleRecording();
       setRecording(next);
-      showStatus({ kind: "ok", text: next.active ? t("录制还在继续") : t("录制已保存") }, !next.active);
+      if (next.active) {
+        showStatus({ kind: "ok", text: t("录制还在继续") });
+      } else {
+        // 录屏成品已经进了历史，不再弹「已保存」提示，直接收起快捷菜单
+        void hideQuickMenu();
+      }
     } catch (error) {
       showStatus({ kind: "error", text: t(errorText(error)) });
     }
