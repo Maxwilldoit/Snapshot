@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCheck, FolderOpen, ListChecks, Trash2, X } from "lucide-react";
+import { CheckCheck, FolderOpen, Trash2, X } from "lucide-react";
 import {
+  annotateSnapshot,
+  copySnapshot,
+  deleteRecordings,
   deleteSnapshots,
+  listRecordings,
   listSnapshots,
+  onRecordingsChanged,
   onSnapshotsChanged,
   openSnapshotsDir,
   savePreferences,
-  runAction,
 } from "../lib/backend";
-import { formatBytes, formatClock, groupByDay } from "../lib/format";
+import { formatBytes, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
-import { SnapshotThumb } from "../components/SnapshotThumb";
+import { MediaTile } from "../components/MediaTile";
 import { JustifiedGrid } from "../components/JustifiedGrid";
 import { Lightbox } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -21,13 +25,17 @@ import { Toolbar } from "../app/Shell";
 import { acceleratorOf } from "../lib/shortcuts";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
-import type { SnapshotRecord } from "../types";
+import { mergeTimeline, type MediaItem, type RecordingMeta } from "../lib/mediaTimeline";
+import type { RecordingRecord, SnapshotRecord } from "../types";
 
-/** 截图记录：按天分组、每组排成两端对齐的截图墙；点一张放大，「选择」后可以批量删除 */
+/** 历史：截图和录屏按时间混排成两端对齐的媒体墙；点一格放大，勾选圈进入多选批量删除 */
 export function HistoryPage() {
-  const { settings, onSaved, notify, conflicts, pendingPreviewId, consumePreviewId } = useApp();
+  const { settings, onSaved, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
   const { t } = useI18n();
-  const [records, setRecords] = useState<SnapshotRecord[] | null>(null);
+  const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(null);
+  const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
+  const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>({});
+  const metaRef = useRef<Record<string, RecordingMeta>>({});
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -41,20 +49,32 @@ export function HistoryPage() {
   const listRef = useRef<HTMLDivElement>(null);
   const flip = useFlip(listRef);
 
+  // 录屏封面 video 读到真实尺寸/时长后回填，时间线据此重新排版
+  const reportMeta = useCallback((id: string, meta: RecordingMeta) => {
+    if (metaRef.current[id]?.durationMs === meta.durationMs && metaRef.current[id]?.width === meta.width) return;
+    metaRef.current = { ...metaRef.current, [id]: meta };
+    setRecordingMeta(metaRef.current);
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
-      const list = await listSnapshots();
-      const next = Array.isArray(list) ? list : [];
-      // 第一次加载不算「新来的」；之后多出来的那几张要从顶上挤进来
+      const snapList = await listSnapshots();
+      const snaps = Array.isArray(snapList) ? snapList : [];
+      // 录屏是补充内容：读不到也不该让截图墙整个空掉，单独兜底
+      const recList = await listRecordings().catch(() => [] as RecordingRecord[]);
+      const recs = Array.isArray(recList) ? recList : [];
+      const next = mergeTimeline(snaps, recs, metaRef.current);
+      // 第一次加载不算「新来的」；之后多出来的那几格要从顶上挤进来
       if (known.current) {
         const added = next.filter((item) => !known.current!.has(item.id)).map((item) => item.id);
         if (added.length) setFresh(new Set(added));
       }
       known.current = new Set(next.map((item) => item.id));
       flip.capture();
-      setRecords(next);
+      setSnapshots(snaps);
+      setRecordings(recs);
     } catch (error) {
-      setRecords([]);
+      setSnapshots([]);
       notify(errorText(error), "error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,18 +82,21 @@ export function HistoryPage() {
 
   useEffect(() => {
     void refresh();
-    const pending = onSnapshotsChanged(() => void refresh());
+    const pendingSnapshots = onSnapshotsChanged(() => void refresh());
+    const pendingRecordings = onRecordingsChanged(() => void refresh());
     return () => {
-      void pending.then((unlisten) => unlisten()).catch(() => {});
+      void pendingSnapshots.then((unlisten) => unlisten()).catch(() => {});
+      void pendingRecordings.then((unlisten) => unlisten()).catch(() => {});
     };
   }, [refresh]);
 
-  // 从别处点进来的那张，直接放大
+  // 从别处点进来的那格，直接放大
   useEffect(() => {
-    if (!pendingPreviewId || !records) return;
-    if (records.some((item) => item.id === pendingPreviewId)) setPreviewId(pendingPreviewId);
+    if (!pendingPreviewId || snapshots === null) return;
+    const items = mergeTimeline(snapshots, recordings, metaRef.current);
+    if (items.some((item) => item.id === pendingPreviewId)) setPreviewId(pendingPreviewId);
     consumePreviewId();
-  }, [pendingPreviewId, records, consumePreviewId]);
+  }, [pendingPreviewId, snapshots, recordings, consumePreviewId]);
 
   useEffect(() => {
     if (!fresh.size) return;
@@ -81,11 +104,15 @@ export function HistoryPage() {
     return () => window.clearTimeout(timer);
   }, [fresh]);
 
-  const sorted = useMemo(() => [...(records ?? [])].sort((a, b) => b.createdAt - a.createdAt), [records]);
+  const items = useMemo(
+    () => (snapshots === null ? null : mergeTimeline(snapshots, recordings, recordingMeta)),
+    [snapshots, recordings, recordingMeta],
+  );
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return needle ? sorted.filter((item) => item.appName.toLowerCase().includes(needle)) : sorted;
-  }, [sorted, query]);
+    const all = items ?? [];
+    return needle ? all.filter((item) => item.appName.toLowerCase().includes(needle)) : all;
+  }, [items, query]);
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
 
   const exitSelecting = useCallback(() => {
@@ -131,6 +158,17 @@ export function HistoryPage() {
     });
   }
 
+  // 勾选圈：还没进多选就先进入，再选中这一格
+  function check(item: MediaItem, event: React.MouseEvent) {
+    if (!selecting) setSelecting(true);
+    toggle(item.id, event.shiftKey);
+  }
+
+  function open(item: MediaItem, event: React.MouseEvent) {
+    if (selecting) toggle(item.id, event.shiftKey);
+    else setPreviewId(item.id);
+  }
+
   async function remove(ids: string[]) {
     if (!ids.length) return;
     setDeleting(true);
@@ -138,13 +176,21 @@ export function HistoryPage() {
       // 先消失再合拢：顺序反了会像是别的条目被删了
       setLeaving(new Set(ids));
       await wait(DURATION.fade);
-      const next = await deleteSnapshots(ids);
+      const all = items ?? [];
+      const snapIds = ids.filter((id) => all.find((item) => item.id === id)?.kind === "snapshot");
+      const recIds = ids.filter((id) => all.find((item) => item.id === id)?.kind === "recording");
+      const [nextSnaps, nextRecs] = await Promise.all([
+        snapIds.length ? deleteSnapshots(snapIds) : Promise.resolve(snapshots ?? []),
+        recIds.length ? deleteRecordings(recIds) : Promise.resolve(recordings),
+      ]);
+      const next = mergeTimeline(nextSnaps, nextRecs, metaRef.current);
       known.current = new Set(next.map((item) => item.id));
       flip.capture();
-      setRecords(next);
+      setSnapshots(nextSnaps);
+      setRecordings(nextRecs);
       setLeaving(new Set());
       setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))));
-      notify(t(ids.length === 1 ? "删掉了 1 张快照" : "删掉了 {count} 张快照", { count: ids.length }));
+      notify(t(ids.length === 1 ? "删掉了 1 项" : "删掉了 {count} 项", { count: ids.length }));
     } catch (error) {
       setLeaving(new Set());
       notify(errorText(error), "error");
@@ -162,45 +208,61 @@ export function HistoryPage() {
     }
   }
 
+  function copyItem(item: MediaItem) {
+    void copySnapshot(item.id)
+      .then((message) => notify(message))
+      .catch((error) => notify(errorText(error), "error"));
+  }
+
+  function annotateItem(item: MediaItem) {
+    void annotateSnapshot(item.id).catch((error) => notify(errorText(error), "error"));
+  }
+
+  // 悬停删除：只针对这一格，弹确认框后走和批量删除同一条路
+  function deleteItem(item: MediaItem) {
+    setSelected(new Set([item.id]));
+    setConfirming(true);
+  }
+
   const selectedBytes = useMemo(
-    () => (records ?? []).filter((item) => selected.has(item.id)).reduce((sum, item) => sum + item.sizeBytes, 0),
-    [records, selected],
+    () => (items ?? []).filter((item) => selected.has(item.id)).reduce((sum, item) => sum + item.sizeBytes, 0),
+    [items, selected],
   );
 
-  const total = records?.length ?? 0;
+  const total = items?.length ?? 0;
   const visibleIds = useMemo(() => filtered.map((item) => item.id), [filtered]);
-  const previewRecords = filtered.length ? filtered : sorted;
+  const previewRecords = filtered.length ? filtered : (items ?? []);
   const allSelected = total > 0 && selected.size === total;
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
-  // 退场时文案别跟着变成「删除 0 张」：打开那一刻的文案一直留到对话框淡出
+  // 退场时文案别跟着变成「删除 0 项」：打开那一刻的文案一直留到对话框淡出
   const confirmDialog = usePresence(
     confirming
       ? {
           title: allSelected
-            ? t(total === 1 ? "删除全部 1 张快照？" : "删除全部 {count} 张快照？", { count: total })
-            : t(selected.size === 1 ? "删除选中的 1 张快照？" : "删除选中的 {count} 张快照？", { count: selected.size }),
-          label: t("删除 {count} 张", { count: selected.size }),
+            ? t(total === 1 ? "删除全部 1 项？" : "删除全部 {count} 项？", { count: total })
+            : t(selected.size === 1 ? "删除选中的 1 项？" : "删除选中的 {count} 项？", { count: selected.size }),
+          label: t("删除 {count} 项", { count: selected.size }),
         }
       : null,
   );
 
-  if (records === null) {
+  if (items === null) {
     return (
       <div className="mw-page">
-        <Toolbar title={t("截图记录")} />
+        <Toolbar title={t("历史")} />
         <LoadingState text={t("正在读取历史记录…")} />
       </div>
     );
   }
 
   // 挑选模式下工具栏只放跟所选有关的操作（像「照片」那样）；数量在标题里，按钮只留图标
-  const selectAllLabel = allVisibleSelected ? t("全不选") : t("全选 {count} 张", { count: visibleIds.length });
-  const deleteLabel = selected.size > 0 ? t("删除 {count} 张", { count: selected.size }) : t("删除");
+  const selectAllLabel = allVisibleSelected ? t("全不选") : t("全选 {count} 项", { count: visibleIds.length });
+  const deleteLabel = selected.size > 0 ? t("删除 {count} 项", { count: selected.size }) : t("删除");
   const toolbar = selecting ? (
     <Toolbar
       title={
         <>
-          {t("已选 {count} 张", { count: selected.size })}
+          {t("已选 {count} 项", { count: selected.size })}
           {selected.size > 0 && <span className="mw-subtitle mono">{formatBytes(selectedBytes)}</span>}
         </>
       }
@@ -225,13 +287,10 @@ export function HistoryPage() {
       </button>
     </Toolbar>
   ) : (
-    <Toolbar title={t("截图记录")}>
+    <Toolbar title={t("历史")}>
       <SearchField value={query} onChange={setQuery} label={t("搜索截图")} />
       <button type="button" className="tb-btn" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
         <FolderOpen aria-hidden="true" />
-      </button>
-      <button type="button" className="tb-btn" aria-label={t("选择快照")} title={t("选择快照")} onClick={() => setSelecting(true)} disabled={total === 0}>
-        <ListChecks aria-hidden="true" />
       </button>
     </Toolbar>
   );
@@ -239,34 +298,40 @@ export function HistoryPage() {
   let body;
   if (total === 0) {
     const shortcut = acceleratorOf(settings, "snapshot");
-    body = settings.autoSaveLocal || settings.afterCapture === "saveas" ? (
+    const bound = shortcut && !settings.shortcutsPaused && !conflicts.includes(shortcut);
+    const historyOff = !settings.autoSaveLocal && settings.afterCapture !== "saveas";
+    body = (
       <div className="empty mw-empty">
-        <h2 className="empty-title">{t("还没有截图")}</h2>
-        <div className="empty-actions">
-          <button type="button" className="btn btn-primary" onClick={() => void runAction("capture").catch((error) => notify(errorText(error), "error"))}>
-            {t("截图")}{shortcut && !settings.shortcutsPaused && !conflicts.includes(shortcut) && <span aria-hidden="true"><Keys value={shortcut} quiet /></span>}
-          </button>
-        </div>
-      </div>
-    ) : (
-      <div className="empty mw-empty">
-        <h2 className="empty-title">{t("截图历史已关闭")}</h2>
-        <div className="empty-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() =>
-              savePreferences({ autoSaveLocal: true })
-                .then((next) => {
-                  onSaved(next);
-                  notify(t("打开了：之后的截图会留在这里"));
-                })
-                .catch((error) => notify(errorText(error), "error"))
-            }
-          >
-            {t("同时保存截图")}
-          </button>
-        </div>
+        <h2 className="empty-title">{t("还没有截图或录屏")}</h2>
+        {historyOff ? (
+          <div className="empty-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() =>
+                savePreferences({ autoSaveLocal: true })
+                  .then((next) => {
+                    onSaved(next);
+                    notify(t("打开了：之后的截图会留在这里"));
+                  })
+                  .catch((error) => notify(errorText(error), "error"))
+              }
+            >
+              {t("同时保存截图")}
+            </button>
+          </div>
+        ) : bound ? (
+          <p className="empty-hint">
+            <Keys value={shortcut} />
+            <span>{t("截图后会自动留在这里")}</span>
+          </p>
+        ) : (
+          <div className="empty-actions">
+            <button type="button" className="btn btn-primary" onClick={() => navigate("shortcuts")}>
+              {t("设置截图快捷键")}
+            </button>
+          </div>
+        )}
       </div>
     );
   } else if (filtered.length === 0) {
@@ -277,7 +342,7 @@ export function HistoryPage() {
       </p>
     );
   } else {
-    // 逐个入场只数前十几张：再往后已经在屏幕外，等也白等
+    // 逐个入场只数前十几格：再往后已经在屏幕外，等也白等
     let order = 0;
     body = (
       <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
@@ -307,24 +372,19 @@ export function HistoryPage() {
                     style={{ ...stagger(order++), width: box.width }}
                     className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
                   >
-                    <SnapshotThumb
-                      id={item.id}
-                      width={item.width}
-                      height={item.height}
-                      thumbHeight={box.height}
+                    <MediaTile
+                      item={item}
                       boxWidth={box.width}
-                      label={item.appName}
+                      boxHeight={box.height}
                       selecting={selecting}
                       selected={selected.has(item.id)}
-                      onPress={(_element, event) => {
-                        if (selecting) toggle(item.id, event.shiftKey);
-                        else setPreviewId(item.id);
-                      }}
+                      onOpen={open}
+                      onCheck={check}
+                      onCopy={copyItem}
+                      onAnnotate={annotateItem}
+                      onDelete={deleteItem}
+                      onMeta={reportMeta}
                     />
-                    <figcaption className="shot-caption" title={`${item.appName} · ${item.width} × ${item.height} · ${formatBytes(item.sizeBytes)}`}>
-                      <span className="shot-name">{item.appName}</span>
-                      <span className="shot-time mono">{formatClock(item.createdAt)}</span>
-                    </figcaption>
                   </figure>
                 )}
               />
@@ -350,7 +410,7 @@ export function HistoryPage() {
       {confirmDialog.item && (
         <ConfirmDialog
           title={confirmDialog.item.title}
-          body={t("图片文件会从本机一起删掉，没法恢复。")}
+          body={t("文件会从本机一起删掉，没法恢复。")}
           confirmLabel={confirmDialog.item.label}
           busy={deleting}
           leaving={confirmDialog.leaving}

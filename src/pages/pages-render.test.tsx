@@ -78,21 +78,35 @@ async function renderApp(handle: IPCHandler = handler) {
   const { App } = await import("../App");
   render(<App />);
   // 等设置加载完（加载态消失，出现侧边栏导航）
-  await screen.findByRole("button", { name: "截图记录" });
+  await screen.findByRole("button", { name: "历史" });
 }
 
 describe("B2 拆页后逐页渲染", () => {
-  it("空状态有可执行的主按钮，失败保留错误且不改变截图策略", async () => {
-    const run = vi.fn((_payload: InvokeArgs | undefined) => Promise.reject("截图权限不足"));
+  it("空状态展示已绑定的截图快捷键，不再放截图按钮；Prompt 页润色按钮仍触发润色", async () => {
+    const run = vi.fn((_payload: InvokeArgs | undefined) => Promise.resolve(undefined));
     await renderApp((command, payload) => command === "run_action" ? run(payload) : handler(command));
     const user = userEvent.setup();
     const main = within(screen.getByRole("main"));
-    await user.click(await main.findByRole("button", { name: "截图" }));
-    await waitFor(() => expect(run).toHaveBeenCalledWith({ action: "capture", targetId: null }));
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("截图权限不足"));
+    // 默认绑定了截图快捷键：空状态直接显示按键提示，没有截图按钮，也没有设置按钮
+    expect(await main.findByText("还没有截图或录屏")).toBeTruthy();
+    expect(main.getByText("截图后会自动留在这里")).toBeTruthy();
+    expect(main.queryByRole("button", { name: "截图" })).toBeNull();
+    expect(main.queryByRole("button", { name: "设置截图快捷键" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Prompt 记录" }));
     await user.click(await main.findByRole("button", { name: "润色 Prompt" }));
     await waitFor(() => expect(run).toHaveBeenLastCalledWith({ action: "polish", targetId: null }));
+  });
+
+  it("空状态未绑定截图快捷键时引导去快捷键设置", async () => {
+    const unbound: Settings = {
+      ...settings,
+      shortcuts: settings.shortcuts.map((shortcut) => shortcut.action === "snapshot" ? { ...shortcut, accelerator: null } : shortcut),
+    };
+    await renderApp((command) => command === "load_settings" ? unbound : handler(command));
+    const main = within(screen.getByRole("main"));
+    const user = userEvent.setup();
+    await user.click(await main.findByRole("button", { name: "设置截图快捷键" }));
+    expect(await screen.findByText("启用全局快捷键", { exact: false })).toBeTruthy();
   });
 
   it("侧栏只有导航，截图录屏走快捷菜单和快捷键；模型和规则只出现在 Prompt 设置", async () => {
@@ -109,10 +123,10 @@ describe("B2 拆页后逐页渲染", () => {
     expect(screen.getByRole("heading", { name: "润色规则" })).toBeTruthy();
   });
 
-  it("默认落在截图记录页；快捷键行在「设置 · 快捷键」", async () => {
+  it("默认落在历史页；快捷键行在「设置 · 快捷键」", async () => {
     await renderApp();
-    expect(await screen.findByRole("heading", { name: "截图记录" })).toBeTruthy();
-    expect(await screen.findByText("还没有截图")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "历史" })).toBeTruthy();
+    expect(await screen.findByText("还没有截图或录屏")).toBeTruthy();
     await userEvent.setup().click(screen.getByRole("button", { name: /^快捷键/ }));
     expect(
       await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" }),
@@ -147,7 +161,7 @@ describe("B2 拆页后逐页渲染", () => {
   });
 
   it.each([
-    [/^截图记录/, "还没有截图"],
+    [/^历史/, "还没有截图或录屏"],
     [/^Prompt 记录/, "还没有 Prompt 记录"],
     [/^前台应用图标/, "自由走动"],
     [/^截图与录制/, "截图时"],
@@ -336,7 +350,7 @@ describe("B2 拆页后逐页渲染", () => {
     const nav = screen.getByRole("navigation", { name: "主导航" });
     // 导入按钮、伴侣行的圆点和名字各是一个按钮
     expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "截图记录", "Prompt 记录", "截图与录制", "快捷键", "通用", "", "", "前台应用图标",
+      "历史", "Prompt 记录", "截图与录制", "快捷键", "通用", "", "", "前台应用图标",
     ]);
     expect(within(nav).getByRole("button", { name: "导入伴侣素材…" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();

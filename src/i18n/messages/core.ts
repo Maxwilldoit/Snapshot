@@ -9,7 +9,6 @@ export const coreEnglish: Record<string, string> = {
   "更换": "Replace",
   "取消更换": "Cancel Change",
   "详情": "Details",
-  "截图历史已关闭": "Screenshot History is Off",
   "正在按「{template}」润色…": "Enhancing with “{template}”…",
   "授权帮助": "Permission Help",
   "请先在 Prompt 页的设置中填写模型接口。": "Set up a model in Prompts → Settings first.",
@@ -83,7 +82,7 @@ export const coreEnglish: Record<string, string> = {
 
   // 主窗口：侧栏、工具栏与分组设置
   "资料库": "History",
-  "截图记录": "Screenshots",
+  "历史": "History",
   "Prompt 记录": "Prompts",
   "截图与录制": "Capture & Recording",
   "快捷键": "Shortcuts",
@@ -93,7 +92,6 @@ export const coreEnglish: Record<string, string> = {
   "更多": "More",
   "搜索截图": "Search screenshots",
   "搜索 Prompt": "Search prompts",
-  "还没有截图": "No Screenshots Yet",
   "还没有 Prompt 记录": "No Prompts Yet",
   "截图时": "When Capturing",
   "桌面": "Desktop",

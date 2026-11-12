@@ -58,15 +58,4 @@ export function useRecordingStatus() {
   return status;
 }
 
-/** 需要跟着时间走的显示（倒计时、录制时长）；不需要时不开计时器 */
-export function useNow(enabled: boolean, intervalMs = 1000) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!enabled) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
-    return () => window.clearInterval(timer);
-  }, [enabled, intervalMs]);
-  return now;
-}
 

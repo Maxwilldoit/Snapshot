@@ -74,7 +74,7 @@ export function SideNav() {
   }
 
   const library: NavItem[] = [
-    { page: "history", label: t("截图记录"), icon: <Images aria-hidden="true" /> },
+    { page: "history", label: t("历史"), icon: <Images aria-hidden="true" /> },
     { page: "prompts", label: t("Prompt 记录"), icon: <MessageSquareText aria-hidden="true" /> },
   ];
   const prefs: NavItem[] = [

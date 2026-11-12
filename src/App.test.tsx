@@ -106,7 +106,7 @@ describe("capture feedback", () => {
       if (command === "get_shortcut_conflicts") return [];
       return undefined;
     });
-    await screen.findByRole("heading", { name: "截图记录" });
+    await screen.findByRole("heading", { name: "历史" });
     const timeout = vi.spyOn(window, "setTimeout");
     const shot = {
       shotId: "shot-1",
@@ -170,7 +170,7 @@ describe("capture feedback", () => {
       if (command === "get_shortcut_conflicts") return [];
       return undefined;
     });
-    await screen.findByRole("heading", { name: "截图记录" });
+    await screen.findByRole("heading", { name: "历史" });
 
     const shot = {
       shotId: "shot-a",
