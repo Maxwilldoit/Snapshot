@@ -420,7 +420,7 @@ pub(crate) async fn delete_recordings(
             }
         }
         let _ = app.emit("recordings-changed", ());
-        Ok(list_recordings_now(&state))
+        Ok(list_recordings_now(state))
     })
     .await
 }
@@ -469,11 +469,11 @@ fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     }
 }
 
+/// 媒体协议返回的一段录像：(文件总长, 命中的字节区间, 字节)。区间为 None 表示整文件。
+type RecordingBytes = (u64, Option<(u64, u64)>, Vec<u8>);
+
 /// 读文件的一段（或全部）。返回 (总长, 区间, 字节)，媒体协议据此回 206/200。
-fn read_file_range(
-    path: &Path,
-    range: Option<&str>,
-) -> Result<(u64, Option<(u64, u64)>, Vec<u8>), String> {
+fn read_file_range(path: &Path, range: Option<&str>) -> Result<RecordingBytes, String> {
     use std::io::{Seek, SeekFrom};
     let mut file = fs::File::open(path).map_err(|_| "录像文件已被移动或删除".to_string())?;
     let len = file
@@ -500,7 +500,7 @@ pub(crate) fn read_range(
     state: &AppState,
     id: &str,
     range: Option<&str>,
-) -> Result<(u64, Option<(u64, u64)>, Vec<u8>), String> {
+) -> Result<RecordingBytes, String> {
     let path = recording_path(state, id)?;
     read_file_range(&path, range)
 }
