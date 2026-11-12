@@ -20,6 +20,38 @@ const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 
 const BUILTIN_PROMPT = "你是提示词改写专家。保持原意不变，将用户草稿整理为清晰、完整、可执行的指令。只输出改写后的提示词。";
 
+/** 演示截图：按记录的真实比例画一张「窗口示意图」，浏览器预览里不依赖 media:// 协议。 */
+function demoSnapshotImage(record: SnapshotRecord) {
+  const palette = ["#dfe7f2", "#e8e2d4", "#dde8dd", "#e6dfe8", "#f0e3da", "#dce8ea"];
+  const index = record.id.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const bg = palette[index % palette.length];
+  const w = Math.max(1, record.width);
+  const h = Math.max(1, record.height);
+  const bar = Math.max(18, Math.round(h * 0.06));
+  const label = record.appName.replace(/[<>&"]/g, "");
+  const fontSize = Math.max(12, Math.round(Math.min(w, h) * 0.055));
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+    + `<rect width="${w}" height="${h}" fill="${bg}"/>`
+    + `<rect width="${w}" height="${bar}" fill="rgba(0,0,0,0.14)"/>`
+    + `<circle cx="${bar * 0.6}" cy="${bar / 2}" r="${bar * 0.18}" fill="rgba(255,255,255,0.75)"/>`
+    + `<text x="${bar * 1.2}" y="${bar * 0.68}" font-family="sans-serif" font-size="${Math.round(bar * 0.5)}" fill="rgba(0,0,0,0.55)">${label}</text>`
+    + `<rect x="${w * 0.06}" y="${bar + h * 0.06}" width="${w * 0.4}" height="${Math.max(8, h * 0.05)}" rx="4" fill="rgba(0,0,0,0.12)"/>`
+    + `<rect x="${w * 0.06}" y="${bar + h * 0.16}" width="${w * 0.88}" height="${Math.max(6, h * 0.03)}" rx="3" fill="rgba(0,0,0,0.08)"/>`
+    + `<rect x="${w * 0.06}" y="${bar + h * 0.23}" width="${w * 0.72}" height="${Math.max(6, h * 0.03)}" rx="3" fill="rgba(0,0,0,0.08)"/>`
+    + `<rect x="${w * 0.06}" y="${bar + h * 0.3}" width="${w * 0.8}" height="${Math.max(6, h * 0.03)}" rx="3" fill="rgba(0,0,0,0.08)"/>`
+    + `<text x="${w * 0.06}" y="${h * 0.92}" font-family="monospace" font-size="${fontSize}" fill="rgba(0,0,0,0.4)">${w} × ${h}</text>`
+    + `</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+/** 演示桌宠：一只简单的猫，供侧栏头像和舞台使用 */
+function demoPetImage(color: string) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><g stroke="#403d36" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M42 62 46 26 70 48Q80 44 90 48L114 26 118 62Q134 84 118 112Q108 130 80 129Q52 130 42 112Q26 84 42 62Z" fill="${color}"/><path d="M62 82v6m36-6v6m-26 12q8 7 16 0" fill="none"/><path d="M56 124v10m48-10v10"/></g></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+const demoPetColors = ["#e8d8bc", "#c9d6cf", "#ded4b8", "#d9c9c2", "#cfd4e0", "#e0d3c4", "#d6e0ca", "#c9c3b7"];
+
 /** 素材库的演示图内嵌在预览后端，不访问真实仓库，也不代表真实素材或授权。 */
 function demoCatalogPreview(body: string, color: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="130" viewBox="0 0 160 130"><g stroke="#403d36" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M48 119h64" stroke="#c9c3b7"/><g fill="${color}">${body}</g><path d="M68 71v5m24-5v5m-17 10q5 5 10 0" fill="none"/><path d="M60 113v5m40-5v5"/></g></svg>`;
@@ -399,10 +431,20 @@ export function installPreviewBackend() {
   const convertFileSrc = internals.convertFileSrc;
   internals.convertFileSrc = (path, protocol) => {
     const [kind, id] = path.split("/");
-    if (protocol === "media" && (kind === "pet" || kind === "pet-thumb")) {
-      const source = settings.petAssets.find((asset) => asset.id === id)?.source;
-      const item = catalogFixtures.find((asset) => source === `https://github.com/Maxwilldoit/Pets#${asset.id}`);
-      if (item) return item.previewUrl;
+    if (protocol === "media") {
+      if (kind === "snapshot" || kind === "thumb") {
+        const record = snapshots.find((item) => item.id === id);
+        if (record) return demoSnapshotImage(record);
+      }
+      if (kind === "pet" || kind === "pet-thumb") {
+        const asset = settings.petAssets.find((item) => item.id === id);
+        const item = catalogFixtures.find((fixture) => asset?.source === `https://github.com/Maxwilldoit/Pets#${fixture.id}`);
+        if (item) return item.previewUrl;
+        if (asset && !asset.missing) {
+          const index = settings.petAssets.indexOf(asset);
+          return demoPetImage(demoPetColors[index % demoPetColors.length]);
+        }
+      }
     }
     return convertFileSrc(path, protocol);
   };
