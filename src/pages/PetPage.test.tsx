@@ -23,9 +23,9 @@ async function renderPetPage(handle: IPCHandler = () => undefined, settings: Set
   const { App } = await import("../App");
   const view = render(<StrictMode><App /></StrictMode>);
   const user = userEvent.setup();
-  // 侧栏「桌面伴侣」下每只一行；先点桌面上那只
+  // 侧栏「桌面伴侣」下每只一行；先点名字打开桌面上那只的详情
   await screen.findByRole("group", { name: "桌面伴侣" });
-  await user.click(petRow(settings.selectedAppearanceId));
+  await user.click(petMainButton(settings.selectedAppearanceId));
   return { user, unmount: view.unmount, calls: (command: string) => ipc.mock.calls.filter(([name]) => name === command) };
 }
 
@@ -59,9 +59,23 @@ function petRow(id: string) {
   return row;
 }
 
-/** 桌面上的那只：侧栏那一行带「在桌面上」的勾 */
+/** 行里点名字开详情的那块（圆点是另一个按钮） */
+function petMainButton(id: string) {
+  const button = petRow(id).querySelector<HTMLElement>(".nav-pet-main");
+  if (!button) throw new Error(`${id} 行里找不到详情按钮`);
+  return button;
+}
+
+/** 名字左边的圆点：管在不在桌面上 */
+function petDot(id: string) {
+  const dot = petRow(id).querySelector<HTMLElement>(".pet-dot");
+  if (!dot) throw new Error(`${id} 行里找不到圆点`);
+  return dot;
+}
+
+/** 桌面上的那只：圆点处于按下状态；收起后没有哪只按下 */
 function deskIds() {
-  return sidebarIds().filter((id) => within(petRow(id!)).queryByLabelText("在桌面上"));
+  return sidebarIds().filter((id) => petDot(id!).getAttribute("aria-pressed") === "true");
 }
 
 describe("侧栏里伴侣的固定位置", () => {
@@ -70,19 +84,39 @@ describe("侧栏里伴侣的固定位置", () => {
 
     expect(sidebarIds()).toEqual(shelfOrder);
     expect(deskIds()).toEqual(["old"]);
-    expect(petRow("old").getAttribute("aria-current")).toBe("page");
+    expect(petMainButton("old").getAttribute("aria-current")).toBe("page");
     expect(within(petGroup()).getAllByRole("button", { name: /^同名伙伴/ })).toHaveLength(2);
+    // 圆点是可取消的切换按钮，不是标准 radio；读屏能听出是哪只、在不在桌面上
+    expect(petDot("old").getAttribute("aria-label")).toBe("桌面显示：最早导入");
+    expect(petDot("old").getAttribute("aria-pressed")).toBe("true");
+    expect(petDot("new").getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("按 id 查看、放到桌面；后端返回或广播新设置后位置不变，重挂载仍保持顺序", async () => {
+  it("素材丢失的伴侣圆点不可点，名字仍能打开详情", async () => {
+    const settings: Settings = {
+      ...base,
+      petAssets: [{ id: "gone", name: "丢了的", path: "pets/gone.gif", entry: "idle.gif", animations: ["idle.gif"], missing: true }],
+    };
+    const { user } = await renderPetPage(undefined, settings);
+    expect(petDot("gone")).toHaveProperty("disabled", true);
+    await user.click(petMainButton("gone"));
+    await waitFor(() => expect(petMainButton("gone").getAttribute("aria-current")).toBe("page"));
+  });
+
+  it("点名字只看详情，圆点才换桌面形象；再点已选中的收起桌宠；后端返回或广播新设置后位置不变", async () => {
     let saved = structuredClone(shelfSettings);
     let lastUsedAt = 30_000;
     const handle: IPCHandler = (command, payload) => {
+      if (command === "hide_pet") {
+        saved = { ...saved, petHidden: true };
+        return structuredClone(saved);
+      }
       if (command !== "select_pet_appearance") return undefined;
       const id = String(invokeArgs(payload).id);
       saved = {
         ...saved,
         selectedAppearanceId: id,
+        petHidden: false,
         petAssets: saved.petAssets.map((asset) => asset.id === id ? { ...asset, lastUsedAt: ++lastUsedAt } : asset),
       };
       return structuredClone(saved);
@@ -91,15 +125,14 @@ describe("侧栏里伴侣的固定位置", () => {
     const backendOrder = saved.petAssets.map((asset) => asset.id);
 
     for (const id of ["twin-a", "twin-z", "old", "app-icon"]) {
-      await user.click(petRow(id));
+      await user.click(petMainButton(id));
       // 只是看一看，桌面上那只还没换
-      await waitFor(() => expect(petRow(id).getAttribute("aria-current")).toBe("page"));
+      await waitFor(() => expect(petMainButton(id).getAttribute("aria-current")).toBe("page"));
       if (id !== saved.selectedAppearanceId) {
         expect(calls("select_pet_appearance").filter(([, payload]) => invokeArgs(payload).id === id)).toHaveLength(0);
-        await user.click(screen.getByRole("button", { name: "放到桌面" }));
+        await user.click(petDot(id));
       }
       await waitFor(() => expect(deskIds()).toEqual([id]));
-      expect(screen.getByText("在桌面上")).toBeTruthy();
 
       expect(saved.selectedAppearanceId).toBe(id);
       if (id !== "app-icon") expect(saved.petAssets.find((asset) => asset.id === id)?.lastUsedAt).toBe(lastUsedAt);
@@ -107,6 +140,17 @@ describe("侧栏里伴侣的固定位置", () => {
       expect(saved.petAssets.map((asset) => asset.id)).toEqual(backendOrder);
     }
     expect(calls("select_pet_appearance").map(([, payload]) => invokeArgs(payload).id)).toEqual(["twin-a", "twin-z", "old", "app-icon"]);
+
+    // 再点已选中那只的圆点：桌宠整个收起，选中保留，应用照常运行
+    await user.click(petDot("app-icon"));
+    await waitFor(() => expect(deskIds()).toEqual([]));
+    expect(calls("hide_pet")).toHaveLength(1);
+    expect(saved.petHidden).toBe(true);
+    expect(saved.selectedAppearanceId).toBe("app-icon");
+    // 点同一只的圆点又把它放回来
+    await user.click(petDot("app-icon"));
+    await waitFor(() => expect(deskIds()).toEqual(["app-icon"]));
+    expect(saved.petHidden).toBe(false);
 
     // 独立窗口的设置广播也会带来新的数组和最近使用时间。
     saved = {

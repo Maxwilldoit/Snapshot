@@ -17,7 +17,7 @@ import {
   showPromptLibrary,
   toggleRecording,
 } from "../lib/backend";
-import { cachedWindows, confirmWindow, ensureFreshWindows, prefetchWindows, refreshWindows } from "../lib/windowList";
+import { cachedWindows, confirmWindow, ensureFreshWindows, isScreenCapturePermissionError, prefetchWindows, refreshWindows } from "../lib/windowList";
 import { formatDuration } from "../lib/format";
 import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 import { readAutoCopy } from "../lib/prefs";
@@ -41,9 +41,6 @@ const PANEL_WIDTH: Record<View, number> = { menu: 360, windows: 360, polish: 480
 const errorText = (error: unknown) => localizeMessage(
   typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error),
 );
-
-const needsScreenCapturePermission = (error: unknown) =>
-  typeof error === "object" && error !== null && "kind" in error && error.kind === "screenCapturePermission";
 
 /**
  * 快捷菜单：右键桌宠或按「呼出快捷菜单」快捷键出来。
@@ -211,7 +208,7 @@ export function QuickMenuWindow() {
       setView("windows");
     } catch (error) {
       if (token !== pickerToken.current) return;
-      const permissionRequired = needsScreenCapturePermission(error);
+      const permissionRequired = isScreenCapturePermissionError(error);
       // 后台重读失败但旧列表还在：继续用它，选中时会再确认窗口是否还在
       if (stale !== null && !permissionRequired) return;
       setWindows([]);
@@ -410,6 +407,8 @@ export function QuickMenuWindow() {
             id: "record",
             label: t("录屏"),
             hint: shortcutHint("record"),
+            disabled: Boolean(caps && !caps.recording.available),
+            reason: t("录屏在当前环境不可用"),
             run: () => void openPicker("record"),
           },
       {

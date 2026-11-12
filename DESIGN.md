@@ -29,8 +29,12 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
 
 ## Layout and components
 
-- Sidebar contains navigation. A stable capture/record control belongs in the main
-  window shell; page headers contain the page title and local actions.
+- Sidebar contains navigation only; capture and recording are reached through the pet
+  quick menu and global shortcuts. Page headers contain the page title and local actions.
+- Each pet row has a deselectable toggle dot left of the name: pressing it shows that pet
+  on the desktop, pressing the selected one hides the desktop pet entirely (the app keeps
+  running). The rest of the row opens the detail page. The dot is an `aria-pressed` toggle
+  button, not a standard radio, because it can be deselected.
 - Pages use the existing `mw-page`, `mw-toolbar`, `mw-scroll`, `panel`, `row`, `btn`,
   `tb-btn`, `input`, and dialog patterns. Independent windows may reuse these visual
   primitives without importing main-window context or navigation.

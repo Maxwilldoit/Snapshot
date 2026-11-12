@@ -444,6 +444,12 @@ pub fn run() {
                     let _ = window.set_position(PhysicalPosition::new(x, y));
                 }
             }
+            // 用户收起过桌宠就保持收起；选任意形象（侧栏圆点）即恢复显示。
+            if settings.pet_hidden {
+                if let Some(window) = app.get_webview_window("pet") {
+                    let _ = window.hide();
+                }
+            }
             tracker::start_tracker(app.handle().clone(), tracker);
             #[cfg(not(target_os = "macos"))]
             launchpad::preload(app.handle().clone());
@@ -648,7 +654,7 @@ pub fn run() {
             prompt_library::list_saved_prompts,
             prompt_library::save_saved_prompt,
             prompt_library::delete_saved_prompt,
-            pet::rename_pet_asset,
+            pet::hide_pet,
             pet::delete_pet_asset,
             settings::save_shortcuts,
             shortcuts::get_shortcut_conflicts,

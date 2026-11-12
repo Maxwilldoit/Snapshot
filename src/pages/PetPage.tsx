@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import { CatShape } from "../components/ui/CatShape";
 import { PetMedia } from "../components/PetMedia";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { deletePetAsset, renamePetAsset, selectPetAppearance, showPetCatalog } from "../lib/backend";
+import { deletePetAsset, showPetCatalog } from "../lib/backend";
 import { petUrl } from "../lib/media";
 import { commonPrefix, entryLabel } from "../lib/petNames";
 import { stagger } from "../lib/motion";
@@ -17,7 +17,7 @@ import { ensurePetAutoScale } from "../lib/petScale";
 
 /**
  * 桌面伴侣：侧栏里点哪一只就看哪一只。左边是大舞台，右边是它的动作（点一下预览）和桌面上的设置。
- * 「放到桌面」才真的换掉桌面上那只；看一看不会动桌面。
+ * 换桌面上那只、或把它收起来，都由侧栏名字左边的圆点负责；看一看不会动桌面。
  */
 export function PetPage() {
   const { settings, onSaved, notify, navigate, viewedPetId } = useApp();
@@ -25,7 +25,6 @@ export function PetPage() {
   const { importPaths } = usePetImport();
   const [activeEntry, setActiveEntry] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
-  const [renaming, setRenaming] = useState(false);
   const [armedRemove, setArmedRemove] = useState(false);
   const more = useMenuAnchor();
   const importRef = useRef(importPaths);
@@ -35,7 +34,6 @@ export function PetPage() {
   const requested = viewedPetId ?? selectedId;
   const viewedId = requested === "app-icon" || settings.petAssets.some((item) => item.id === requested) ? requested : selectedId;
   const asset = settings.petAssets.find((item) => item.id === viewedId) ?? null;
-  const onDesk = viewedId === selectedId;
   const prefix = useMemo(() => commonPrefix(asset?.animations ?? []), [asset?.animations]);
 
   useEffect(() => {
@@ -52,7 +50,6 @@ export function PetPage() {
 
   useEffect(() => {
     setActiveEntry(asset?.entry || asset?.animations[0] || null);
-    setRenaming(false);
     setArmedRemove(false);
   }, [viewedId, asset?.entry, asset?.animations]);
 
@@ -79,24 +76,6 @@ export function PetPage() {
     }
     return () => unlisten?.();
   }, []);
-
-  async function putOnDesk() {
-    try {
-      onSaved(await selectPetAppearance(viewedId));
-    } catch (error) {
-      notify(errorText(error), "error");
-    }
-  }
-
-  async function commitRename(value: string) {
-    setRenaming(false);
-    if (!asset || !value.trim() || value.trim() === asset.name) return;
-    try {
-      onSaved(await renamePetAsset(asset.id, value));
-    } catch (error) {
-      notify(errorText(error), "error");
-    }
-  }
 
   async function remove() {
     if (!asset) return;
@@ -128,24 +107,9 @@ export function PetPage() {
   const name = asset ? asset.name : t("前台应用图标");
   const stageSrc = asset && !asset.missing ? petUrl(asset.id, activeEntry) : null;
 
-  const title = renaming && asset ? (
-    <input
-      className="input pet-rename"
-      autoFocus
-      defaultValue={asset.name}
-      aria-label={t("新名字")}
-      maxLength={40}
-      onBlur={(event) => void commitRename(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") void commitRename(event.currentTarget.value);
-        if (event.key === "Escape") setRenaming(false);
-      }}
-    />
-  ) : name;
-
   return (
     <div className={`mw-page pet-page ${dropping ? "is-dropping" : ""}`}>
-      <Toolbar title={title}>
+      <Toolbar title={name}>
         <button
           type="button"
           className="tb-btn is-icon"
@@ -156,16 +120,9 @@ export function PetPage() {
         >
           <MoreHorizontal aria-hidden="true" />
         </button>
-        <button type="button" className={`tb-btn ${onDesk ? "" : "is-primary"}`} aria-pressed={onDesk} disabled={onDesk || Boolean(asset?.missing)} onClick={() => void putOnDesk()}>
-          {onDesk && <Check aria-hidden="true" />}
-          {onDesk ? t("在桌面上") : t("放到桌面")}
-        </button>
       </Toolbar>
       {more.open && (
         <Menu anchor={more.anchor} onClose={more.close} label={t("更多")}>
-          {asset && (
-            <MenuItem onSelect={() => { more.close(); setRenaming(true); }}>{t("改名")}</MenuItem>
-          )}
           <MenuItem onSelect={openCatalog}>{t("浏览素材库…")}</MenuItem>
           {asset && (
             <>

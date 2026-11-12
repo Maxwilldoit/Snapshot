@@ -113,6 +113,8 @@ export interface Settings {
   petRandomActions?: boolean;
   /** 拖拽松开后落回工作区底部 */
   petGravity?: boolean;
+  /** 桌宠被收起来了：选中的形象保留，只是不显示；旧设置缺省时视为显示 */
+  petHidden?: boolean;
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
   shortcutsPaused?: boolean;

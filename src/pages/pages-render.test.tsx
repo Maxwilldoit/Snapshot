@@ -95,12 +95,13 @@ describe("B2 拆页后逐页渲染", () => {
     await waitFor(() => expect(run).toHaveBeenLastCalledWith({ action: "polish", targetId: null }));
   });
 
-  it("全局截图入口留在侧栏，模型和规则只出现在 Prompt 设置", async () => {
+  it("侧栏只有导航，截图录屏走快捷菜单和快捷键；模型和规则只出现在 Prompt 设置", async () => {
     await renderApp();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "通用" }));
     const aside = within(screen.getByRole("complementary"));
-    expect(aside.getByRole("button", { name: "截图" }).getAttribute("aria-haspopup")).toBe("menu");
+    expect(aside.queryByRole("button", { name: "截图" })).toBeNull();
+    expect(aside.queryByRole("button", { name: "录屏" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "润色规则" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Prompt 记录" }));
     await user.click(screen.getByRole("button", { name: "设置" }));
@@ -240,8 +241,8 @@ describe("B2 拆页后逐页渲染", () => {
       if (command === "save_preferences") preferences(payload);
       return handler(command);
     });
-    // 侧栏里两只同名；点桌面上那只（whale）
-    await userEvent.setup().click(document.querySelector<HTMLElement>('[data-pet-id="whale"]')!);
+    // 侧栏里两只同名；点名字打开桌面上那只（whale）的详情
+    await userEvent.setup().click(document.querySelector<HTMLElement>('[data-pet-id="whale"] .nav-pet-main')!);
     const baseline = await screen.findByRole("slider", { name: "100% 基准大小" });
     expect(baseline).toHaveProperty("value", "200");
     fireEvent.change(baseline, { target: { value: "160" } });
@@ -259,7 +260,7 @@ describe("B2 拆页后逐页渲染", () => {
     const { emit } = await import("@tauri-apps/api/event");
     await act(async () => { await emit("settings-changed", saved); });
     // 桌面伴侣页按侧栏里点的那只调基准；换到 makima 再看
-    await userEvent.setup().click(document.querySelector<HTMLElement>('[data-pet-id="makima"]')!);
+    await userEvent.setup().click(document.querySelector<HTMLElement>('[data-pet-id="makima"] .nav-pet-main')!);
     expect(baseline).toHaveProperty("value", "100");
     expect(screen.getByRole("slider", { name: "大小" })).toHaveProperty("value", "100");
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("保存基准失败"); });
@@ -333,8 +334,9 @@ describe("B2 拆页后逐页渲染", () => {
     localStorage.setItem("snapshot-layout", layout);
     await renderApp();
     const nav = screen.getByRole("navigation", { name: "主导航" });
+    // 导入按钮、伴侣行的圆点和名字各是一个按钮
     expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "截图记录", "Prompt 记录", "截图与录制", "快捷键", "通用", "", "前台应用图标",
+      "截图记录", "Prompt 记录", "截图与录制", "快捷键", "通用", "", "", "前台应用图标",
     ]);
     expect(within(nav).getByRole("button", { name: "导入伴侣素材…" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();

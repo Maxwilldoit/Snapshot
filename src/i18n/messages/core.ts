@@ -97,8 +97,9 @@ export const coreEnglish: Record<string, string> = {
   "还没有 Prompt 记录": "No Prompts Yet",
   "截图时": "When Capturing",
   "桌面": "Desktop",
-  "在桌面上": "On Desktop",
-  "放到桌面": "Show on Desktop",
+  "桌面显示：{name}": "Show on desktop: {name}",
+  "在桌面上显示": "Show on desktop",
+  "隐藏桌面伴侣": "Hide pet",
   "导入伴侣素材…": "Import Pet…",
   "浏览素材库…": "Get More Pets…",
 };

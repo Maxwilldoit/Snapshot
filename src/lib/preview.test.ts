@@ -37,7 +37,7 @@ describe("素材库浏览器演示", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("重新导入复用已有素材并保留改名，不污染目录副本", async () => {
+  it("重新导入复用已有素材；收起桌宠保留选中，再选即恢复，不污染目录副本", async () => {
     vi.useFakeTimers();
     const backend = await preview();
     const pending = backend.fetchPetCatalog();
@@ -46,19 +46,34 @@ describe("素材库浏览器演示", () => {
     const first = backend.installCatalogPet(asset.id);
     await vi.runAllTimersAsync();
     const installed = await first;
-    await backend.renamePetAsset(installed.selectedAppearanceId, "自定义演示名字");
     await backend.selectPetAppearance("app-icon");
+    const hidden = await backend.hidePet();
+    expect(hidden.petHidden).toBe(true);
+    expect(hidden.selectedAppearanceId).toBe("app-icon");
+    const shown = await backend.selectPetAppearance(installed.selectedAppearanceId);
+    expect(shown.petHidden).toBe(false);
     const again = backend.installCatalogPet(asset.id);
     await vi.runAllTimersAsync();
     const reinstalled = await again;
     expect(reinstalled.selectedAppearanceId).toBe(installed.selectedAppearanceId);
+    expect(reinstalled.petHidden).toBe(false);
     expect(reinstalled.petAssets).toHaveLength(installed.petAssets.length);
-    expect(reinstalled.petAssets.find((pet) => pet.id === reinstalled.selectedAppearanceId)?.name).toBe("自定义演示名字");
+    expect(reinstalled.petAssets.find((pet) => pet.id === reinstalled.selectedAppearanceId)?.name).toBe(asset.name);
     const originalName = asset.name;
     asset.name = "修改返回的副本";
     const reloaded = backend.fetchPetCatalog();
     await vi.runAllTimersAsync();
     expect((await reloaded)[0].name).toBe(originalName);
     await expect(backend.installCatalogPet("unknown-demo")).rejects.toThrow("演示素材不存在");
+  });
+
+  it("导入重名文件自动加后缀，同批导入也分得清", async () => {
+    const backend = await preview();
+    const first = await backend.addPetAssets(["/downloads/小猫.gif"]);
+    expect(first.settings.petAssets.find((pet) => pet.id === first.settings.selectedAppearanceId)?.name).toBe("小猫");
+    const second = await backend.addPetAssets(["/other/小猫.gif", "/third/小猫.gif"]);
+    const names = second.settings.petAssets.map((pet) => pet.name);
+    expect(names.filter((name) => name.startsWith("小猫"))).toEqual(["小猫", "小猫 2", "小猫 3"]);
+    expect(second.settings.petHidden).toBe(false);
   });
 });

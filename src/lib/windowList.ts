@@ -14,8 +14,6 @@ import type { CapturableWindow } from "../types";
 
 /** 这么短时间内读过就不再重读：悬停、按下、点开会接连触发。 */
 export const WINDOW_LIST_FRESH_MS = 1500;
-/** 第一次读还没回来时，过这么久才显示「正在读取窗口」，快的时候就不闪那一下。 */
-export const WINDOW_LIST_LOADING_DELAY_MS = 150;
 
 let cached: CapturableWindow[] | null = null;
 let fetchedAt = 0;

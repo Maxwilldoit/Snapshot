@@ -72,7 +72,7 @@ const catalogFixtures: PetCatalogAsset[] = [
     sha256: "1".repeat(64), downloadUrl: "https://example.invalid/snapshot-demo/demo-block.zip", licenseStatus: "演示数据 · 不代表素材授权",
   },
   {
-    id: "demo-sprout", name: "演示 · 绿芽", description: "顶着一片新叶的小伙伴。可以试着导入、改名，再回到素材库重新导入。",
+    id: "demo-sprout", name: "演示 · 绿芽", description: "顶着一片新叶的小伙伴。可以试着导入，再回到素材库重新导入。",
     tags: ["演示", "植物", "轻巧"], version: "1.0.0-demo", file: "demo-sprout.zip", sizeBytes: 786_432,
     previewUrl: demoCatalogPreview('<path d="M80 48Q42 45 40 81Q37 114 80 114Q123 114 120 81Q118 45 80 48Z"/><path d="M80 48Q79 18 106 19Q107 44 80 48Z" fill="#a8b895"/><path d="M80 46 94 32" fill="none"/>', "#ded4b8"),
     sha256: "2".repeat(64), downloadUrl: "https://example.invalid/snapshot-demo/demo-sprout.zip", licenseStatus: "演示数据 · 不代表素材授权",
@@ -115,6 +115,7 @@ let settings: Settings = {
   petWander: false,
   petRandomActions: false,
   petGravity: true,
+  petHidden: false,
   shortcutsPaused: false,
   shortcuts: [
     { action: "snapshot", accelerator: demo ? "CommandOrControl+Shift+A" : null },
@@ -281,8 +282,11 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     case "select_pet_appearance":
       return update({
         selectedAppearanceId: args.id,
+        petHidden: false,
         petAssets: settings.petAssets.map((asset) => (asset.id === args.id ? { ...asset, lastUsedAt: Date.now() } : asset)),
       });
+    case "hide_pet":
+      return update({ petHidden: true });
     case "show_pet_catalog": {
       const url = new URL(window.location.href);
       url.searchParams.set("window", "pet-catalog");
@@ -313,24 +317,30 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       };
       return update({
         selectedAppearanceId: asset.id,
+        petHidden: false,
         petAssets: existing ? settings.petAssets.map((pet) => pet.id === existing.id ? asset : pet) : [...settings.petAssets, asset],
       });
     }
     case "add_pet_assets": {
-      const added = (args.paths as string[]).map((path, index) => ({
-        id: `pet-${Date.now()}-${index}`,
-        name: (path.split(/[\\/]/).pop() ?? "伴侣").replace(/\.[^.]+$/, ""),
-        path,
-        entry: "",
-        animations: [],
-        importedAt: Date.now(),
-        lastUsedAt: Date.now(),
-      }));
-      const next = update({ selectedAppearanceId: added[added.length - 1]?.id ?? settings.selectedAppearanceId, petAssets: [...settings.petAssets, ...added] });
+      const taken = new Set(settings.petAssets.map((asset) => asset.name));
+      const added = (args.paths as string[]).map((path, index) => {
+        const stem = (path.split(/[\\/]/).pop() ?? "伴侣").replace(/\.[^.]+$/, "");
+        let name = stem;
+        for (let sequence = 2; taken.has(name); sequence++) name = `${stem} ${sequence}`;
+        taken.add(name);
+        return {
+          id: `pet-${Date.now()}-${index}`,
+          name,
+          path,
+          entry: "",
+          animations: [],
+          importedAt: Date.now(),
+          lastUsedAt: Date.now(),
+        };
+      });
+      const next = update({ selectedAppearanceId: added[added.length - 1]?.id ?? settings.selectedAppearanceId, petHidden: false, petAssets: [...settings.petAssets, ...added] });
       return { settings: next, imported: added.length, failed: [] };
     }
-    case "rename_pet_asset":
-      return update({ petAssets: settings.petAssets.map((asset) => (asset.id === args.id ? { ...asset, name: args.name } : asset)) });
     case "delete_pet_asset":
       return update({
         selectedAppearanceId: settings.selectedAppearanceId === args.id ? "app-icon" : settings.selectedAppearanceId,

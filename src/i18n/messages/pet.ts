@@ -12,8 +12,6 @@ export const petEnglish: Record<string, string> = {
   "当前环境不支持选择文件": "Choosing files isn’t supported here.",
   "移除了「{name}」": "Removed “{name}”.",
   "当前伴侣": "Current pet",
-  "新名字": "New name",
-  "改名": "Rename",
   "预览动作": "Preview animations",
   "再点一次就移除": "Click Again to Remove",
   "移除这只": "Remove Pet",

@@ -43,7 +43,7 @@ async function renderPalette(handle: (command: string, payload?: InvokeArgs) => 
 describe("快捷菜单：截取自身主窗口", () => {
   it.each([false, true])("长截图按平台能力 enabled=%s 调用既有动作", async (enabled) => {
     const { calls, user } = await renderPalette((command) => {
-      if (command === "platform_capabilities") return { os: "linux", scrolling: { available: enabled } };
+      if (command === "platform_capabilities") return { os: "linux", recording: { available: true }, scrolling: { available: enabled } };
       return undefined;
     });
     const option = await screen.findByRole("option", { name: "长截图" });

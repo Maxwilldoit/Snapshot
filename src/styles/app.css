@@ -343,7 +343,6 @@
 .pet-floor { height: 2px; background: var(--ink-fill); flex: 0 0 auto; }
 .pet-name-line { display: flex; align-items: baseline; gap: 10px; margin-top: 14px; min-height: 26px; }
 .pet-name { margin: 0; font-size: var(--text-lead); line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
-.pet-rename { font-size: var(--text-lead); font-weight: 600; padding: 2px 6px; }
 .pet-actions { margin-top: 14px; }
 .pet-remove { align-self: flex-start; }
 .pet-page > .pet-current > .pet-name { margin-top: 14px; }

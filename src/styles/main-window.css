@@ -105,7 +105,25 @@ html[data-surface="app"] .nav-avatar { display: grid; place-items: center; flex:
 html[data-surface="app"] .nav-avatar :is(img, video, canvas) { display: block; max-width: 20px; max-height: 20px; object-fit: contain; }
 html[data-surface="app"] .nav-avatar .app-glyph { width: 16px; height: 13px; border-width: 1.2px; border-radius: 3px; }
 html[data-surface="app"] .nav-avatar .app-glyph > span { height: 3px; border-bottom-width: 1.2px; }
-html[data-surface="app"] .mw .nav-item > .nav-check { width: 13px; height: 13px; color: var(--text3); stroke-width: 2; }
+/* 伴侣行：左边圆点管桌面显示（可再点取消），右边整块点开详情 */
+html[data-surface="app"] .mw .nav-pet { gap: 6px; }
+html[data-surface="app"] .mw .nav-pet-main {
+  display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; height: 100%; padding: 0;
+  border: 0; border-radius: 4px; background: none; color: inherit; font-size: 13px; font-weight: inherit; text-align: left;
+}
+html[data-surface="app"] .mw .pet-dot { position: relative; flex: 0 0 16px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: none; }
+html[data-surface="app"] .mw .pet-dot::before {
+  content: ""; position: absolute; inset: 2px; border-radius: 50%;
+  border: 1.5px solid var(--text4); transition: border-color 0.15s;
+}
+html[data-surface="app"] .mw .pet-dot:hover:not(:disabled)::before { border-color: var(--text2); }
+html[data-surface="app"] .mw .pet-dot.is-on::before { border-color: var(--accent); }
+html[data-surface="app"] .mw .pet-dot-core {
+  position: absolute; inset: 5px; border-radius: 50%; background: var(--accent);
+  opacity: 0; transform: scale(0.4); transition: opacity 0.15s, transform 0.15s;
+}
+html[data-surface="app"] .mw .pet-dot.is-on .pet-dot-core { opacity: 1; transform: scale(1); }
+html[data-surface="app"] .mw .pet-dot:disabled { opacity: 0.4; }
 html[data-surface="app"] .nav-pet.is-broken .nav-label { color: var(--text3); }
 html[data-surface="app"] .mw-nav-badge {
   min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--red); color: #fff;
@@ -128,9 +146,7 @@ html[data-surface="app"] .mw-title {
 html[data-surface="app"] .mw-subtitle { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--text3); }
 html[data-surface="app"] .mw-fill { flex: 1 1 auto; align-self: stretch; }
 html[data-surface="app"] .mw-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-html[data-surface="app"] .mw-toolbar > .mw-tools:not(.mw-capture-tools) { flex-shrink: 1; min-width: 0; }
-html[data-surface="app"] .mw-capture-tools { gap: 4px; }
-html[data-surface="app"] .mw:not(.is-mac) .mw-capture-tools { margin-right: 6px; }
+html[data-surface="app"] .mw-toolbar > .mw-tools { flex-shrink: 1; min-width: 0; }
 html[data-surface="app"] .tb-btn {
   display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
   border: 0; border-radius: 6px; background: none; color: var(--text1); font-size: 13px; white-space: nowrap;
@@ -161,7 +177,6 @@ html[data-surface="app"] .mw-search input { flex: 1; min-width: 0; padding: 0; b
 html[data-surface="app"] .mw-search input::placeholder { color: var(--text3); }
 html[data-surface="app"] .mw-search .search-clear { width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: var(--text4); color: var(--win); }
 html[data-surface="app"] .mw-search .search-clear svg { width: 10px; height: 10px; stroke-width: 2.4; }
-html[data-surface="app"] .pet-rename { height: 26px; width: 240px; padding: 0 6px; font-size: 15px; font-weight: 600; border-radius: 5px; }
 
 /* ---------- 菜单 ---------- */
 
@@ -414,7 +429,7 @@ html[data-surface="app"] .mw .panel-rules .panel-head .text-btn { font-size: 12p
 html[data-surface="app"] .mw .pet-page { display: flex; grid-template-columns: none; min-height: 0; padding: 0; }
 html[data-surface="app"] .pet-grid {
   display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; align-items: stretch;
-  min-height: 100%; padding: 20px 24px 24px;
+  padding: 20px 24px 24px;
 }
 @media (max-width: 1100px) {
   html[data-surface="app"] .pet-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -496,12 +511,6 @@ html[data-surface="app"][data-vt="page"]::view-transition-new(page) { animation:
 html[data-surface="app"]:not([data-theme="dark"]) { --side: #f3f3f5; }
 html[data-surface="app"]:not([data-theme="dark"]) .mw.is-mac .sidebar { background: rgba(255, 255, 255, 0.5); }
 
-/* Common capture controls stay in the shell while pages change. */
-html[data-surface="app"] .mw-global-actions .mw-capture-tools { display: flex; width: 100%; gap: 4px; margin: 0; }
-html[data-surface="app"] .mw-global-actions .tb-btn { flex: 1 1 0; justify-content: center; height: 32px; background: var(--btn); box-shadow: 0 0 0 0.5px var(--btn-line); }
-html[data-surface="app"] .mw-global-actions .tb-btn.is-recording { background: color-mix(in srgb, var(--red) 13%, transparent); }
 html[data-surface="app"] .empty-actions .btn { display: inline-flex; align-items: center; gap: 12px; height: 32px; }
 html[data-surface="app"] .prompt-settings { padding: 24px; }
 html[data-surface="app"] .pet-action:focus-visible .pet-action-play { opacity: 1; }
-
-html[data-surface="app"] .mw-global-actions { flex: 0 0 auto; padding: 0 10px 16px; }
