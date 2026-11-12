@@ -457,7 +457,11 @@ fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
         Some((len.saturating_sub(suffix), len - 1))
     } else {
         let start: u64 = start.parse().ok()?;
-        let end: u64 = if end.is_empty() { len - 1 } else { end.parse().ok()? };
+        let end: u64 = if end.is_empty() {
+            len - 1
+        } else {
+            end.parse().ok()?
+        };
         if start >= len || end < start {
             return None;
         }
@@ -540,14 +544,22 @@ mod tests {
         );
         // 下载目录里别人的视频、改过扩展名的、带路径的都不认
         assert_eq!(super::recording_stem("movie.mp4"), None);
-        assert_eq!(super::recording_stem("应用快照-2026-11-12_10-30-00.mkv"), None);
-        assert_eq!(super::recording_stem("应用快照-x/../../etc.mp4"), Some("应用快照-x/../../etc"));
+        assert_eq!(
+            super::recording_stem("应用快照-2026-11-12_10-30-00.mkv"),
+            None
+        );
+        assert_eq!(
+            super::recording_stem("应用快照-x/../../etc.mp4"),
+            Some("应用快照-x/../../etc")
+        );
     }
 
     #[test]
     fn recording_time_comes_from_the_file_name() {
         use chrono::TimeZone;
-        let local = chrono::Local.with_ymd_and_hms(2026, 11, 12, 10, 30, 0).unwrap();
+        let local = chrono::Local
+            .with_ymd_and_hms(2026, 11, 12, 10, 30, 0)
+            .unwrap();
         let stem = format!("应用快照-{}", local.format("%Y-%m-%d_%H-%M-%S"));
         assert_eq!(
             super::parse_recording_time(&stem),

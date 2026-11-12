@@ -99,7 +99,10 @@ fn recording_response(
             let built = match span {
                 Some((start, end)) => builder
                     .status(StatusCode::PARTIAL_CONTENT)
-                    .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))
+                    .header(
+                        header::CONTENT_RANGE,
+                        format!("bytes {start}-{end}/{total}"),
+                    )
                     .body(bytes),
                 None => builder.body(bytes),
             };

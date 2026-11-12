@@ -893,10 +893,8 @@ mod tests {
 
     #[test]
     fn hidden_pet_survives_settings_reload() {
-        let path = std::env::temp_dir().join(format!(
-            "snapshot-hidden-pet-{}.json",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("snapshot-hidden-pet-{}.json", std::process::id()));
         let settings = Settings {
             pet_hidden: true,
             ..Default::default()
