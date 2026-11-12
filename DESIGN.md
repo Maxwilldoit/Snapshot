@@ -38,6 +38,10 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
 - Pages use the existing `mw-page`, `mw-toolbar`, `mw-scroll`, `panel`, `row`, `btn`,
   `tb-btn`, `input`, and dialog patterns. Independent windows may reuse these visual
   primitives without importing main-window context or navigation.
+- Toolbar actions are uniform icon buttons: no background until hover or an expanded
+  state, a tooltip and an accessible label on every one. A clear gap separates page
+  actions from the window controls. Toolbar search stays collapsed to an icon until
+  focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
 - Hierarchy comes from position, type, and whitespace. Avoid decorative cards,
   gradients, slogans, sequence numbers, and permanent metadata counters.
 - An empty collection shows a title and an actionable primary button. A shortcut

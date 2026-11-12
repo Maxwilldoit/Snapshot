@@ -147,30 +147,28 @@ html[data-surface="app"] .mw-subtitle { margin-left: 8px; font-size: 11px; font-
 html[data-surface="app"] .mw-fill { flex: 1 1 auto; align-self: stretch; }
 html[data-surface="app"] .mw-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 html[data-surface="app"] .mw-toolbar > .mw-tools { flex-shrink: 1; min-width: 0; }
+/* 工具栏按钮一律同样大小的图标：平时没底色，悬停/展开才有一层浅底，含义靠 tooltip 和 aria-label */
 html[data-surface="app"] .tb-btn {
-  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
-  border: 0; border-radius: 6px; background: none; color: var(--text1); font-size: 13px; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 6px; background: none; color: var(--text1);
 }
 html[data-surface="app"] .tb-btn:hover:not(:disabled), html[data-surface="app"] .tb-btn[aria-expanded="true"] { background: var(--fill); }
 html[data-surface="app"] .tb-btn:disabled { opacity: 0.4; }
 html[data-surface="app"] .tb-btn svg { width: 15px; height: 15px; stroke-width: 1.6; }
-html[data-surface="app"] .tb-btn.is-icon { width: 28px; padding: 0; justify-content: center; }
-html[data-surface="app"] .tb-btn.is-primary { background: var(--accent); color: #fff; }
-html[data-surface="app"] .tb-btn.is-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 html[data-surface="app"] .tb-btn.is-danger { color: var(--red); }
-html[data-surface="app"] .tb-btn.is-recording { background: color-mix(in srgb, var(--red) 13%, transparent); color: var(--red); font-weight: 500; }
-html[data-surface="app"] .tb-btn.is-recording svg { fill: currentColor; width: 11px; height: 11px; }
-html[data-surface="app"] .mw-status { padding: 0 4px; font-size: 13px; color: var(--text3); white-space: nowrap; }
 html[data-surface="app"] .mw .window-controls { align-self: stretch; }
+html[data-surface="app"] .mw-toolbar .window-controls { margin-left: 6px; }
 html[data-surface="app"] .mw .window-controls button { width: 46px; height: 100%; color: var(--text2); }
 html[data-surface="app"] .mw .window-controls button:hover { background: var(--fill2); color: var(--text1); }
 html[data-surface="app"] .mw .window-controls button.is-close:hover { background: #c42b1c; color: #fff; }
 
+/* 搜索平时收起成一个图标位；点它、Tab 到它或 Ctrl/Cmd+F 聚焦时展开，带着筛选词时也保持展开 */
 html[data-surface="app"] .mw-search {
-  display: flex; align-items: center; gap: 5px; flex: 0 1 180px; min-width: 120px; height: 26px; padding: 0 7px;
-  border: 0; border-radius: 6px; background: var(--fill); color: var(--text3);
-  transition: box-shadow 0.15s;
+  display: flex; align-items: center; gap: 0; flex: 0 0 auto; width: 28px; height: 28px; padding: 0 7px;
+  border: 0; border-radius: 6px; background: var(--fill); color: var(--text3); overflow: hidden;
+  transition: width 0.18s ease, box-shadow 0.15s;
 }
+html[data-surface="app"] .mw-search:focus-within, html[data-surface="app"] .mw-search.is-active { gap: 5px; width: 200px; }
 html[data-surface="app"] .mw-search:focus-within { color: var(--text3); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent), 0 0 0 0.5px color-mix(in srgb, var(--accent) 60%, transparent); }
 html[data-surface="app"] .mw-search > svg { flex: 0 0 auto; width: 14px; height: 14px; }
 html[data-surface="app"] .mw-search input { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--text1); font-size: 13px; outline: none; }

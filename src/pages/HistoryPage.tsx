@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen } from "lucide-react";
+import { CheckCheck, FolderOpen, ListChecks, Trash2, X } from "lucide-react";
 import {
   deleteSnapshots,
   listSnapshots,
@@ -193,8 +193,9 @@ export function HistoryPage() {
     );
   }
 
-  // 挑选模式下工具栏只放跟所选有关的操作（像「照片」那样），截取、录制先收起来：
-  // 英文按钮更长，挤在一起时「删除 N 张」会压到「截取」上
+  // 挑选模式下工具栏只放跟所选有关的操作（像「照片」那样）；数量在标题里，按钮只留图标
+  const selectAllLabel = allVisibleSelected ? t("全不选") : t("全选 {count} 张", { count: visibleIds.length });
+  const deleteLabel = selected.size > 0 ? t("删除 {count} 张", { count: selected.size }) : t("删除");
   const toolbar = selecting ? (
     <Toolbar
       title={
@@ -206,27 +207,31 @@ export function HistoryPage() {
     >
       <button
         type="button"
-        className="tb-btn is-quiet"
+        className="tb-btn"
+        aria-label={selectAllLabel}
+        title={selectAllLabel}
         onClick={() => {
           if (allVisibleSelected) setSelected(new Set());
           else setSelected(new Set([...selected, ...visibleIds]));
         }}
       >
-        {allVisibleSelected ? t("全不选") : t("全选 {count} 张", { count: visibleIds.length })}
+        <CheckCheck aria-hidden="true" />
       </button>
-      <button type="button" className="tb-btn" onClick={exitSelecting}>{t("取消")}</button>
-      <button type="button" className="tb-btn is-danger" disabled={selected.size === 0} onClick={() => setConfirming(true)}>
-        {selected.size > 0 ? t("删除 {count} 张", { count: selected.size }) : t("删除")}
+      <button type="button" className="tb-btn" aria-label={t("取消")} title={t("取消")} onClick={exitSelecting}>
+        <X aria-hidden="true" />
+      </button>
+      <button type="button" className="tb-btn is-danger" aria-label={deleteLabel} title={deleteLabel} disabled={selected.size === 0} onClick={() => setConfirming(true)}>
+        <Trash2 aria-hidden="true" />
       </button>
     </Toolbar>
   ) : (
     <Toolbar title={t("截图记录")}>
       <SearchField value={query} onChange={setQuery} label={t("搜索截图")} />
-      <button type="button" className="tb-btn is-icon" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
+      <button type="button" className="tb-btn" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
         <FolderOpen aria-hidden="true" />
       </button>
-      <button type="button" className="tb-btn is-quiet" aria-label={t("选择快照")} onClick={() => setSelecting(true)} disabled={total === 0}>
-        {t("选择")}
+      <button type="button" className="tb-btn" aria-label={t("选择快照")} title={t("选择快照")} onClick={() => setSelecting(true)} disabled={total === 0}>
+        <ListChecks aria-hidden="true" />
       </button>
     </Toolbar>
   );

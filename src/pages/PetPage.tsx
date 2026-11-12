@@ -112,7 +112,7 @@ export function PetPage() {
       <Toolbar title={name}>
         <button
           type="button"
-          className="tb-btn is-icon"
+          className="tb-btn"
           aria-label={t("更多")}
           aria-haspopup="menu"
           aria-expanded={more.open}
