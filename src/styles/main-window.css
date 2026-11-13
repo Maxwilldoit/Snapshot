@@ -205,7 +205,66 @@ html[data-surface="app"] .mw-window-title { min-width: 0; max-width: 220px; over
 
 /* ---------- 截图墙 ---------- */
 
-html[data-surface="app"] .history-scroll { margin: 0; padding: 0; }
+html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+html[data-surface="app"] .history-scroll { margin: 0; padding: 0; scrollbar-width: none; }
+html[data-surface="app"] .history-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* 时间线滚动条：滚动时浮现在右缘，日期刻度按内容位置排布，滑块旁标当前日期；停下后淡出。
+   轨道压在截图墙右侧 16px 留白上，不挤占图片宽度；日期条吸顶时滚动条在它之上。 */
+html[data-surface="app"] .timeline-scrollbar {
+  --tl-track-w: 22px;
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: var(--tl-track-w);
+  opacity: 0; pointer-events: none; user-select: none; -webkit-user-select: none; touch-action: none;
+  transition: opacity var(--t-fade) var(--ease-out);
+}
+html[data-surface="app"] .timeline-scrollbar.is-visible { opacity: 1; pointer-events: auto; }
+/* 淡出后命中区还在：鼠标移回右缘即可唤出。 */
+html[data-surface="app"] .timeline-scrollbar.is-interactive { pointer-events: auto; }
+html[data-surface="app"] .timeline-track { position: absolute; top: 8px; right: 0; bottom: 12px; width: 100%; cursor: default; }
+html[data-surface="app"] .timeline-rail {
+  position: absolute; top: 0; bottom: 0; right: 8px; width: 2px; border-radius: 1px;
+  background: color-mix(in srgb, var(--text1) 9%, transparent);
+  transition: background-color var(--t-press) var(--ease-out);
+}
+html[data-surface="app"] .timeline-scrollbar:hover .timeline-rail,
+html[data-surface="app"] .timeline-scrollbar.is-dragging .timeline-rail { background: color-mix(in srgb, var(--text1) 14%, transparent); }
+html[data-surface="app"] .timeline-stop {
+  position: absolute; right: 2px; width: 14px; height: 14px; margin-top: -7px; padding: 0;
+  border: 0; border-radius: 50%; background: none; color: var(--text3);
+  display: grid; place-items: center; cursor: default;
+  transition: opacity var(--t-press) var(--ease-out);
+}
+html[data-surface="app"] .timeline-stop-dot {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--win);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--text1) 32%, transparent);
+  transition: background-color var(--t-press) var(--ease-out), box-shadow var(--t-press) var(--ease-out), transform var(--t-press) var(--ease-out);
+}
+html[data-surface="app"] .timeline-stop.is-active .timeline-stop-dot { box-shadow: 0 0 0 1.5px var(--accent); background: var(--accent); }
+html[data-surface="app"] .timeline-stop:hover .timeline-stop-dot { transform: scale(1.35); box-shadow: 0 0 0 1.5px var(--accent); background: var(--win); }
+html[data-surface="app"] .timeline-stop.is-under-thumb { opacity: 0; pointer-events: none; }
+html[data-surface="app"] .timeline-thumb {
+  position: absolute; right: 5px; width: 8px; min-height: 24px; border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 78%, var(--text3));
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--accent) 40%, transparent), 0 1px 3px rgba(0, 0, 0, 0.18);
+  cursor: grab; outline: none;
+  transition: width var(--t-press) var(--ease-out), right var(--t-press) var(--ease-out), background-color var(--t-press) var(--ease-out), box-shadow var(--t-press) var(--ease-out);
+}
+html[data-surface="app"] .timeline-scrollbar:hover .timeline-thumb,
+html[data-surface="app"] .timeline-thumb:focus-visible { right: 4px; width: 10px; background: var(--accent); }
+html[data-surface="app"] .timeline-thumb:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+html[data-surface="app"] .timeline-scrollbar.is-dragging .timeline-thumb { right: 4px; width: 10px; background: var(--accent); cursor: grabbing; transition: none; }
+html[data-surface="app"] .timeline-label {
+  position: absolute; right: calc(var(--tl-track-w) + 2px); transform: translateY(-50%);
+  max-width: 180px; padding: 3px 9px; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--pop); color: var(--text1); font-size: 12px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 0.5px var(--rule-strong), 0 4px 14px rgba(0, 0, 0, 0.14);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+  pointer-events: none;
+}
+html[data-surface="app"] .timeline-label.is-preview { color: var(--accent); }
+html[data-surface="app"][data-theme="dark"] .timeline-label { box-shadow: 0 0 0 0.5px var(--rule-strong), 0 4px 14px rgba(0, 0, 0, 0.5); }
+html[data-surface="app"][data-theme="dark"] .timeline-thumb { box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--accent) 50%, transparent), 0 1px 3px rgba(0, 0, 0, 0.5); }
+[data-motion="reduced"] .timeline-stop-dot, [data-motion="reduced"] .timeline-thumb { transition-property: opacity, background-color, box-shadow; }
 html[data-surface="app"] .gallery { display: block; padding: 2px 16px 24px; }
 html[data-surface="app"] .mw .day { --history-day-label-height: 32px; position: relative; display: block; margin-top: 12px; padding: 0; border-top: 0; }
 html[data-surface="app"] .mw .day::before {
