@@ -6,6 +6,12 @@ import type { PlatformCapabilities, Settings } from "../types";
 import { setupTauriMock, type IPCHandler } from "../test/tauri";
 
 vi.mock("../lib/petAutoScale", () => ({ measurePetScale: vi.fn().mockResolvedValue(null) }));
+vi.mock("../lib/sound", () => ({
+  prepareHintSound: vi.fn(),
+  previewHintSound: vi.fn(),
+  primeHintSound: vi.fn(),
+}));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 /**
  * B2 拆页后的回归网：逐个导航到从 App.tsx 搬出的页面，确认它们在新位置
@@ -319,8 +325,16 @@ describe("B2 拆页后逐页渲染", () => {
     );
   });
 
-  it("截图与录制只在快门声右侧保留一个试听按钮", async () => {
-    await renderApp();
+  it("快门声没有单独试听按钮，点类型即切换并播放，重复点当前类型也播放", async () => {
+    const saves: Array<Record<string, unknown>> = [];
+    await renderApp((command, payload) => {
+      if (command === "save_preferences") {
+        const prefs = (payload as { prefs: Record<string, unknown> }).prefs;
+        saves.push(prefs);
+        return { ...settings, ...prefs };
+      }
+      return handler(command);
+    });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^截图与录制/ }));
 
@@ -331,11 +345,54 @@ describe("B2 拆页后逐页渲染", () => {
       "静音",
       "自定义",
     ]);
-    expect(screen.queryByText("内置提示音")).toBeNull();
-    expect(screen.queryByRole("button", { name: "换一个文件" })).toBeNull();
-    const preview = screen.getAllByRole("button", { name: "试听" });
-    expect(preview).toHaveLength(1);
-    expect(preview[0].closest(".sound-label")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "试听" })).toBeNull();
+
+    const { previewHintSound } = await import("../lib/sound");
+    const preview = vi.mocked(previewHintSound);
+    preview.mockClear();
+
+    await user.click(within(shutter).getByRole("radio", { name: "轻柔" }));
+    expect(preview).toHaveBeenLastCalledWith("soft", null, 80);
+    await waitFor(() => expect(within(shutter).getByRole("radio", { name: "轻柔" }).getAttribute("aria-checked")).toBe("true"));
+    expect(saves).toContainEqual({ shutterSound: "soft" });
+
+    preview.mockClear();
+    saves.length = 0;
+    await user.click(within(shutter).getByRole("radio", { name: "轻柔" }));
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(preview).toHaveBeenLastCalledWith("soft", null, 80);
+    expect(saves).toHaveLength(0);
+
+    preview.mockClear();
+    await user.click(within(shutter).getByRole("radio", { name: "静音" }));
+    expect(preview).not.toHaveBeenCalled();
+    await waitFor(() => expect(within(shutter).getByRole("radio", { name: "静音" }).getAttribute("aria-checked")).toBe("true"));
+
+    preview.mockClear();
+    await user.click(within(shutter).getByRole("radio", { name: "清脆" }));
+    expect(preview).toHaveBeenLastCalledWith("crisp", null, 80);
+    await waitFor(() => expect(within(shutter).getByRole("radio", { name: "清脆" }).getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("自定义快门声导入成功后立即播放导入的那份", async () => {
+    const dialog = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(dialog.open).mockResolvedValue("/sounds/ding.wav");
+    const saved = { ...settings, shutterSound: "custom" as const, customSoundPath: "/data/sounds/ding.wav" };
+    await renderApp((command) => {
+      if (command === "import_custom_sound") return saved;
+      return handler(command);
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^截图与录制/ }));
+    const shutter = await screen.findByRole("radiogroup", { name: "快门声" });
+
+    const { previewHintSound } = await import("../lib/sound");
+    const preview = vi.mocked(previewHintSound);
+    preview.mockClear();
+
+    await user.click(within(shutter).getByRole("radio", { name: "自定义" }));
+    await waitFor(() => expect(preview).toHaveBeenLastCalledWith("crisp", "/data/sounds/ding.wav", 80));
+    await waitFor(() => expect(within(shutter).getByRole("radio", { name: "自定义" }).getAttribute("aria-checked")).toBe("true"));
   });
 
   it("截图后的第三个行为是仅保存，不再显示另存为", async () => {
