@@ -205,4 +205,43 @@ describe("桌面伴侣素材库入口", () => {
   });
 });
 
+describe("桌面伴侣页面滚动", () => {
+  it("桌宠与桌面设置共享左栏，动作单独占右栏，两栏互不包含", async () => {
+    await renderPetPage(undefined, {
+      ...base,
+      selectedAppearanceId: "many",
+      petAssets: [{
+        id: "many",
+        name: "多动作伴侣",
+        path: "pets/many.zip",
+        entry: "idle.gif",
+        animations: ["idle.gif", "walk.gif", "wave.gif"],
+      }],
+    });
+
+    const main = screen.getByRole("region", { name: "当前伴侣" });
+    const actions = screen.getByRole("region", { name: "动作" });
+
+    expect(main.getAttribute("class")).toContain("pet-main-pane");
+    expect(actions.getAttribute("class")).toContain("pet-actions-pane");
+    expect(main.parentElement).toBe(actions.parentElement);
+    expect(main).toHaveProperty("tabIndex", 0);
+    expect(actions).toHaveProperty("tabIndex", 0);
+    expect(within(main).getByRole("heading", { name: "桌面" })).toBeTruthy();
+    expect(within(main).queryByRole("radiogroup", { name: "预览动作" })).toBeNull();
+    expect(within(actions).getByRole("radiogroup", { name: "预览动作" })).toBeTruthy();
+    expect(within(actions).queryByRole("heading", { name: "桌面" })).toBeNull();
+  });
+
+  it("没有动作时只保留预览和桌面设置，不留下空白右栏", async () => {
+    await renderPetPage();
+
+    const main = screen.getByRole("region", { name: "当前伴侣" });
+    const grid = main.parentElement;
+    expect(grid?.getAttribute("class")).toContain("is-single");
+    expect(within(main).getByRole("heading", { name: "桌面" })).toBeTruthy();
+    expect(grid?.querySelector(".pet-actions-pane")).toBeNull();
+  });
+});
+
 if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};
