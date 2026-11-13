@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPetAlphaReader } from "./petMediaBounds";
+import { createPetAlphaReader, unionMediaBounds } from "./petMediaBounds";
 import { registerPetAlpha } from "./petVideoAlpha";
 
 function decoded<T extends HTMLImageElement | HTMLVideoElement>(media: T, width = 384, height = 192): T {
@@ -22,6 +22,18 @@ function pixels() {
 }
 
 describe("pet first-frame alpha bounds", () => {
+  it("unions brief action extremes instead of shrinking to the latest frame", () => {
+    const first = { left: .4, top: .2, width: .2, height: .3 };
+    const second = { left: .1, top: .1, width: .25, height: .5 };
+    const third = { left: .65, top: .4, width: .3, height: .2 };
+    const union = unionMediaBounds(unionMediaBounds(first, second), third);
+    expect(union.left).toBeCloseTo(.1);
+    expect(union.top).toBeCloseTo(.1);
+    expect(union.width).toBeCloseTo(.85);
+    expect(union.height).toBeCloseTo(.5);
+    expect(unionMediaBounds(null, first)).toBe(first);
+  });
+
   it("measures decoded images before display and reuses a downsampled canvas", () => {
     const { context, getContext } = pixels();
     const read = createPetAlphaReader();

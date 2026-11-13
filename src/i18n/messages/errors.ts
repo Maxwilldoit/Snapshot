@@ -61,6 +61,8 @@ export const backendErrorEnglish: Record<string, string> = {
   "压缩包内的预览动画已丢失": "The archive’s preview animation is missing.",
   "读取桌宠动画失败": "Couldn’t read the pet animation.",
   "无法读取这个动画的文件名": "Couldn’t read the animation’s file name.",
+  "GIF 帧尺寸不一致": "The GIF frames have inconsistent dimensions.",
+  "GIF 里没有可见画面": "The GIF has no visible image.",
   "无法读取桌宠压缩包": "Couldn’t read the pet archive.",
   "无法读取桌宠压缩包目录": "Couldn’t read the contents of the pet archive.",
   "压缩包内没有 GIF 或 WebM 动画": "The archive has no GIF or WebM animations.",

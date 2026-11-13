@@ -1,6 +1,26 @@
 use super::settings::{default_appearance_id, emit_settings, persist_settings, Settings};
 use super::*;
 use serde::Deserialize;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PetBounds {
+    pub(crate) left: f64,
+    pub(crate) top: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+}
+
+/// A GIF's full visible envelope across every frame. The dimensions are the
+/// source canvas and the bounds are normalized for the renderer's crop math.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PetActionShape {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) bounds: PetBounds,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PetAsset {
@@ -33,6 +53,9 @@ pub(crate) struct PetAsset {
     /// 压缩包里的 pet.json。没有时每个动画都缩进同一个方窗
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) layout: Option<pet_layout::PetLayout>,
+    /// GIF 的完整逐帧透明外框。WebM 无法在 Rust 侧低成本解码，前端会在完整播放一轮后补齐缓存。
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) action_bounds: HashMap<String, PetActionShape>,
 }
 
 /// 名字超过这个长度就截断，免得形象架上一行放不下
@@ -264,6 +287,7 @@ fn register_imports(
                 existing.entry = asset.entry;
                 existing.animations = asset.animations;
                 existing.layout = asset.layout;
+                existing.action_bounds = asset.action_bounds;
                 existing.event_actions = asset.event_actions;
                 existing.state_actions = asset.state_actions;
                 existing.size_bytes = asset.size_bytes;
@@ -366,6 +390,7 @@ fn prepare_import(state: &AppState, raw_path: &str) -> Result<PetAsset, String> 
     } else {
         pet_layout::read_pet_layout(&canonical, &animations)?
     };
+    let action_bounds = read_gif_action_bounds(&canonical, &animations).unwrap_or_default();
 
     let now = now_millis();
     // 同一毫秒导入多个时靠序号区分
@@ -387,6 +412,7 @@ fn prepare_import(state: &AppState, raw_path: &str) -> Result<PetAsset, String> 
         entry,
         animations,
         layout: manifest.as_ref().map(|manifest| manifest.layout.clone()),
+        action_bounds,
         event_actions: manifest
             .as_ref()
             .map(|manifest| manifest.event_actions.clone())
@@ -869,6 +895,96 @@ pub(crate) fn read_walk(state: &AppState, id: &str, entry: &str) -> Result<Vec<u
         let _ = fs::remove_file(&partial);
     }
     Ok(bytes)
+}
+
+fn normalized(value: u32, total: u32) -> f64 {
+    ((f64::from(value) / f64::from(total)) * 1_000_000.0).round() / 1_000_000.0
+}
+
+/// Decode every composed GIF frame and return the union of all visible pixels.
+/// The frontend uses this before the first desktop frame, so effects that only
+/// appear briefly cannot be clipped by a smaller first-frame measurement.
+fn measure_gif_action(bytes: &[u8]) -> Result<PetActionShape, String> {
+    let frames = pet_walk::decode(bytes)?;
+    let (width, height) = frames
+        .first()
+        .map(|(frame, _)| frame.dimensions())
+        .ok_or_else(|| "GIF 里没有可播放的帧".to_string())?;
+    let mut left = width;
+    let mut top = height;
+    let mut right = 0;
+    let mut bottom = 0;
+    for (frame, _) in &frames {
+        if frame.dimensions() != (width, height) {
+            return Err("GIF 帧尺寸不一致".into());
+        }
+        for (x, y, pixel) in frame.enumerate_pixels() {
+            if pixel[3] <= 8 {
+                continue;
+            }
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x + 1);
+            bottom = bottom.max(y + 1);
+        }
+    }
+    if right <= left || bottom <= top {
+        return Err("GIF 里没有可见画面".into());
+    }
+    Ok(PetActionShape {
+        width,
+        height,
+        bounds: PetBounds {
+            left: normalized(left, width),
+            top: normalized(top, height),
+            width: normalized(right - left, width),
+            height: normalized(bottom - top, height),
+        },
+    })
+}
+
+/// Read complete GIF envelopes directly from an imported file or ZIP. A broken
+/// non-idle animation is omitted and later falls back to its full canvas.
+pub(crate) fn read_gif_action_bounds(
+    path: &PathBuf,
+    animations: &[String],
+) -> Result<HashMap<String, PetActionShape>, String> {
+    let path_text = path.to_string_lossy();
+    if is_pet_gif(&path_text) {
+        let bytes = fs::read(path).map_err(|_| "读取桌宠动画失败".to_string())?;
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| "无法读取这个动画的文件名".to_string())?;
+        let mut result = HashMap::new();
+        if let Ok(shape) = measure_gif_action(&bytes) {
+            result.insert(name.to_string(), shape);
+        }
+        return Ok(result);
+    }
+
+    let file = fs::File::open(path).map_err(|_| "无法读取桌宠压缩包".to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|_| "桌宠压缩包已损坏".to_string())?;
+    let mut result = HashMap::new();
+    for entry_name in animations {
+        if !is_pet_gif(entry_name) {
+            continue;
+        }
+        let Ok(mut entry) = archive.by_name(entry_name) else {
+            continue;
+        };
+        if entry.size() > 50 * 1024 * 1024 {
+            continue;
+        }
+        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        if entry.read_to_end(&mut bytes).is_err() {
+            continue;
+        }
+        if let Ok(shape) = measure_gif_action(&bytes) {
+            result.insert(entry_name.clone(), shape);
+        }
+    }
+    Ok(result)
 }
 
 /// 收集一份桌宠素材里可用的动作。
@@ -1361,6 +1477,47 @@ mod tests {
             encoder.write_frame(&frame).unwrap();
         }
         assert_eq!(gif_duration_ms(&bytes), Ok(1000));
+    }
+
+    #[test]
+    fn gif_action_bounds_union_every_frames_visible_pixels() {
+        let mut bytes = Vec::new();
+        {
+            let palette = [0, 0, 0, 255, 0, 0];
+            let mut encoder = gif::Encoder::new(&mut bytes, 4, 4, &palette).unwrap();
+            for (x, y) in [(1, 1), (2, 2)] {
+                let mut pixels = vec![0; 16];
+                pixels[y * 4 + x] = 1;
+                let mut frame = gif::Frame::from_palette_pixels(4, 4, pixels, palette, Some(0));
+                frame.delay = 10;
+                frame.dispose = gif::DisposalMethod::Background;
+                encoder.write_frame(&frame).unwrap();
+            }
+        }
+        let shape = measure_gif_action(&bytes).expect("两帧都有可见像素");
+        assert_eq!((shape.width, shape.height), (4, 4));
+        assert_eq!(
+            shape.bounds,
+            PetBounds {
+                left: 0.25,
+                top: 0.25,
+                width: 0.5,
+                height: 0.5,
+            }
+        );
+    }
+
+    #[test]
+    fn gif_action_bounds_ignore_fully_transparent_animation() {
+        let mut bytes = Vec::new();
+        {
+            let palette = [0, 0, 0];
+            let mut encoder = gif::Encoder::new(&mut bytes, 2, 2, &palette).unwrap();
+            let mut frame = gif::Frame::from_palette_pixels(2, 2, vec![0; 4], palette, Some(0));
+            frame.delay = 10;
+            encoder.write_frame(&frame).unwrap();
+        }
+        assert!(measure_gif_action(&bytes).is_err());
     }
 
     #[cfg(target_os = "windows")]

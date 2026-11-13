@@ -49,6 +49,20 @@ export interface PetLayout {
   frames: PetLayoutFrame[];
 }
 
+interface PetBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** Import-time full-frame envelope for an animation. Coordinates are normalized. */
+interface PetActionShape {
+  width: number;
+  height: number;
+  bounds: PetBounds;
+}
+
 export interface PetAsset {
   id: string;
   name: string;
@@ -68,6 +82,8 @@ export interface PetAsset {
   missing?: boolean;
   /** 有 pet.json 时才有。用来让人物在各动作里一样大，画布不够时再把窗口撑大 */
   layout?: PetLayout | null;
+  /** GIF 导入时逐帧求出的完整透明外框；WebM 的完整范围由播放窗口补齐并缓存。 */
+  actionBounds?: Record<string, PetActionShape>;
 }
 
 export interface PetCatalogAsset {
