@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LibraryBig, Settings2 } from "lucide-react";
-import { listPromptHistory, onPromptHistoryChanged, runAction, showPromptLibrary } from "../lib/backend";
+import { listPromptHistory, onPromptHistoryChanged, runAction } from "../lib/backend";
 import { groupByDay } from "../lib/format";
 import { PromptHistoryRow } from "../components/PromptHistoryRow";
 import { LoadingState } from "../components/LoadingState";
@@ -15,7 +15,7 @@ import type { PromptHistoryEntry } from "../types";
 
 /** Prompt 记录：每次成功润色的原文、结果和所用规则，按天分组；点一条展开全文 */
 export function PromptsPage() {
-  const { notify, settings, conflicts } = useApp();
+  const { notify, settings, conflicts, navigate } = useApp();
   const { t } = useI18n();
   const [records, setRecords] = useState<PromptHistoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
@@ -57,7 +57,7 @@ export function PromptsPage() {
         className="tb-btn"
         aria-label={t("打开 Prompt 库")}
         title={t("打开 Prompt 库")}
-        onClick={() => void showPromptLibrary().catch((error) => notify(errorText(error), "error"))}
+        onClick={() => navigate("prompt-library")}
       >
         <LibraryBig aria-hidden="true" />
       </button>

@@ -114,31 +114,17 @@ fn prompt_title(title: &str, content: &str) -> String {
 }
 
 pub(crate) async fn show_prompt_library(app: AppHandle) -> Result<(), String> {
-    // 和工作区里的素材库一样按需创建，避免应用启动时多挂一个 WebView。
-    static OPEN_LOCK: Mutex<()> = Mutex::new(());
-    let _guard = OPEN_LOCK.lock();
-    let window = match app.get_webview_window("prompt-library") {
-        Some(window) => window,
-        None => tauri::WebviewWindowBuilder::new(
-            &app,
-            "prompt-library",
-            tauri::WebviewUrl::App("index.html".into()),
-        )
-        .title(ui_text("Prompt 库 · Snapshot", "Prompt Library"))
-        .inner_size(900.0, 640.0)
-        .min_inner_size(600.0, 480.0)
-        .resizable(true)
-        .decorations(false)
-        .center()
-        .visible(false)
-        .build()
-        .map_err(|error| format!("无法创建 Prompt 库窗口：{error}"))?,
-    };
+    // 保留 IPC / 快捷键动作 / 旧窗口 label；所有正常入口都导航到主窗口的库页面。
+    hide_prompt_library(app.clone());
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Prompt 库打开失败".to_string())?;
     window.unminimize().map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     actions::hide_quick_menu(app.clone());
-    let _ = app.emit_to("prompt-library", "prompt-library-opened", ());
+    app.emit_to("main", "prompt-library-opened", ())
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 

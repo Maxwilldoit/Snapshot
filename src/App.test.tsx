@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { emit } from "@tauri-apps/api/event";
@@ -51,6 +51,64 @@ async function renderApp(handle: (command: string, payload?: InvokeArgs) => unkn
   const { App } = await import("./App");
   render(<App />);
 }
+
+describe("主窗口 Prompt 库", () => {
+  it("只提供一个新建入口，换页和快捷入口保留草稿，隐藏时不接管快捷键", async () => {
+    const calls: string[] = [];
+    await renderApp((command) => {
+      calls.push(command);
+      if (command === "load_settings") return settings;
+      if (command === "platform_capabilities") return capabilities;
+      if (command === "list_saved_prompts" || command === "list_snapshots") return [];
+      return undefined;
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Prompt 库" }));
+    const main = within(screen.getByRole("main"));
+    await main.findByText("这里还空着");
+    expect(main.getAllByRole("button", { name: "新建" })).toHaveLength(1);
+    await user.keyboard("{Meta>}n{/Meta}");
+    expect(main.queryByRole("textbox", { name: "正文" })).toBeNull();
+    await user.click(main.getByRole("button", { name: "新建" }));
+    await user.type(main.getByRole("textbox", { name: "正文" }), "暂未保存的 Prompt 草稿");
+    await user.click(screen.getByRole("button", { name: "历史" }));
+    await main.findByRole("heading", { name: "历史" });
+    await user.keyboard("{Meta>}s{/Meta}");
+    expect(calls).not.toContain("save_saved_prompt");
+    await user.keyboard("{Meta>}f{/Meta}");
+    expect(document.activeElement).toBe(main.getByRole("textbox", { name: "搜索截图" }));
+    await act(async () => { await emit("prompt-library-opened"); });
+    expect(await main.findByRole("textbox", { name: "正文" })).toHaveProperty("value", "暂未保存的 Prompt 草稿");
+    await user.keyboard("{Escape}");
+    await main.findByText("这里还空着");
+    await user.keyboard("{Escape}");
+    expect(main.getByRole("heading", { name: "Prompt 库" })).toBeTruthy();
+    expect(calls).not.toContain("hide_prompt_library");
+    expect(calls).not.toContain("show_prompt_library_window");
+  });
+
+  it("读取失败可以重试；保存失败仍保留正文和可操作的编辑器", async () => {
+    let attempts = 0;
+    await renderApp((command) => {
+      if (command === "load_settings") return settings;
+      if (command === "platform_capabilities") return capabilities;
+      if (command === "list_saved_prompts") return ++attempts === 1 ? Promise.reject("无法读取文件") : [];
+      if (command === "save_saved_prompt") return Promise.reject("磁盘不可写");
+      return undefined;
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Prompt 库" }));
+    const main = within(screen.getByRole("main"));
+    expect(await main.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("无法读取文件"));
+    await user.click(main.getByRole("button", { name: "重试" }));
+    await user.click(await main.findByRole("button", { name: "新建" }));
+    await user.type(main.getByRole("textbox", { name: "正文" }), "保存失败也不能丢失");
+    await user.click(main.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(main.getByRole("alert").textContent).toContain("磁盘不可写"));
+    expect(main.getByRole("textbox", { name: "正文" })).toHaveProperty("value", "保存失败也不能丢失");
+    expect(main.getByRole("button", { name: "保存" })).toHaveProperty("disabled", false);
+  });
+});
 
 describe("global shortcuts", () => {
   it("hands an edited binding to the backend immediately and shows its verdict", async () => {

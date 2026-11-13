@@ -2,6 +2,7 @@
 export type NavPage =
   | "history"
   | "prompts"
+  | "prompt-library"
   | "pet"
   | "capture"
   | "shortcuts"

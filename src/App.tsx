@@ -3,6 +3,7 @@ import {
   getShortcutConflicts,
   loadSettings,
   onCaptureShot,
+  onPromptLibraryOpened,
   onSettingsChanged,
   platformCapabilities,
 } from "./lib/backend";
@@ -16,6 +17,7 @@ import { useActivityLog, useClipboardState, useRecordingStatus } from "./hooks/u
 import { ShortcutsPage } from "./pages/ShortcutsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { PromptsPage } from "./pages/PromptsPage";
+import { PromptLibraryPage } from "./pages/PromptLibraryPage";
 import { PetPage } from "./pages/PetPage";
 import { CapturePage } from "./pages/CapturePage";
 import { GeneralPage } from "./pages/GeneralPage";
@@ -23,7 +25,7 @@ import type { NavPage, PlatformCapabilities, Settings } from "./types";
 import { useI18n, useWindowTitle } from "./lib/i18n";
 
 /** 侧栏的先后顺序决定换页时上下滑入的方向 */
-const NAV_ORDER: NavPage[] = ["history", "prompts", "capture", "shortcuts", "general", "pet"];
+const NAV_ORDER: NavPage[] = ["history", "prompts", "prompt-library", "capture", "shortcuts", "general", "pet"];
 
 function directionFor(from: NavPage, to: NavPage): TransitionDirection {
   return NAV_ORDER.indexOf(to) >= NAV_ORDER.indexOf(from) ? "down" : "up";
@@ -191,6 +193,11 @@ export function App() {
     );
   }, []);
 
+  useEffect(() => {
+    const pending = onPromptLibraryOpened(() => navigate("prompt-library"));
+    return () => { void pending.then((unlisten) => unlisten()).catch(() => {}); };
+  }, [navigate]);
+
   const value = useMemo<AppContextValue | null>(
     () =>
       settings && {
@@ -229,8 +236,12 @@ export function App() {
 
   const content = (
     <main className="main" ref={mainRef}>
-      <div key={page} className={`page-view page-${page} ${pageEnters.current ? "is-entering" : ""}`}>
-        <PageView page={page} />
+      <div key={page} hidden={page === "prompt-library"} className={`page-view page-${page} ${pageEnters.current ? "is-entering" : ""}`}>
+        {page !== "prompt-library" && <PageView page={page} />}
+      </div>
+      {/* 换页保留库的编辑草稿；隐藏时不接管搜索、保存或 Esc。 */}
+      <div hidden={page !== "prompt-library"} className={`page-view page-prompt-library ${pageEnters.current ? "is-entering" : ""}`}>
+        <PromptLibraryPage active={page === "prompt-library"} />
       </div>
     </main>
   );

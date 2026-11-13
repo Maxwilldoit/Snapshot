@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { Images, Keyboard, MessageSquareText, Plus, Settings2, SlidersHorizontal } from "lucide-react";
+import { Images, Keyboard, LibraryBig, MessageSquareText, Plus, Settings2, SlidersHorizontal } from "lucide-react";
 import { usePresence } from "../lib/motion";
 import { errorText, useApp } from "./context";
 import { hidePet, selectPetAppearance } from "../lib/backend";
@@ -76,6 +76,7 @@ export function SideNav() {
   const library: NavItem[] = [
     { page: "history", label: t("历史"), icon: <Images aria-hidden="true" /> },
     { page: "prompts", label: t("Prompt 记录"), icon: <MessageSquareText aria-hidden="true" /> },
+    { page: "prompt-library", label: t("Prompt 库"), icon: <LibraryBig aria-hidden="true" /> },
   ];
   const prefs: NavItem[] = [
     { page: "capture", label: t("截图与录制"), icon: <SlidersHorizontal aria-hidden="true" /> },

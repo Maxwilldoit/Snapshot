@@ -5,20 +5,12 @@
   margin: 0 auto;
   padding: 24px;
 }
-.library-toolbar,
 .library-actions,
 .library-row-actions {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.library-toolbar {
-  margin-bottom: 24px;
-}
-.library-toolbar .mw-search {
-  flex: 1 1 auto;
-}
-.library-toolbar .btn,
 .library-editor .btn {
   display: inline-flex;
   align-items: center;
@@ -41,16 +33,20 @@
   line-height: 1.6;
 }
 .library-list {
-  border-top: 0.5px solid var(--sep);
+  overflow: hidden;
+  border: 0.5px solid var(--sep);
+  border-radius: 9px;
+  background: var(--group);
 }
 .library-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  padding: 20px 0;
+  padding: 16px;
   border-bottom: 0.5px solid var(--sep);
 }
+.library-row:last-child { border-bottom: 0; }
 .library-row-content {
   flex: 1 1 auto;
   min-width: 0;
@@ -88,8 +84,12 @@
   font-weight: 600;
 }
 .library-status {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   margin: 20px 0 0;
-  padding-top: 12px;
+  padding: 12px 0;
+  background: var(--pane);
   border-top: 0.5px solid var(--sep);
   font-size: var(--text-small);
 }
@@ -126,13 +126,6 @@
   }
 }
 
-html[data-surface="app"] .library-toolbar .mw-search {
-  flex: 1 1 auto;
-  max-width: 520px;
-}
-.library-toolbar > .btn {
-  margin-left: auto;
-}
 .btn-primary .keys-quiet {
   color: inherit;
   opacity: 0.8;
