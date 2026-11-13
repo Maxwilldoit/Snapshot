@@ -49,7 +49,6 @@ export const coreEnglish: Record<string, string> = {
   "打开标注": "Open in Markup",
   "仅保存": "Save to History",
   "快门声": "Shutter sound",
-  "试听": "Play",
   "清脆": "Crisp",
   "轻柔": "Soft",
   "静音": "None",

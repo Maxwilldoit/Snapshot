@@ -67,11 +67,18 @@ function BehaviorPanel() {
     }
     if (typeof selected !== "string") return;
     try {
-      onSaved(await importCustomSound(selected));
+      const saved = await importCustomSound(selected);
+      onSaved(saved);
+      previewHintSound("crisp", saved.customSoundPath, 80);
       notify(t("自定义音效已导入"));
     } catch (error) {
       notify(errorText(error), "error");
     }
+  }
+
+  function playShutter(value: Settings["shutterSound"], customPath: string | null) {
+    if (value === "none") return;
+    previewHintSound(value === "soft" ? "soft" : "crisp", value === "custom" ? customPath : null, 80);
   }
 
   const toggles: Array<{ key: keyof Settings; label: string; disabled?: boolean }> = [
@@ -84,24 +91,7 @@ function BehaviorPanel() {
       <h2 className="panel-title">{t("截图时")}</h2>
       <div className="rows">
         <div className="row">
-          <span className="sound-label">
-            <span className="row-label">{t("快门声")}</span>
-            {settings.shutterSound !== "none" && (
-              <button
-                type="button"
-                className="link sound-preview"
-                onClick={() =>
-                  previewHintSound(
-                    settings.shutterSound === "soft" ? "soft" : "crisp",
-                    settings.shutterSound === "custom" ? settings.customSoundPath : null,
-                    80,
-                  )
-                }
-              >
-                {t("试听")}
-              </button>
-            )}
-          </span>
+          <span className="row-label">{t("快门声")}</span>
           <Choices
             ariaLabel={t("快门声")}
             value={settings.shutterSound}
@@ -110,7 +100,8 @@ function BehaviorPanel() {
                 void importShutterSound();
                 return;
               }
-              void update({ shutterSound: value });
+              if (value !== settings.shutterSound) void update({ shutterSound: value });
+              playShutter(value, settings.customSoundPath);
             }}
             options={[
               { value: "crisp", label: t("清脆") },
