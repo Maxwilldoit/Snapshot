@@ -11,18 +11,21 @@ final class WindowListTests: XCTestCase {
         XCTAssertEqual(listedWindowArea(title: "窗口", layer: 0, size: CGSize(width: 120, height: 65)), 7_800)
     }
 
-    func testStatusItemsAndUnnamedHelperSurfacesAreExcluded() {
+    func testStatusItemsAreExcludedButUntitledContentWindowsRemainCapturable() {
         // Shadowrocket 的 Item-0 是 layer 25；不要再把菜单栏图标当成主窗口。
         XCTAssertNil(listedWindowArea(title: "Item-0", layer: 25, size: CGSize(width: 34, height: 24)))
         XCTAssertNil(listedWindowArea(title: "系统浮层", layer: 1000, size: CGSize(width: 685, height: 30)))
         for title in [nil, "", " \n\t"] as [String?] {
-            XCTAssertNil(listedWindowArea(title: title, layer: 0, size: CGSize(width: 500, height: 500)))
+            XCTAssertEqual(listedWindowArea(title: title, layer: 0, size: CGSize(width: 500, height: 500)), 250_000)
         }
         XCTAssertEqual(listedWindowArea(title: "Shadowrocket", layer: 0, size: CGSize(width: 168, height: 107)), 17_976)
     }
 
     func testLargeFloatingOrPinnedWindowsRemainCapturable() {
         XCTAssertEqual(listedWindowArea(title: "置顶窗口", layer: 3, size: CGSize(width: 1024, height: 655)), 670_720)
+        // Shadowrocket / Tailscale 这类菜单栏应用的面板与二级菜单，不限于 0…8 层，也不一定有标题。
+        XCTAssertEqual(listedWindowArea(title: nil, layer: 25, size: CGSize(width: 320, height: 400)), 128_000)
+        XCTAssertEqual(listedWindowArea(title: "", layer: 101, size: CGSize(width: 280, height: 380)), 106_400)
     }
 
     func testInvalidSizesDoNotTrapOrBecomeContentWindows() {
@@ -59,9 +62,12 @@ final class WindowListTests: XCTestCase {
         XCTAssertNil(listedWindowArea(title: "QQ", layer: 0, size: CGSize(width: 30, height: 600)))
     }
 
-    func testOnlyActiveWindowsOfUserAppsAreListed() {
+    func testActiveOrOnScreenWindowsOfUserAppsAreListed() {
         // 台前调度侧栏里的窗口 isActive 为 true
         XCTAssertTrue(isUserFacingWindow(bundleID: "com.microsoft.VSCode", appName: "Code", isActive: true))
+        // 已在屏幕上的二级窗口即使不是 active，也不能从选择器里消失。
+        XCTAssertTrue(isUserFacingWindow(bundleID: "com.tencent.xinWeChat", appName: "微信", isActive: false, isOnScreen: true))
+        XCTAssertTrue(isUserFacingWindow(bundleID: "io.tailscale.ipn.macsys", appName: "Tailscale", isActive: false, isOnScreen: true))
         // 关到托盘的 QQ 主窗口、ChatGPT Computer Use 的权限引导窗：存在但 isActive 为 false
         XCTAssertFalse(isUserFacingWindow(bundleID: "com.tencent.qq", appName: "QQ", isActive: false))
         XCTAssertFalse(isUserFacingWindow(bundleID: "com.openai.sky.CUAService", appName: "ChatGPT Computer Use", isActive: false))
@@ -69,6 +75,7 @@ final class WindowListTests: XCTestCase {
         for bundleID in ["com.apple.WindowManager", "com.apple.dock", "com.apple.TextInputSwitcher", "com.apple.controlcenter"] {
             XCTAssertFalse(isUserFacingWindow(bundleID: bundleID, appName: "System", isActive: true))
         }
+        XCTAssertFalse(isUserFacingWindow(bundleID: "com.openai.sky.CUAService", appName: "ChatGPT Computer Use", isActive: true, isOnScreen: true))
         // 没有应用名的（WindowServer 的 Desktop）不列
         XCTAssertFalse(isUserFacingWindow(bundleID: nil, appName: " ", isActive: true))
     }
@@ -95,6 +102,20 @@ final class WindowListTests: XCTestCase {
         window.minimized = true
         let entry = try XCTUnwrap((JSONSerialization.jsonObject(with: JSONEncoder().encode([window])) as? [[String: Any]])?.first)
         XCTAssertEqual(entry["minimized"] as? Bool, true)
+    }
+
+    func testOffscreenContentNeedsMatchingGeometryAndKeepsItsRealMinimizedState() {
+        let frame = CGRect(x: 300, y: 150, width: 800, height: 600)
+        let normal = AXWindowSnapshot(title: "微信", frame: frame)
+        XCTAssertEqual(matchOffscreenWindow(title: "微信", frame: frame, among: [normal]), 0)
+        // 相同标题、位置却对不上的是缓存面，不能只因同名就列出。
+        XCTAssertNil(matchOffscreenWindow(title: "微信", frame: frame.offsetBy(dx: 100, dy: 0), among: [normal]))
+        var minimized = normal
+        minimized.minimized = true
+        XCTAssertEqual(matchOffscreenWindow(title: "微信", frame: frame.offsetBy(dx: 100, dy: 0), among: [minimized]), 0)
+        XCTAssertFalse(normal.minimized)
+        XCTAssertTrue(minimized.minimized)
+        XCTAssertNil(matchOffscreenWindow(title: "缓存窗口", frame: frame, among: []))
     }
 
     func testMinimizedLookupWithNoCandidatesDoesNotTouchAccessibility() {
