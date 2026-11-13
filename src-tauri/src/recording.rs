@@ -13,6 +13,8 @@ pub(crate) struct RecordOptions {
 struct Active {
     session: os::Recording,
     target: String,
+    /// 来源应用稳定标识，开录时取一次，停止时写进 recording-meta.json
+    app_id: Option<String>,
     started_at: u64,
     output: PathBuf,
 }
@@ -20,6 +22,7 @@ struct Active {
 /// 录完的一段，用来写活动记录
 pub(crate) struct Finished {
     pub(crate) target: String,
+    pub(crate) app_id: Option<String>,
     pub(crate) duration_ms: u64,
     pub(crate) output: PathBuf,
 }
@@ -64,6 +67,7 @@ impl Recorder {
         let active = self.active.take()?;
         let finished = Finished {
             target: active.target,
+            app_id: active.app_id,
             duration_ms: now_millis().saturating_sub(active.started_at),
             output: active.output,
         };
@@ -218,6 +222,19 @@ pub(crate) fn toggle_recording(
                         .meta(format_duration(finished.duration_ms))
                         .detail(finished.output.to_string_lossy().to_string()),
                 );
+                // 来源应用稳定标识单独落盘：活动流水只留最近 300 条，角标却要一直在
+                if let Some(stem) = finished
+                    .output
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(recording_stem)
+                {
+                    write_recording_meta_entry(
+                        &state.recording_meta_path,
+                        stem,
+                        finished.app_id,
+                    );
+                }
                 let _ = app.emit("recording-changed", &status);
                 // 录像在历史页有了固定的家：列表据此刷新，不再靠完成提示指路
                 let _ = app.emit("recordings-changed", ());
@@ -272,9 +289,12 @@ pub(crate) fn toggle_recording(
         microphone: settings.record_microphone,
     };
     let (session, message) = os::start_recording(target.id, &options, &output)?;
+    // 录的是哪个窗口就记哪个应用的稳定标识（开录时取一次）；取不到就没有角标，不影响录制
+    let app_id = os::app_stable_id(target.pid);
     recorder.active = Some(Active {
         session,
         target: target.app_name,
+        app_id,
         started_at: now_millis(),
         output,
     });
@@ -306,6 +326,9 @@ pub(crate) struct RecordingRecord {
     pub(crate) app_name: String,
     pub(crate) size_bytes: u64,
     pub(crate) created_at: u64,
+    /// 来源应用稳定标识，来自 recording-meta.json。旧录像没有条目就是 None，不显示角标。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) app_id: Option<String>,
 }
 
 /// 只认本应用写出的录像：保存目录可能就是「下载」，不能把别人的视频列进来，更不能删。
@@ -362,6 +385,7 @@ fn scan_recordings(dir: &Path, exclude: Option<&Path>) -> Vec<RecordingRecord> {
             app_name: String::new(),
             size_bytes: meta.len(),
             created_at: parse_recording_time(stem).unwrap_or_else(|| mtime_millis(&meta)),
+            app_id: None,
         });
     }
     records.sort_by_key(|record| std::cmp::Reverse(record.created_at));
@@ -379,11 +403,14 @@ pub(crate) fn list_recordings_now(state: &AppState) -> Vec<RecordingRecord> {
         // 目标应用名记在活动流水里（detail 是落盘路径）；流水只留最近 300 条，
         // 更早的录像退回通用称呼，不影响播放和删除
         let activity = state.activity.lock();
+        // 来源应用稳定标识单独存一份，不受流水 300 条上限影响；旧录像没有条目就没有角标
+        let meta = read_recording_meta(&state.recording_meta_path);
         for record in &mut records {
             let path = dir.join(&record.file_name);
             record.app_name = activity
                 .recording_target(&path.to_string_lossy())
                 .unwrap_or_else(|| ui_text("录屏", "Recording").to_string());
+            record.app_id = meta.get(&record.id).cloned();
         }
     }
     records
@@ -392,6 +419,25 @@ pub(crate) fn list_recordings_now(state: &AppState) -> Vec<RecordingRecord> {
 #[tauri::command]
 pub(crate) fn list_recordings(state: State<'_, AppState>) -> Vec<RecordingRecord> {
     list_recordings_now(&state)
+}
+
+/// 录屏来源应用稳定标识索引：`{ 录像 id: appId }`。只存取得到标识的录像，
+/// 取不到（进程已退出等）就不写条目，历史也就不显示角标。读不了/没有文件按空索引处理。
+fn read_recording_meta(path: &Path) -> HashMap<String, String> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// 停止录制时落一条来源标识。写失败不影响录像本身（角标只是锦上添花）。
+fn write_recording_meta_entry(path: &Path, id: &str, app_id: Option<String>) {
+    let Some(app_id) = app_id else { return };
+    let mut meta = read_recording_meta(path);
+    meta.insert(id.to_string(), app_id);
+    if let Ok(text) = serde_json::to_string(&meta) {
+        let _ = fs::write(path, text);
+    }
 }
 
 /// 删掉选中的几段，返回删完后的列表。正在录的那段不删。
@@ -514,6 +560,34 @@ mod tests {
         assert_eq!(format_duration(0), "00:00");
         assert_eq!(format_duration(133_400), "02:13");
         assert_eq!(format_duration(3_723_000), "1:02:03");
+    }
+
+    #[test]
+    fn recording_meta_round_trips_and_skips_missing_identity() {
+        let path = std::env::temp_dir().join(format!(
+            "snapshot-recording-meta-{}-{}.json",
+            std::process::id(),
+            now_millis()
+        ));
+        // 取得到标识就落盘，读得回来；旧录像没有条目就是 None
+        super::write_recording_meta_entry(&path, "应用快照-2026-11-12_10-00-00", Some("/usr/bin/obs".into()));
+        let meta = super::read_recording_meta(&path);
+        assert_eq!(
+            meta.get("应用快照-2026-11-12_10-00-00").map(String::as_str),
+            Some("/usr/bin/obs")
+        );
+        assert_eq!(meta.get("没有标识的旧录像"), None);
+        // 取不到标识（None）不写条目，也不覆盖已有的
+        super::write_recording_meta_entry(&path, "应用快照-2026-11-12_10-00-00", None);
+        assert_eq!(
+            super::read_recording_meta(&path)
+                .get("应用快照-2026-11-12_10-00-00")
+                .map(String::as_str),
+            Some("/usr/bin/obs")
+        );
+        // 文件不存在按空索引处理，不报错
+        let _ = std::fs::remove_file(&path);
+        assert!(super::read_recording_meta(&path).is_empty());
     }
 
     #[test]

@@ -18,6 +18,10 @@ pub(crate) struct SnapshotRecord {
     pub(crate) height: u32,
     pub(crate) size_bytes: u64,
     pub(crate) created_at: u64,
+    /// 来源应用的稳定标识（macOS bundle id / .app 路径，Windows、Linux 可执行文件路径）。
+    /// 历史角标据此取图标，应用退出后仍有效。旧记录没有这一项，缺省 None，不显示角标。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) app_id: Option<String>,
 }
 
 /// 默认把快照放到用户能在资源管理器里直接看到的「图片/Snapshot」。
@@ -195,23 +199,26 @@ pub(crate) fn store_snapshot(
     state: &AppState,
     image: &RgbaImage,
     app_name: &str,
+    app_id: Option<String>,
 ) -> Result<SnapshotRecord, String> {
-    store_snapshot_inner(state, image, app_name, None)
+    store_snapshot_inner(state, image, app_name, app_id, None)
 }
 
 pub(crate) fn store_snapshot_traced(
     state: &AppState,
     image: &RgbaImage,
     app_name: &str,
+    app_id: Option<String>,
     trace: &CaptureTrace,
 ) -> Result<SnapshotRecord, String> {
-    store_snapshot_inner(state, image, app_name, Some(trace))
+    store_snapshot_inner(state, image, app_name, app_id, Some(trace))
 }
 
 fn store_snapshot_inner(
     state: &AppState,
     image: &RgbaImage,
     app_name: &str,
+    app_id: Option<String>,
     trace: Option<&CaptureTrace>,
 ) -> Result<SnapshotRecord, String> {
     let dir = history_dir(state);
@@ -242,6 +249,7 @@ fn store_snapshot_inner(
         height: image.height(),
         size_bytes,
         created_at,
+        app_id,
     };
     // 缩略图失败不影响快照本身：列表里取不到时会按原图现做一张
     let _ = write_thumbnail(state, &record.id, image, trace);
@@ -454,7 +462,7 @@ pub(crate) async fn annotate_snapshot(app: AppHandle, id: String) -> Result<(), 
         let image = image::load_from_memory(&bytes)
             .map_err(|error| format!("无法读取快照图片：{error}"))?
             .to_rgba8();
-        capture::open_annotate_window(app, state, &image, &record.app_name)
+        capture::open_annotate_window(app, state, &image, &record.app_name, record.app_id.clone())
     })
     .await
 }
@@ -499,6 +507,27 @@ mod tests {
             let expected = home.join("Videos").to_string_lossy().into_owned();
             assert_eq!(expand_user_path("~/Videos"), expected);
         }
+    }
+
+    #[test]
+    fn snapshot_record_reads_old_json_without_app_id() {
+        // 升级前的索引没有 appId 这一项：缺省 None，不显示角标，其余字段照常读
+        let old = r#"{
+            "id": "snap-1", "fileName": "snap-1.png", "appName": "Codex",
+            "width": 10, "height": 10, "sizeBytes": 5, "createdAt": 1
+        }"#;
+        let record: SnapshotRecord = serde_json::from_str(old).unwrap();
+        assert_eq!(record.app_id, None);
+        assert_eq!(record.app_name, "Codex");
+
+        // 新记录带上稳定标识，序列化/反序列化往返不丢；None 不写进 JSON
+        let mut fresh = record.clone();
+        fresh.app_id = Some("/usr/bin/codex".into());
+        let json = serde_json::to_string(&fresh).unwrap();
+        assert!(json.contains("\"appId\":\"/usr/bin/codex\""));
+        let back: SnapshotRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.app_id.as_deref(), Some("/usr/bin/codex"));
+        assert!(!serde_json::to_string(&record).unwrap().contains("appId"));
     }
 
     #[test]
@@ -587,6 +616,7 @@ mod tests {
             height: 10,
             size_bytes: 5,
             created_at: 1,
+            app_id: None,
         };
         write_snapshot_index(&legacy.join("index.json"), &[record]).unwrap();
 
@@ -620,6 +650,7 @@ mod tests {
                 height: 10,
                 size_bytes: 5,
                 created_at: index,
+                app_id: None,
             })
             .collect();
         fs::create_dir_all(&legacy).unwrap();
@@ -661,6 +692,7 @@ mod tests {
             height: 10,
             size_bytes: 5,
             created_at,
+            app_id: None,
         };
         write_snapshot_index(&path, &[record("first", 1)]).unwrap();
         write_snapshot_index(&path, &[record("second", 2)]).unwrap();

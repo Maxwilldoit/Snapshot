@@ -14,6 +14,8 @@ export type MediaItem = {
   createdAt: number;
   /** 录屏时长（毫秒）；截图没有 */
   durationMs?: number;
+  /** 来源应用稳定标识；没有就不显示角标 */
+  appId?: string;
 };
 
 /** 录屏的真实尺寸和时长由前端 video 元素读元数据得到，读到前先按 16:9 占位 */
@@ -31,6 +33,7 @@ const recordingItem = (record: RecordingRecord, meta?: RecordingMeta): MediaItem
   sizeBytes: record.sizeBytes,
   createdAt: record.createdAt,
   durationMs: meta?.durationMs,
+  appId: record.appId,
 });
 
 /** 合并两类媒体并按时间倒序；调用方拿到的就是可直接分组渲染的时间线 */

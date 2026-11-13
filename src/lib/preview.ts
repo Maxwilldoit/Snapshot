@@ -45,6 +45,22 @@ function demoSnapshotImage(record: SnapshotRecord) {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
+/** 演示来源应用稳定标识：用一个可执行文件路径冒充，仅供预览角标取图，不代表真实应用 */
+function demoAppId(appName: string) {
+  return `/usr/bin/${appName.toLowerCase().replace(/\s+/g, "-")}`;
+}
+
+/** 演示来源应用图标：按标识取色、取首字母画一个圆角方块，让 ?demo 下的角标可见且有区分 */
+function demoAppIcon(id: string) {
+  const palette = ["#4285f4", "#ea4335", "#34a853", "#fbbc05", "#9c27b0", "#00acc1", "#ff7043", "#7cb342"];
+  const index = id.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const color = palette[index % palette.length];
+  const stem = id.split("/").pop() || "app";
+  const letter = (stem.replace(/[^a-zA-Z一-龥]/g, "").charAt(0) || "A").toUpperCase();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${color}"/><text x="32" y="44" font-family="sans-serif" font-size="34" font-weight="bold" fill="#fff" text-anchor="middle">${letter}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 /** 演示桌宠：一只简单的猫，供侧栏头像和舞台使用 */
 function demoPetImage(color: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><g stroke="#403d36" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M42 62 46 26 70 48Q80 44 90 48L114 26 118 62Q134 84 118 112Q108 130 80 129Q52 130 42 112Q26 84 42 62Z" fill="${color}"/><path d="M62 82v6m36-6v6m-26 12q8 7 16 0" fill="none"/><path d="M56 124v10m48-10v10"/></g></svg>`;
@@ -160,16 +176,16 @@ let snapshots: SnapshotRecord[] = demo
   ? Array.from({ length: 186 }, (_, index) => {
       const [appName, width, height, sizeBytes] = demoApps[index % demoApps.length];
       const minutes = index < 4 ? [6, 33, 165, 254][index] : index < 8 ? 60 * 24 + index * 70 : 60 * 24 * 3 + index * 40;
-      return { id: `snap-${index}`, fileName: `snap-${index}.png`, appName, width, height, sizeBytes, createdAt: minutesAgo(minutes) };
+      return { id: `snap-${index}`, fileName: `snap-${index}.png`, appName, width, height, sizeBytes, createdAt: minutesAgo(minutes), appId: demoAppId(appName) };
     })
   : [];
 
 /** 演示录屏：和截图按时间混排。画面尺寸/时长由前端 video 元素量，这里只给文件信息 */
 let recordings: RecordingRecord[] = demo
   ? [
-      { id: "rec-chrome", fileName: "应用快照-2026-11-12_09-40-00.mp4", appName: "Google Chrome", sizeBytes: 2_627, createdAt: minutesAgo(20) },
-      { id: "rec-wechat", fileName: "应用快照-2026-11-11_15-10-00.mp4", appName: "微信", sizeBytes: 2_276, createdAt: minutesAgo(60 * 24 + 40) },
-      { id: "rec-terminal", fileName: "Snapshot-2026-11-09_10-05-00.mp4", appName: "Windows Terminal", sizeBytes: 2_742, createdAt: minutesAgo(60 * 24 * 3 + 120) },
+      { id: "rec-chrome", fileName: "应用快照-2026-11-12_09-40-00.mp4", appName: "Google Chrome", sizeBytes: 2_627, createdAt: minutesAgo(20), appId: demoAppId("Google Chrome") },
+      { id: "rec-wechat", fileName: "应用快照-2026-11-11_15-10-00.mp4", appName: "微信", sizeBytes: 2_276, createdAt: minutesAgo(60 * 24 + 40), appId: demoAppId("微信") },
+      { id: "rec-terminal", fileName: "Snapshot-2026-11-09_10-05-00.mp4", appName: "Windows Terminal", sizeBytes: 2_742, createdAt: minutesAgo(60 * 24 * 3 + 120), appId: demoAppId("Windows Terminal") },
     ]
   : [];
 
@@ -462,6 +478,8 @@ export function installPreviewBackend() {
         if (record) return demoSnapshotImage(record);
       }
       if (kind === "recording" && demoVideos[id]) return demoVideos[id];
+      // 历史角标：app-icon/<size>/<id>，id 是余下整段（可含斜杠），按它取一张演示图标
+      if (kind === "app-icon") return demoAppIcon(path.split("/").slice(2).join("/"));
       if (kind === "pet" || kind === "pet-thumb") {
         const asset = settings.petAssets.find((item) => item.id === id);
         const item = catalogFixtures.find((fixture) => asset?.source === `https://github.com/Maxwilldoit/Pets#${fixture.id}`);

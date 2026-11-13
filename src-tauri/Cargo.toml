@@ -51,7 +51,8 @@ objc2 = "0.6"
 # NSGraphics/NSGraphicsContext/NSImageRep：把图标画进 64×64 的 NSBitmapImageRep 再导出 PNG
 # NSCursor：静帧截图合成光标（取当前系统光标的位图与热点）
 objc2-app-kit = { version = "0.3", features = ["NSBitmapImageRep", "NSCursor", "NSGraphics", "NSGraphicsContext", "NSImageRep", "NSImage", "NSRunningApplication", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary"] }
+# NSString/NSURL：历史角标按 bundle id / .app 路径取图标（NSWorkspace、NSRunningApplication）
+objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSString", "NSURL"] }
 
 [target.'cfg(windows)'.dependencies]
 # 窗口录制：Windows.Graphics.Capture 取帧 + Media Foundation 编码。

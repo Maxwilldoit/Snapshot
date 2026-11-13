@@ -166,6 +166,8 @@ export interface SnapshotRecord {
   height: number;
   sizeBytes: number;
   createdAt: number;
+  /** 来源应用稳定标识。旧记录没有这一项，缺省不显示角标 */
+  appId?: string;
 }
 
 /** 一段录屏成品。时长和画面尺寸由前端用 video 元素量，后端只给文件信息 */
@@ -175,6 +177,8 @@ export interface RecordingRecord {
   appName: string;
   sizeBytes: number;
   createdAt: number;
+  /** 来源应用稳定标识。旧录像没有这一项，缺省不显示角标 */
+  appId?: string;
 }
 
 /** 后端记下的一件事：截了什么、录了什么、润色了什么、哪里失败了 */

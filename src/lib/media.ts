@@ -53,5 +53,10 @@ export const iconUrl = (pid: number, cssSize: number) =>
 export const launchIconUrl = (id: string, cssSize: number) =>
   media(`launch-icon/${id}/${Math.min(256, Math.ceil(cssSize * (window.devicePixelRatio || 1)))}`);
 
+/** 历史角标：按来源应用稳定标识取图标。size 在前，id 是余下整段（可含斜杠的可执行文件路径），
+ * 与 soundUrl 一样原样交给 convertFileSrc 编码一次，后端解码后 split_once 取 size、其余当 id。 */
+export const appIconUrl = (id: string, cssSize: number) =>
+  media(`app-icon/${Math.min(256, Math.ceil(cssSize * (window.devicePixelRatio || 1)))}/${id}`);
+
 /** 后端只放行设置里选定的那一个音效文件 */
 export const soundUrl = (path: string) => media(`sound/${path}`);

@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { Camera, Check, Copy, PenLine, Trash2, Video } from "lucide-react";
-import { recordingUrl, thumbUrl } from "../lib/media";
+import { Check, Copy, PenLine, Trash2 } from "lucide-react";
+import { appIconUrl, recordingUrl, thumbUrl } from "../lib/media";
 import { formatClock, formatDuration } from "../lib/format";
 import { useI18n } from "../lib/i18n";
 import type { MediaItem, RecordingMeta } from "../lib/mediaTimeline";
 
 /**
- * 时间线上的一格：截图或录屏。封面铺满格子，平时只露左下角的类型标记（录屏再加右下角时长）；
+ * 时间线上的一格：截图或录屏。封面铺满格子，平时只露左下角的来源应用图标（录屏再加右下角时长）；
  * 悬停或聚焦时底部浮出窗口名和时间，右上角浮出复制/标注/删除，左上角的勾选圈进入多选。
  * 窄长的竖图给一个最小宽度，整张图居中放在浅底上，不裁成一条缝。
+ * 来源图标取不到（旧记录没有标识、应用已卸载）就不显示角标，不用类型图标顶替——
+ * 截图和录屏靠封面与时长就能分清，角标只回答「这是哪个应用」。
  */
 export function MediaTile({
   item,
@@ -37,6 +39,7 @@ export function MediaTile({
 }) {
   const { t } = useI18n();
   const [failed, setFailed] = useState(false);
+  const [iconFailed, setIconFailed] = useState(false);
   const isRecording = item.kind === "recording";
   const narrow = boxWidth < 48;
   const label = item.appName;
@@ -81,9 +84,18 @@ export function MediaTile({
         )}
       </button>
 
-      <span className="tile-type" aria-hidden="true">
-        {isRecording ? <Video /> : <Camera />}
-      </span>
+      {item.appId && !iconFailed && (
+        <img
+          className="tile-app"
+          src={appIconUrl(item.appId, 20)}
+          alt=""
+          aria-hidden="true"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onError={() => setIconFailed(true)}
+        />
+      )}
       {isRecording && item.durationMs != null && (
         <span className="tile-duration mono">{formatDuration(item.durationMs)}</span>
       )}

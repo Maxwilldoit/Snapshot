@@ -191,6 +191,21 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
                 bytes,
             })
         }
+        // 历史角标：按来源应用稳定标识取图标。size 在前，id 是余下整段（前端已 percent-encode，
+        // 这里解码后可能含斜杠，如可执行文件路径），所以用 split_once 取 size、其余都当 id。
+        "app-icon" => {
+            let (size, id) = rest.split_once('/').ok_or("图标路径不完整")?;
+            let size = size
+                .parse::<u32>()
+                .map_err(|_| "图标尺寸无效".to_string())?
+                .clamp(16, 256);
+            let bytes = app_icon_bytes(&state, id, size).ok_or("这个应用没有可用的图标")?;
+            Ok(Media {
+                mime: "image/png",
+                immutable: false,
+                bytes,
+            })
+        }
         "sound" => {
             // 只放行设置里选定的那一个文件，不能借这个口子读别的路径
             let configured = state.settings.lock().custom_sound_path.clone();
@@ -208,6 +223,18 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
         }
         _ => Err(format!("未知的资源类型：{kind}")),
     }
+}
+
+/// 历史角标图标：先查内存缓存，没有再按稳定标识取一次并缓存。
+/// 应用退出后图标不变，进程重启再取一次即可，不落盘——内存缓存最轻。
+fn app_icon_bytes(state: &AppState, id: &str, size: u32) -> Option<Vec<u8>> {
+    let key = format!("{id}/{size}");
+    if let Some(bytes) = state.app_icons.lock().get(&key) {
+        return Some(bytes.clone());
+    }
+    let bytes = os::app_icon_for_id(id, size)?;
+    state.app_icons.lock().insert(key, bytes.clone());
+    Some(bytes)
 }
 
 fn audio_mime(path: &str) -> &'static str {

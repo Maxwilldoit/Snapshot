@@ -99,6 +99,14 @@ struct AppState {
     /// 标注窗口待编辑 PNG（RGBA 编码前的原始 PNG 字节）
     annotate_png: Mutex<Option<Vec<u8>>>,
     annotate_title: Mutex<String>,
+    /// 标注副本的来源应用稳定标识，存进历史时沿用，角标跟原图一致
+    annotate_app_id: Mutex<Option<String>>,
+    /// 历史角标按稳定标识取到的图标缓存（键 `{id}/{size}`）。应用退出后图标不变，
+    /// 内存缓存最轻：进程重启再取一次即可，不落盘。
+    app_icons: Mutex<HashMap<String, Vec<u8>>>,
+    /// 录屏来源应用稳定标识索引（recording-meta.json）。录屏目录就是事实来源、不另建索引，
+    /// 但应用标识没法从文件名推出，单独存一份；旧录像没有条目就不显示角标。
+    recording_meta_path: PathBuf,
     /// 启动时没能注册上的全局快捷键，等主窗口加载后再提示用户
     shortcut_conflicts: Mutex<Vec<String>>,
     /// 系统里实际注册成功的键；释放失败时保留，供下次操作重试。
@@ -328,6 +336,7 @@ pub fn run() {
     let pets_dir = data_dir.join("pets");
     let sounds_dir = data_dir.join("sounds");
     let activity_path = settings_path.with_file_name("activity.json");
+    let recording_meta_path = data_dir.join("recording-meta.json");
     let prompt_history_path = data_dir.join("prompt-history.json");
     let saved_prompts_path = data_dir.join("saved-prompts.json");
     let mut settings = settings::read_settings(&settings_path);
@@ -379,6 +388,9 @@ pub fn run() {
             quick_menu_pending_show: AtomicBool::new(false),
             annotate_png: Mutex::new(None),
             annotate_title: Mutex::new(String::new()),
+            annotate_app_id: Mutex::new(None),
+            app_icons: Mutex::new(HashMap::new()),
+            recording_meta_path,
             shortcut_conflicts: Mutex::new(Vec::new()),
             shortcut_registrations: Mutex::new(Vec::new()),
             shortcut_pause_item: Mutex::new(None),

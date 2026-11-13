@@ -51,7 +51,8 @@ pub(crate) fn capture_window(
             capture_area(include_cursor, area, "窗口", &trace, || {
                 os::capture_own_window(hwnd)
             })?;
-        return finalize_capture(&app, &state, image, "snapshot", cursor_degraded, trace);
+        let app_id = os::app_stable_id(std::process::id());
+        return finalize_capture(&app, &state, image, "snapshot", app_id, cursor_degraded, trace);
     }
     #[cfg(target_os = "macos")]
     {
@@ -60,7 +61,15 @@ pub(crate) fn capture_window(
         let include_cursor = state.settings.lock().include_cursor;
         let (image, app_name) = os::capture_window_image(target_id, include_cursor)?;
         trace.mark("engine_capture_screencapturekit");
-        finalize_capture(&app, &state, image, &app_name, None, trace)
+        // 来源应用取「上一个应用」的 pid（截图目标默认就是它）；不为了取 pid 再枚举一遍窗口列表，
+        // 那会给截图热路径加上 sidecar 往返。取不到稳定标识就没有角标，不影响截图本身。
+        let app_id = state
+            .tracker
+            .lock()
+            .previous
+            .as_ref()
+            .and_then(|window| os::app_stable_id(window.pid));
+        finalize_capture(&app, &state, image, &app_name, app_id, None, trace)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -94,7 +103,8 @@ pub(crate) fn capture_window(
                     .capture_image()
                     .map_err(|error| format!("截取失败：{error}"))
             })?;
-        finalize_capture(&app, &state, image, &app_name, cursor_degraded, trace)
+        let app_id = window.pid().ok().and_then(os::app_stable_id);
+        finalize_capture(&app, &state, image, &app_name, app_id, cursor_degraded, trace)
     }
 }
 
@@ -153,6 +163,7 @@ pub(crate) fn finalize_capture(
     state: &AppState,
     image: RgbaImage,
     app_name: &str,
+    app_id: Option<String>,
     cursor_degraded: Option<String>,
     trace: CaptureTrace,
 ) -> Result<String, String> {
@@ -182,7 +193,7 @@ pub(crate) fn finalize_capture(
     // 「仅保存」必须进历史，否则用户选完既没有文件也没有剪贴板内容。
     let only_save = settings.after_capture == "saveas";
     let record = if settings.auto_save_local || only_save {
-        snapshots::store_snapshot_traced(state, &image, app_name, &trace).ok()
+        snapshots::store_snapshot_traced(state, &image, app_name, app_id.clone(), &trace).ok()
     } else {
         None
     };
@@ -198,7 +209,7 @@ pub(crate) fn finalize_capture(
     // after_capture：annotate 打开标注窗；saveas 仅保存到历史；默认剪贴板。
     let annotate = settings.after_capture == "annotate";
     if annotate {
-        open_annotate_window(app, state, &image, app_name)?;
+        open_annotate_window(app, state, &image, app_name, app_id)?;
         trace.mark("annotate_open");
     } else if !only_save {
         let title = if interface_is_english() {
@@ -335,10 +346,13 @@ pub(crate) fn open_annotate_window(
     state: &AppState,
     image: &RgbaImage,
     title: &str,
+    app_id: Option<String>,
 ) -> Result<(), String> {
     let png = encode_png(image)?;
     *state.annotate_png.lock() = Some(png);
     *state.annotate_title.lock() = title.to_string();
+    // 标注副本存进历史时沿用来源应用的稳定标识，角标才跟原图一致
+    *state.annotate_app_id.lock() = app_id;
     let window = app
         .get_webview_window("annotate")
         .ok_or_else(|| "标注窗口不存在".to_string())?;
@@ -467,9 +481,10 @@ fn annotate_copy_now(
     let settings = state.settings.lock().clone();
     // 存历史失败不拦着复制，但要说出来：不然用户以为历史里有这张
     let title = markup_title(state);
+    let app_id = state.annotate_app_id.lock().clone();
     let archived = settings
         .auto_save_local
-        .then(|| snapshots::store_snapshot(state, &image, &title));
+        .then(|| snapshots::store_snapshot(state, &image, &title, app_id));
     let archive_error = match &archived {
         Some(Err(error)) => {
             activity::record_error(
@@ -543,7 +558,8 @@ fn annotate_save_copy_now(
 ) -> Result<String, String> {
     let image = decode_png_base64(&image_data)?;
     let title = markup_title(state);
-    snapshots::store_snapshot(state, &image, &title)?;
+    let app_id = state.annotate_app_id.lock().clone();
+    snapshots::store_snapshot(state, &image, &title, app_id)?;
     let _ = app.emit("snapshots-changed", ());
     Ok(ui_text("标注副本已保存到历史记录", "Saved a copy to History.").into())
 }
