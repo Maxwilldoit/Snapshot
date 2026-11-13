@@ -190,3 +190,28 @@ CI（`linux-packages.yml`）每次发版都会在 22.04 和 24.04（x86_64 / aar
   - 验什么：常态无底色、悬停浅底加提示；搜索默认窄、聚焦或 `Ctrl/Cmd+F` 展开；Prompt 库独立窗口入口可达。
 - [ ] **录屏完成不再弹通知**（三端）
   - 验什么：停止录屏后快捷菜单直接收起、不再出现「录制已保存」；保存中的忙碌与失败反馈仍保留；录屏可在历史里找到。
+
+## 十、来源应用图标（codex/ui-refresh-20261112，应用图标批次）待真机补验
+
+历史格子左下角改显「来源应用图标」，不再用截图/录屏类型图标。截图与录屏都记下来源应用的**稳定标识**（不是 pid，应用退出后仍能取图标）：macOS 用 bundle id（取不到退回 `.app` 路径），Windows / Linux 用可执行文件完整路径。标识只作为**可选字段**追加（`serde(default)`），旧历史与旧设置照常读取；旧条目没有标识就不显示角标，不猜测、也不退回类型图标。图标按标识取、内存缓存，取不到就不显示。契约快照逐字相同（`app_id` 在 `SnapshotRecord` / `RecordingRecord` 上而非 `Settings`；`app-icon` 是 `media://` 路由而非 IPC 命令/事件）。
+
+**本批已在 Linux 沙箱验过**（本批开发机为 Linux，与本文开头历史批次的 macOS 不同）：
+- [x] Linux 适配器编译与静态检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 通过。`app_stable_id` 走 `/proc/<pid>/exe` readlink；`app_icon_for_id` 复用 `icon_for_exe`（exe 名 → `.desktop` 图标 → 图标主题）。
+- [x] 向后兼容单测：`snapshot_record_reads_old_json_without_app_id`（旧 JSON 无 `appId` 仍可读）、`recording_meta_round_trips_and_skips_missing_identity`（标识落盘读回，旧录像无条目为 `None`）。
+- [x] 前端 `MediaTile` 测试：有标识显示图标 / 无标识不显示也不退回类型图标 / 加载失败收起角标 / 录屏显示图标且右下角保留时长。`?demo` 预览给演示数据 `appId` 与可显示图标（data-URL）。
+
+**待真机：**
+- [ ] **macOS 来源标识与图标**（`os/macos/icon.rs`）
+  - 验什么：截图/录屏后历史左下角显示来源应用图标；应用退出后图标仍在；bundle id 取不到时退回 `.app` 路径仍能取图标；取不到图标就不显示角标。
+  - 实现说明：`NSRunningApplication.bundleIdentifier`（退回 `bundleURL.path`）；`NSWorkspace` 的 `URLForApplicationWithBundleIdentifier` / `iconForFile`。macOS 采集用 `tracker.previous.pid` 取标识，不在采集热路径加窗口枚举。
+  - 为什么本机验不了：macOS 专有（objc2 / NSWorkspace），Linux 编译不到。
+- [ ] **Windows 来源标识与图标**（`os/windows/icon.rs`）
+  - 验什么：同上；exe 完整路径作为标识，应用退出后图标仍在；图标走既有 STA 线程按路径取图标。
+  - 实现说明：`QueryFullProcessImageNameW` 取 exe 路径；`png_for_path`。
+  - 为什么本机验不了：Windows 专有，Linux 编译不到。
+- [ ] **三端真实采集 → 标识落盘 → 历史显示**（端到端）
+  - 验什么：真实截图与录屏各一次，确认 `appId` 写入；录屏标识单独存 `recording-meta.json`（不受 `activity.json` 300 条上限影响），重启后历史仍显示图标；录屏取被录窗口所属应用。
+  - 为什么本机验不了：浏览器预览用内存 mock，真实采集需各平台真机。
+- [ ] **Linux 真实桌面图标主题渲染**
+  - 验什么：在装有图标主题的真实 Linux 桌面上，按 exe 名能取到对应 `.desktop` 图标并清晰显示；无图标主题时不显示角标。
+  - 为什么本机验不了：本沙箱无完整桌面图标主题，只验了编译与逻辑。
