@@ -488,13 +488,13 @@ html[data-surface="app"] .pet-actions-pane > .group-title { flex: 0 0 auto; }
 html[data-surface="app"] .pet-main-pane > .group,
 html[data-surface="app"] .pet-main-pane > .panel { margin-top: 20px; }
 html[data-surface="app"] .pet-actions-pane {
-  height: auto; max-height: var(--pet-shadow-top); overflow-y: hidden; align-self: start;
+  height: 100%; max-height: none; overflow-y: hidden; align-self: stretch;
 }
 html[data-surface="app"] .pet-actions-pane > .group-title {
   margin-top: -2px; margin-bottom: 2px; line-height: 16px;
 }
 html[data-surface="app"] .pet-actions-scroll {
-  flex: 0 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
   overscroll-behavior: contain; scrollbar-width: none;
   border-radius: 8px; background: var(--group); box-shadow: 0 0 0 0.5px var(--sep);
 }
@@ -530,7 +530,7 @@ html[data-surface="app"] .mw .pet-stage .shelf-drop {
   border-radius: 6px; background: color-mix(in srgb, var(--stage2) 85%, transparent); color: var(--accent); font-size: 13px;
 }
 html[data-surface="app"] .pet-actions-grid {
-  display: grid; grid-template-columns: 1fr; min-height: 0; overflow: hidden;
+  display: grid; grid-template-columns: 1fr; align-content: start; min-height: 100%; overflow: hidden;
   border-radius: 0; background: none; box-shadow: none;
 }
 html[data-surface="app"] .mw .pet-actions-grid > * + * { border-top: 0.5px solid var(--sep); }
