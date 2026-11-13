@@ -1,11 +1,11 @@
 import { useMemo, type ReactNode } from "react";
-import { Check, Images, Keyboard, MessageSquareText, Plus, Settings2, SlidersHorizontal } from "lucide-react";
+import { Images, Keyboard, MessageSquareText, Plus, Settings2, SlidersHorizontal } from "lucide-react";
 import { usePresence } from "../lib/motion";
-import { useApp } from "./context";
+import { errorText, useApp } from "./context";
+import { hidePet, selectPetAppearance } from "../lib/backend";
 import { WindowControls } from "../components/WindowTitleBar";
 import { PetThumb } from "../components/PetMedia";
 import { CatShape } from "../components/ui/CatShape";
-import { CaptureTools } from "./CaptureTools";
 import { usePetImport } from "./usePetImport";
 import type { NavPage, PetAsset, PlatformCapabilities } from "../types";
 import { useI18n } from "../lib/i18n";
@@ -34,7 +34,7 @@ export function WindowChrome({ placement }: { placement: "sidebar" | "toolbar" }
 }
 
 /**
- * 每页顶上那一条：标题和本页操作；截图、录屏固定在侧栏。
+ * 每页顶上那一条：标题和本页操作。截图、录屏走桌宠快捷菜单和全局快捷键。
  * 整条可以拖动窗口；按钮本身不拖。
  */
 export function Toolbar({ title, lead, children }: { title: ReactNode; lead?: ReactNode; children?: ReactNode }) {
@@ -51,24 +51,30 @@ export function Toolbar({ title, lead, children }: { title: ReactNode; lead?: Re
 
 type NavItem = { page: NavPage; label: string; icon: ReactNode; trailing?: ReactNode };
 
-export function CaptureActions() {
-  return <div className="mw-global-actions"><CaptureTools /></div>;
-}
-
 /** 侧栏里伴侣的顺序：后导入的在前；导入时间一样就照原顺序。前台应用图标总在最后 */
 function sortedPets(assets: PetAsset[]) {
   return [...assets].sort((a, b) => (b.importedAt ?? 0) - (a.importedAt ?? 0));
 }
 
 export function SideNav() {
-  const { page, navigate, conflicts, settings, viewedPetId } = useApp();
+  const { page, navigate, conflicts, settings, viewedPetId, onSaved, notify } = useApp();
   const { t } = useI18n();
   const { importing, pickFiles } = usePetImport();
   const pets = useMemo(() => sortedPets(settings.petAssets), [settings.petAssets]);
   const viewing = viewedPetId ?? settings.selectedAppearanceId;
 
+  // 圆点管「在不在桌面上」：点没选中的换上它；点已选中的把桌宠整个收起来（应用照常运行）。
+  // 可以再点一次取消选中，所以不是标准 radio，用 aria-pressed 的切换按钮。
+  async function toggleDesk(id: string, onDesk: boolean) {
+    try {
+      onSaved(onDesk ? await hidePet() : await selectPetAppearance(id));
+    } catch (error) {
+      notify(errorText(error), "error");
+    }
+  }
+
   const library: NavItem[] = [
-    { page: "history", label: t("截图记录"), icon: <Images aria-hidden="true" /> },
+    { page: "history", label: t("历史"), icon: <Images aria-hidden="true" /> },
     { page: "prompts", label: t("Prompt 记录"), icon: <MessageSquareText aria-hidden="true" /> },
   ];
   const prefs: NavItem[] = [
@@ -100,25 +106,40 @@ export function SideNav() {
     const id = asset?.id ?? "app-icon";
     const name = asset ? asset.name : t("前台应用图标");
     const current = page === "pet" && viewing === id;
-    const onDesk = settings.selectedAppearanceId === id;
+    const onDesk = settings.selectedAppearanceId === id && !settings.petHidden;
+    const broken = Boolean(asset?.missing);
     return (
-      <button
+      <div
         key={id}
-        type="button"
         data-pet-id={id}
-        className={`nav-item nav-pet ${current ? "is-on" : ""} ${asset?.missing ? "is-broken" : ""}`}
-        aria-current={current ? "page" : undefined}
-        title={name}
-        onClick={() => navigate("pet", { petId: id })}
+        className={`nav-item nav-pet ${current ? "is-on" : ""} ${broken ? "is-broken" : ""}`}
       >
-        <span className="nav-avatar" aria-hidden="true">
-          {!asset ? <span className="app-glyph"><span /></span>
-            : asset.missing ? <CatShape height={16} outline />
-            : <PetThumb assetId={asset.id} entry={asset.entry} fallback={<CatShape height={16} outline />} />}
-        </span>
-        <span className="nav-label">{name}</span>
-        {onDesk && <Check className="nav-check" aria-label={t("在桌面上")} />}
-      </button>
+        <button
+          type="button"
+          className={`pet-dot ${onDesk ? "is-on" : ""}`}
+          aria-pressed={onDesk}
+          aria-label={t("桌面显示：{name}", { name })}
+          title={broken && !onDesk ? t("原文件丢了") : onDesk ? t("隐藏桌面伴侣") : t("在桌面上显示")}
+          disabled={broken && !onDesk}
+          onClick={() => void toggleDesk(id, onDesk)}
+        >
+          <span className="pet-dot-core" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="nav-pet-main"
+          aria-current={current ? "page" : undefined}
+          title={name}
+          onClick={() => navigate("pet", { petId: id })}
+        >
+          <span className="nav-avatar" aria-hidden="true">
+            {!asset ? <span className="app-glyph"><span /></span>
+              : asset.missing ? <CatShape height={16} outline />
+              : <PetThumb assetId={asset.id} entry={asset.entry} fallback={<CatShape height={16} outline />} />}
+          </span>
+          <span className="nav-label">{name}</span>
+        </button>
+      </div>
     );
   };
 

@@ -34,6 +34,13 @@ pub(crate) fn refresh(app: &AppHandle) {
         let Some(pet) = handle.get_webview_window("pet") else {
             return;
         };
+        // 用户主动收起的桌宠不参与全屏避让，否则每 500ms 就会被重新弹出来。
+        if handle.state::<crate::AppState>().settings.lock().pet_hidden {
+            if pet.is_visible().unwrap_or(false) {
+                let _ = pet.hide();
+            }
+            return;
+        }
         let Some(covered) = fullscreen_covers_pet(&pet) else {
             // 切换焦点时前台句柄可能短暂为空，保留上一次状态，避免闪烁。
             return;

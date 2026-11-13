@@ -4,14 +4,44 @@
 use objc2::AnyThread;
 use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext, NSImage,
-    NSRunningApplication,
+    NSRunningApplication, NSWorkspace,
 };
-use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
 
 pub fn png_for_pid(pid: u32, size: u32) -> Option<Vec<u8>> {
     unsafe {
         let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32)?;
         let icon = app.icon()?;
+        downscale_to_png(&icon, size)
+    }
+}
+
+/// 进程的稳定应用标识：优先 bundle id，没有就退回 .app 路径。
+/// 应用退出后仍可据此取图标，不像 pid 那样进程一结束就失效。取不到返回 None，历史不显示角标。
+pub fn stable_id_for_pid(pid: u32) -> Option<String> {
+    let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32)?;
+    if let Some(bundle_id) = app.bundleIdentifier() {
+        return Some(bundle_id.to_string());
+    }
+    let url = app.bundleURL()?;
+    Some(url.path()?.to_string())
+}
+
+/// 按稳定标识（bundle id 或 .app 路径）取图标 PNG。历史角标用，应用退出后仍有效。
+/// bundle id 经 NSWorkspace 解析到 .app 路径再取图标；应用已卸载时返回 None，历史不显示角标。
+pub fn png_for_app_id(id: &str, size: u32) -> Option<Vec<u8>> {
+    unsafe {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let ns_id = NSString::from_str(id);
+        // 以 / 开头的是 .app 路径，直接取；否则当 bundle id 解析到安装路径
+        let path = if id.starts_with('/') {
+            ns_id
+        } else {
+            workspace
+                .URLForApplicationWithBundleIdentifier(&ns_id)?
+                .path()?
+        };
+        let icon = workspace.iconForFile(&path);
         downscale_to_png(&icon, size)
     }
 }

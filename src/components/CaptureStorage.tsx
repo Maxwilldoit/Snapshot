@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getRecordingDir, getSnapshotDir, openRecordingsDir, openSnapshotsDir } from "../lib/backend";
 import { middleTruncatePath } from "../lib/format";
 import { Choices } from "./ui/Choices";
+import { Switch } from "./ui/Switch";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import { usePreferences } from "../hooks/usePreferences";
@@ -106,10 +107,15 @@ export function SnapshotStorageRows() {
 
 /** 录像存到哪、录不录声音。放在「截图与录制」右栏 */
 export function RecordingPanel() {
-  const { settings, notify } = useApp();
+  const { settings, caps, notify } = useApp();
   const { t } = useI18n();
   const { recordingPath, setRecordingPath } = useStoragePaths();
   const { update, pickDir } = useStorageActions();
+  // 平台不支持时默认关着且不可开；已经开着的允许关回去
+  const audioToggles = [
+    { key: "recordSystemAudio" as const, label: t("同时录系统声音"), available: !caps || caps.recordingSystemAudio.available },
+    { key: "recordMicrophone" as const, label: t("同时录麦克风"), available: !caps || caps.recordingMicrophone.available },
+  ];
 
   async function openRecordingFolder() {
     try {
@@ -141,7 +147,18 @@ export function RecordingPanel() {
             )}
           </span>
         </div>
-
+        {audioToggles.map((toggle) => (
+          <div className="row" key={toggle.key}>
+            <label className="row-label" htmlFor={`pref-${toggle.key}`}>{toggle.label}</label>
+            <Switch
+              id={`pref-${toggle.key}`}
+              label={toggle.label}
+              value={settings[toggle.key]}
+              disabled={!toggle.available && !settings[toggle.key]}
+              onChange={(value) => void update({ [toggle.key]: value })}
+            />
+          </div>
+        ))}
       </div>
     </section>
   );

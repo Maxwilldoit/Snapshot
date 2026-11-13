@@ -135,6 +135,9 @@ pub(crate) struct Settings {
     /// 松开拖拽后落回当前屏幕工作区底部。
     #[serde(default = "default_true")]
     pub(crate) pet_gravity: bool,
+    /// 用户把桌宠收起来了：选中的形象保留，只是不显示。旧配置缺省时视为显示。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(crate) pet_hidden: bool,
     pub(crate) shortcuts: Vec<ShortcutBinding>,
     /// 只由用户手动切换；暂停时释放系统快捷键，但保留所有绑定。
     #[serde(default)]
@@ -230,6 +233,7 @@ impl Default for Settings {
             pet_wander: false,
             pet_random_actions: false,
             pet_gravity: true,
+            pet_hidden: false,
             shortcuts: default_shortcut_bindings(),
             shortcuts_paused: false,
             clipboard_auto_clear: default_clipboard_auto_clear(),
@@ -883,7 +887,23 @@ mod tests {
         assert!(!settings.pet_wander);
         assert!(!settings.pet_random_actions);
         assert!(settings.pet_gravity);
+        assert!(!settings.pet_hidden);
         assert!(!settings.shortcuts_paused);
+    }
+
+    #[test]
+    fn hidden_pet_survives_settings_reload() {
+        let path =
+            std::env::temp_dir().join(format!("snapshot-hidden-pet-{}.json", std::process::id()));
+        let settings = Settings {
+            pet_hidden: true,
+            ..Default::default()
+        };
+        persist_settings(&path, &settings).unwrap();
+        let reloaded = read_settings(&path);
+        assert!(reloaded.pet_hidden);
+        assert_eq!(reloaded.selected_appearance_id, "app-icon");
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

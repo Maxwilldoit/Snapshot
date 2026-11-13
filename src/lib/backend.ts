@@ -11,6 +11,7 @@ import type {
   PlatformCapabilities,
   PreviousApp,
   PromptHistoryEntry,
+  RecordingRecord,
   RecordingStatus,
   SavedPrompt,
   Settings,
@@ -44,6 +45,9 @@ export const fetchModels = (baseUrl: string, apiKey: string | null) =>
 
 export const selectPetAppearance = (id: string) => invoke<Settings>("select_pet_appearance", { id });
 
+/** 把桌宠整个收起来：选中的形象保留，应用照常运行；再选任意形象即恢复显示 */
+export const hidePet = () => invoke<Settings>("hide_pet");
+
 /** 一次导入多个；坏的那几个单独列在 failed 里，不连累其它 */
 export const addPetAssets = (paths: string[]) => invoke<PetImportResult>("add_pet_assets", { paths });
 
@@ -57,9 +61,6 @@ export const onPetCatalogChanged = (callback: (assets: PetCatalogAsset[]) => voi
 export const showPetCatalog = () => invoke<void>("show_pet_catalog");
 
 export const installCatalogPet = (id: string) => invoke<Settings>("install_catalog_pet", { id });
-
-export const renamePetAsset = (id: string, name: string) =>
-  invoke<Settings>("rename_pet_asset", { id, name });
 
 export const deletePetAsset = (id: string) => invoke<Settings>("delete_pet_asset", { id });
 
@@ -197,6 +198,12 @@ export const getRecordingDir = () => invoke<string>("get_recording_dir");
 /** 删掉选中的若干张；「全选再删」就是清空。返回删完后的列表 */
 export const deleteSnapshots = (ids: string[]) => invoke<SnapshotRecord[]>("delete_snapshots", { ids });
 
+/** 历史页的录像：后端扫保存目录，新的在前；正在录的那段不在内 */
+export const listRecordings = () => invoke<RecordingRecord[]>("list_recordings");
+
+/** 删掉选中的几段录像，返回删完后的列表 */
+export const deleteRecordings = (ids: string[]) => invoke<RecordingRecord[]>("delete_recordings", { ids });
+
 /** 把历史里的一张重新放回剪贴板 */
 export const copySnapshot = (id: string) => invoke<string>("copy_snapshot", { id });
 
@@ -204,6 +211,9 @@ export const annotateSnapshot = (id: string) => invoke<void>("annotate_snapshot"
 
 /** 截图入库或被删后，后端广播一次，列表据此刷新 */
 export const onSnapshotsChanged = (callback: () => void) => listen("snapshots-changed", () => callback());
+
+/** 录完一段或删掉录像后，后端广播一次，历史页据此刷新 */
+export const onRecordingsChanged = (callback: () => void) => listen("recordings-changed", () => callback());
 
 export const listActivity = () => invoke<ActivityEntry[]>("list_activity");
 

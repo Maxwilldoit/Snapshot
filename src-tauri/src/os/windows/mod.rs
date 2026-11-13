@@ -86,6 +86,18 @@ pub(crate) fn capture_with_cursor(
     Ok((image, failure))
 }
 
+/// 进程的稳定应用标识：可执行文件完整路径。应用退出后路径仍在，历史据此取图标，
+/// 不像 pid 那样进程一结束就失效。取不到（进程已退出等）返回 None，历史就不显示角标。
+pub(crate) fn app_stable_id(pid: u32) -> Option<String> {
+    icon::stable_id_for_pid(pid)
+}
+
+/// 按稳定标识（可执行文件路径）取图标 PNG。历史角标用，应用退出后仍有效；
+/// 复用启动台那条按路径取图标的串行 STA 线程。
+pub(crate) fn app_icon_for_id(id: &str, size: u32) -> Option<Vec<u8>> {
+    icon::png_for_path(Path::new(id), size)
+}
+
 pub(crate) fn open_folder(path: &Path) -> Result<(), String> {
     let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
     let file: Vec<u16> = path

@@ -7,6 +7,7 @@
 //! 只认下面几种路径，每种都先在设置 / 索引里按 id 查到真实文件，页面拿不到任意文件的读权限：
 //!   snapshot/<快照 id>
 //!   thumb/<快照 id>              缩略图（没有就现做）
+//!   recording/<录像 id>          录屏成品，支持 HTTP Range（播放器要拖动进度条）
 //!   pet/<形象 id>[/<压缩包内的动作路径>]
 //!   pet-alpha/<形象 id>[/<动作路径>]  WebM 的独立透明通道（macOS 视频合成用）
 //!   pet-walk/<形象 id>/<动作路径>  拖动时播的走路动作（横穿画布的改成原地走）
@@ -38,7 +39,10 @@ pub(crate) fn handle(
         let path = percent_decode_str(request.uri().path().trim_start_matches('/'))
             .decode_utf8_lossy()
             .into_owned();
-        let response = into_response(serve(&app, &path));
+        let response = match path.strip_prefix("recording/") {
+            Some(id) => recording_response(&app, id, request.headers().get(header::RANGE)),
+            None => into_response(serve(&app, &path)),
+        };
         // macOS 的 WKURLSchemeTask 在主线程取消。若在后台线程回包，Wry 的
         // 有效性检查与 didReceiveResponse 之间可能被取消，抛出 "This task has
         // already been stopped"；release 的 panic=abort 无法捕获这个异常。
@@ -74,6 +78,42 @@ fn into_response(result: Result<Media, String>) -> Response<Vec<u8>> {
             .body(message.into_bytes()),
     };
     built.unwrap_or_default()
+}
+
+/// 录像单独一条路：文件可能几百 MB，按 Range 只读播放器要的那一段；
+/// 没有 Range（或解析不了）就整文件回 200。成品内容不再变，允许长期缓存。
+fn recording_response(
+    app: &AppHandle,
+    id: &str,
+    range: Option<&tauri::http::HeaderValue>,
+) -> Response<Vec<u8>> {
+    let state = app.state::<AppState>();
+    let range = range.and_then(|value| value.to_str().ok());
+    match recording::read_range(&state, id, range) {
+        Ok((total, span, bytes)) => {
+            let builder = Response::builder()
+                .header(header::CONTENT_TYPE, "video/mp4")
+                .header(header::ACCEPT_RANGES, "bytes")
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                .header(header::CACHE_CONTROL, "max-age=31536000, immutable");
+            let built = match span {
+                Some((start, end)) => builder
+                    .status(StatusCode::PARTIAL_CONTENT)
+                    .header(
+                        header::CONTENT_RANGE,
+                        format!("bytes {start}-{end}/{total}"),
+                    )
+                    .body(bytes),
+                None => builder.body(bytes),
+            };
+            built.unwrap_or_default()
+        }
+        Err(message) => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(message.into_bytes())
+            .unwrap_or_default(),
+    }
 }
 
 fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
@@ -151,6 +191,21 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
                 bytes,
             })
         }
+        // 历史角标：按来源应用稳定标识取图标。size 在前，id 是余下整段（前端已 percent-encode，
+        // 这里解码后可能含斜杠，如可执行文件路径），所以用 split_once 取 size、其余都当 id。
+        "app-icon" => {
+            let (size, id) = rest.split_once('/').ok_or("图标路径不完整")?;
+            let size = size
+                .parse::<u32>()
+                .map_err(|_| "图标尺寸无效".to_string())?
+                .clamp(16, 256);
+            let bytes = app_icon_bytes(&state, id, size).ok_or("这个应用没有可用的图标")?;
+            Ok(Media {
+                mime: "image/png",
+                immutable: false,
+                bytes,
+            })
+        }
         "sound" => {
             // 只放行设置里选定的那一个文件，不能借这个口子读别的路径
             let configured = state.settings.lock().custom_sound_path.clone();
@@ -168,6 +223,18 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
         }
         _ => Err(format!("未知的资源类型：{kind}")),
     }
+}
+
+/// 历史角标图标：先查内存缓存，没有再按稳定标识取一次并缓存。
+/// 应用退出后图标不变，进程重启再取一次即可，不落盘——内存缓存最轻。
+fn app_icon_bytes(state: &AppState, id: &str, size: u32) -> Option<Vec<u8>> {
+    let key = format!("{id}/{size}");
+    if let Some(bytes) = state.app_icons.lock().get(&key) {
+        return Some(bytes.clone());
+    }
+    let bytes = os::app_icon_for_id(id, size)?;
+    state.app_icons.lock().insert(key, bytes.clone());
+    Some(bytes)
 }
 
 fn audio_mime(path: &str) -> &'static str {

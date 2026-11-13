@@ -38,6 +38,26 @@ pub(crate) struct PetAsset {
 /// 名字超过这个长度就截断，免得形象架上一行放不下
 const PET_NAME_LIMIT: usize = 40;
 
+/// 重名的素材加「 2」「 3」后缀；加完后缀仍不超过名字上限。
+/// 同一批导入里先登记的也算占用，两个同名文件一起导进来也分得清。
+fn unique_pet_name(assets: &[PetAsset], base: &str) -> String {
+    let taken = |name: &str| assets.iter().any(|asset| asset.name == name);
+    if !taken(base) {
+        return base.to_string();
+    }
+    let mut sequence = 2u32;
+    loop {
+        let suffix = format!(" {sequence}");
+        let room = PET_NAME_LIMIT.saturating_sub(suffix.chars().count());
+        let stem: String = base.chars().take(room).collect();
+        let candidate = format!("{stem}{suffix}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+        sequence += 1;
+    }
+}
+
 pub(crate) fn refresh_missing(assets: &mut [PetAsset]) {
     for asset in assets {
         asset.missing = !Path::new(&asset.path).is_file();
@@ -147,8 +167,23 @@ pub(crate) fn select_pet_appearance(
         asset.last_used_at = now_millis();
     }
     settings.selected_appearance_id = id;
+    settings.pet_hidden = false;
     let result = commit(&app, &state, &mut settings)?;
     show_pet(&app);
+    Ok(result)
+}
+
+/// 把桌宠整个收起来：选中的形象保留，应用照常运行。
+/// 再选任意形象（包括同一只）即恢复显示，见 select_pet_appearance。
+#[tauri::command]
+pub(crate) fn hide_pet(app: AppHandle, state: State<'_, AppState>) -> Result<Settings, String> {
+    let mut settings = state.settings.lock();
+    settings.pet_hidden = true;
+    let result = commit(&app, &state, &mut settings)?;
+    drop(settings);
+    if let Some(window) = app.get_webview_window("pet") {
+        let _ = window.hide();
+    }
     Ok(result)
 }
 
@@ -216,7 +251,7 @@ fn register_imports(
     let new_paths: Vec<_> = imported.iter().map(|asset| asset.path.clone()).collect();
     let mut obsolete = Vec::new();
     let mut updated_ids = Vec::new();
-    for asset in imported {
+    for mut asset in imported {
         let id = match next
             .pet_assets
             .iter_mut()
@@ -240,12 +275,17 @@ fn register_imports(
                 existing.id.clone()
             }
             None => {
+                // 名字就是文件名；重名的加「 2」「 3」后缀，侧栏里一眼分得清
+                asset.name = unique_pet_name(&next.pet_assets, &asset.name);
                 let id = asset.id.clone();
                 next.pet_assets.push(asset);
                 id
             }
         };
         next.selected_appearance_id = id;
+    }
+    if count > 0 {
+        next.pet_hidden = false;
     }
     // 保存失败时保留原来的设置和素材；不要让一次下载更新破坏已安装的宠物。
     refresh_missing(&mut next.pet_assets);
@@ -599,27 +639,6 @@ pub(crate) fn set_pet_hitbox(
         let _ = (window, x, y, width, height);
         Ok(())
     }
-}
-
-#[tauri::command]
-pub(crate) fn rename_pet_asset(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    name: String,
-) -> Result<Settings, String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err("名字不能为空".into());
-    }
-    let mut settings = state.settings.lock();
-    let asset = settings
-        .pet_assets
-        .iter_mut()
-        .find(|asset| asset.id == id)
-        .ok_or_else(|| "找不到这个形象".to_string())?;
-    asset.name = truncate(name, PET_NAME_LIMIT);
-    commit(&app, &state, &mut settings)
 }
 
 #[tauri::command]
@@ -1282,6 +1301,30 @@ mod tests {
     fn package_without_any_supported_asset_is_rejected() {
         let path = make_zip("empty", &["readme.txt"]);
         assert!(find_pet_animation_entries(&path).is_err());
+    }
+
+    fn named_asset(name: &str) -> PetAsset {
+        serde_json::from_str(&format!(
+            r#"{{"id":"p","name":"{name}","path":"a.gif","entry":"a.gif","animations":["a.gif"]}}"#
+        ))
+        .expect("构造测试素材失败")
+    }
+
+    #[test]
+    fn duplicate_import_names_get_a_suffix() {
+        let assets = vec![named_asset("三花猫"), named_asset("三花猫 2")];
+        assert_eq!(unique_pet_name(&assets, "三花猫"), "三花猫 3");
+        assert_eq!(unique_pet_name(&assets, "新伙伴"), "新伙伴");
+        assert_eq!(unique_pet_name(&[], "三花猫"), "三花猫");
+    }
+
+    #[test]
+    fn suffixed_names_stay_within_the_name_limit() {
+        let long = "长".repeat(PET_NAME_LIMIT);
+        let assets = vec![named_asset(&long)];
+        let name = unique_pet_name(&assets, &long);
+        assert_eq!(name, format!("{} 2", "长".repeat(PET_NAME_LIMIT - 2)));
+        assert!(name.chars().count() <= PET_NAME_LIMIT);
     }
 
     #[test]

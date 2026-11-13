@@ -12,6 +12,9 @@ export const snapshotUrl = (id: string) => media(`snapshot/${id}`);
 /** 180px 高的缩略图，列表用它；老快照没有时后端现做一张 */
 export const thumbUrl = (id: string) => media(`thumb/${id}`);
 
+/** 录屏成品；后端支持 Range，`#t=0.1` 让 video 元素停在第一帧当封面 */
+export const recordingUrl = (id: string) => media(`recording/${id}`);
+
 /** 不指定动作时由后端取该形象的默认动作 */
 export const petUrl = (assetId: string, entry?: string | null) =>
   media(entry ? `pet/${assetId}/${entry}` : `pet/${assetId}`);
@@ -49,6 +52,11 @@ export const iconUrl = (pid: number, cssSize: number) =>
 /** 启动台里的应用图标。id 是后端给的应用 id，不是任意路径 */
 export const launchIconUrl = (id: string, cssSize: number) =>
   media(`launch-icon/${id}/${Math.min(256, Math.ceil(cssSize * (window.devicePixelRatio || 1)))}`);
+
+/** 历史角标：按来源应用稳定标识取图标。size 在前，id 是余下整段（可含斜杠的可执行文件路径），
+ * 与 soundUrl 一样原样交给 convertFileSrc 编码一次，后端解码后 split_once 取 size、其余当 id。 */
+export const appIconUrl = (id: string, cssSize: number) =>
+  media(`app-icon/${Math.min(256, Math.ceil(cssSize * (window.devicePixelRatio || 1)))}/${id}`);
 
 /** 后端只放行设置里选定的那一个音效文件 */
 export const soundUrl = (path: string) => media(`sound/${path}`);

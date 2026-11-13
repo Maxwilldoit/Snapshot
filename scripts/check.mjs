@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { isSupportedNode } from "./node-gate.mjs";
 
 // npm supplies its own CLI path on every platform; avoid spawning npm.cmd through a shell.
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -9,8 +10,8 @@ if (!npmCli || !["all", "frontend", "rust"].includes(scope)) {
   console.error("Use npm run check, npm run check:frontend, or npm run check:rust.");
   process.exit(1);
 }
-if (Number(process.versions.node.split(".")[0]) !== 22) {
-  console.error("Checks require Node 22, matching .nvmrc and CI. Run nvm use first.");
+if (!isSupportedNode(process.versions.node)) {
+  console.error("Checks require Node 22 or newer, matching .nvmrc and CI. Run nvm use first.");
   process.exit(1);
 }
 

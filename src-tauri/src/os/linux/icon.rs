@@ -8,6 +8,12 @@ use std::process::Command;
 /// 尝试为 pid 找一张不超过 `size` 像素边长的图标。失败返回 None，调用方显示占位即可。
 pub fn icon_for_process(pid: u32, size: u32) -> Option<RgbaImage> {
     let exe = fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    icon_for_exe(&exe, size)
+}
+
+/// 按可执行文件路径找图标。pid 实时取图标与历史稳定标识取图标共用这一步：
+///  exe 文件名 → 模糊匹配 .desktop → Icon= → 主题文件。应用退出后路径仍在，图标就还能取到。
+pub fn icon_for_exe(exe: &Path, size: u32) -> Option<RgbaImage> {
     let name = exe.file_name()?.to_string_lossy().to_string();
     // 去掉常见后缀
     let stem = name

@@ -12,7 +12,7 @@ Built with Tauri 2, React, and native adapters for Windows, macOS, and Linux.
 
 - **Screenshots**: capture windows or the full screen; copy, annotate, or save only to History. Linux X11 also supports scrolling screenshots.
 - **Recording**: record a selected window to MP4, with optional system audio and microphone input.
-- **History**: screenshots and prompt rewrites have separate, searchable pages. Prompt entries retain the original, result, rule, and time.
+- **History**: screenshots and recordings share one searchable timeline, newest first. Prompt rewrites have their own page and keep the original, result, rule, and time.
 - **Prompts**: rewrite clipboard text using an OpenAI-compatible endpoint and reusable rules. API keys stay in the operating system credential store. A separate Prompt library stores text you want to reuse.
 - **Companion**: show the active app icon or import GIF/WebM actions. Optional roaming, random actions, gravity, and a right-click quick menu keep tools within reach. Windows and Linux also provide a launchpad.
 - **Shortcuts**: bind common actions or pause global shortcuts without losing saved bindings.
@@ -66,7 +66,7 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 ## Use
 
 - **Capture**: use the capture control, the companion's quick menu, or a global shortcut. In **Capture & Recording**, choose clipboard, annotation, or save-only behavior, and configure History, clipboard clearing, image format, and folders. Clipboard images clear after 60 seconds by default, unless replaced by something else.
-- **Record**: choose a window from the recording menu. MP4 files go to Downloads by default; change the folder in **Capture & Recording**. Recordings are stored separately from screenshot History.
+- **Record**: choose a window from the recording menu. MP4 files go to Downloads by default; change the folder in **Capture & Recording**. Recordings appear alongside screenshots in **History**; the MP4 files stay in the recording folder.
 - **Rewrite prompts**: configure the model and rules in **Prompts → Settings**, then rewrite clipboard text from the quick menu or its shortcut. Results appear in **Prompts**.
 - **Reuse prompts**: open the Prompt library from Prompt History, the quick menu, or its shortcut (default `Ctrl/Cmd+Shift+P`). Search, edit, and copy entries without closing the window.
 - **Companion**: import a GIF/WebM or ZIP from the sidebar, select a companion, and configure its desktop behavior on its page. On Windows and Linux, double-click it for the launchpad; macOS uses single clicks for actions.

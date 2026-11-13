@@ -1,4 +1,4 @@
-import type { Ref } from "react";
+import { useEffect, useRef, type Ref } from "react";
 import { Search, X } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 
@@ -16,11 +16,32 @@ export function SearchField({
   inputRef?: Ref<HTMLInputElement>;
 }) {
   const { t } = useI18n();
+  const innerRef = useRef<HTMLInputElement | null>(null);
+
+  // Ctrl/Cmd+F 聚焦本页搜索；工具栏里收起的搜索框会随聚焦一起展开
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        innerRef.current?.focus();
+        innerRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const attachRef = (node: HTMLInputElement | null) => {
+    innerRef.current = node;
+    if (typeof inputRef === "function") inputRef(node);
+    else if (inputRef) inputRef.current = node;
+  };
+
   return (
-    <label className="search mw-search">
+    <label className={`search mw-search ${value ? "is-active" : ""}`}>
       <Search aria-hidden="true" />
       <input
-        ref={inputRef}
+        ref={attachRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

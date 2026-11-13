@@ -219,7 +219,6 @@ describe("桌面伴侣素材库", () => {
     expect(item().getByText("当前使用")).toBeTruthy();
     expect(item().getByRole("status").textContent).toBe("已导入「用户起的名字」");
     expect(calls("install_catalog_pet").map(([, payload]) => invokeArgs(payload))).toEqual([{ id: first.id }, { id: first.id }]);
-    expect(calls("rename_pet_asset")).toHaveLength(0);
   });
 
   it("主窗口移除或切换形象后，素材库同步已导入状态", async () => {

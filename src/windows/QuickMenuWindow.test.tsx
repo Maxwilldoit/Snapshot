@@ -43,7 +43,7 @@ async function renderPalette(handle: (command: string, payload?: InvokeArgs) => 
 describe("快捷菜单：截取自身主窗口", () => {
   it.each([false, true])("长截图按平台能力 enabled=%s 调用既有动作", async (enabled) => {
     const { calls, user } = await renderPalette((command) => {
-      if (command === "platform_capabilities") return { os: "linux", scrolling: { available: enabled } };
+      if (command === "platform_capabilities") return { os: "linux", recording: { available: true }, scrolling: { available: enabled } };
       return undefined;
     });
     const option = await screen.findByRole("option", { name: "长截图" });
@@ -207,7 +207,9 @@ describe("快捷菜单：录制", () => {
     });
 
     await user.click(await screen.findByRole("option", { name: /停止录制 · Visual Studio Code/ }));
-    expect(await screen.findByText("录制已保存")).toBeTruthy();
+    // 录屏进历史后不再弹「已保存」，直接收起快捷菜单
+    await waitFor(() => expect(calls.some((call) => call.command === "hide_quick_menu")).toBe(true));
+    expect(screen.queryByText("录制已保存")).toBeNull();
 
     expect(calls.find((call) => call.command === "toggle_recording")?.payload).toEqual({ targetId: null });
     expect(calls.some((call) => call.command === "list_capturable_windows")).toBe(false);

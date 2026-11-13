@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { LibraryBig, Settings2 } from "lucide-react";
 import { listPromptHistory, onPromptHistoryChanged, runAction, showPromptLibrary } from "../lib/backend";
 import { groupByDay } from "../lib/format";
 import { PromptHistoryRow } from "../components/PromptHistoryRow";
@@ -53,13 +54,23 @@ export function PromptsPage() {
       <SearchField value={query} onChange={setQuery} label={t("搜索 Prompt")} />
       <button
         type="button"
-        className="tb-btn is-quiet"
+        className="tb-btn"
+        aria-label={t("打开 Prompt 库")}
+        title={t("打开 Prompt 库")}
         onClick={() => void showPromptLibrary().catch((error) => notify(errorText(error), "error"))}
       >
-        {t("打开 Prompt 库")}
+        <LibraryBig aria-hidden="true" />
       </button>
-      <button type="button" className="tb-btn" aria-expanded={showSettings} aria-controls="prompt-settings" onClick={() => setShowSettings((value) => !value)}>
-        {t("设置")}
+      <button
+        type="button"
+        className="tb-btn"
+        aria-label={t("设置")}
+        title={t("设置")}
+        aria-expanded={showSettings}
+        aria-controls="prompt-settings"
+        onClick={() => setShowSettings((value) => !value)}
+      >
+        <Settings2 aria-hidden="true" />
       </button>
     </Toolbar>
   );

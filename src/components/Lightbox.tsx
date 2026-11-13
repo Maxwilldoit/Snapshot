@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { snapshotUrl } from "../lib/media";
+import { recordingUrl, snapshotUrl } from "../lib/media";
 import { annotateSnapshot, copySnapshot } from "../lib/backend";
 import { errorText } from "../app/context";
-import { formatBytes, formatClock, dayLabel } from "../lib/format";
+import { formatBytes, formatClock, formatDuration, dayLabel } from "../lib/format";
 import { growFrom, shrinkTo } from "../lib/motion";
 import { useI18n } from "../lib/i18n";
-import type { SnapshotRecord } from "../types";
+import type { MediaItem } from "../lib/mediaTimeline";
 
 /** 列表里这张缩略图此刻在哪（它可能已经滚出视野，找不到就淡出） */
 function thumbRect(id: string): DOMRect | null {
@@ -19,14 +19,14 @@ function thumbRect(id: string): DOMRect | null {
 
 /**
  * 放大查看。图从缩略图原位长出来，关掉时缩回原位——始终知道它在列表哪儿。
- * ← → 切换，Esc 返回，Ctrl C 复制。
+ * ← → 切换，Esc 返回；截图还能 Ctrl C 复制、标注，录屏直接用原生控件播放。
  */
 export function Lightbox({
   records,
   startId,
   onClose,
 }: {
-  records: SnapshotRecord[];
+  records: MediaItem[];
   startId: string;
   onClose: () => void;
 }) {
@@ -41,12 +41,13 @@ export function Lightbox({
   const [direction, setDirection] = useState<1 | -1>(1);
   const { t } = useI18n();
   const stageRef = useRef<HTMLDivElement>(null);
-  const imageRef = useRef<HTMLImageElement>(null);
+  const mediaRef = useRef<HTMLElement>(null);
   const opened = useRef(false);
   const closing = useRef(false);
 
   const index = Math.max(0, records.findIndex((item) => item.id === currentId));
   const record = records[index];
+  const isRecording = record?.kind === "recording";
 
   // 按原图比例算出显示尺寸，这样元素的框就是图的框，放大动画才对得上
   useLayoutEffect(() => {
@@ -65,17 +66,17 @@ export function Lightbox({
   }, [record]);
 
   useLayoutEffect(() => {
-    if (!box || opened.current || !imageRef.current) return;
+    if (!box || opened.current || !mediaRef.current) return;
     opened.current = true;
     const from = thumbRect(startId);
-    if (from) growFrom(imageRef.current, from);
+    if (from) growFrom(mediaRef.current, from);
   }, [box, startId]);
 
   const close = useCallback(async () => {
     if (closing.current) return;
     closing.current = true;
     setIsClosing(true);
-    if (imageRef.current && record) await shrinkTo(imageRef.current, thumbRect(record.id));
+    if (mediaRef.current && record) await shrinkTo(mediaRef.current, thumbRect(record.id));
     onClose();
   }, [onClose, record]);
 
@@ -94,7 +95,7 @@ export function Lightbox({
   );
 
   const copy = useCallback(async () => {
-    if (!record || copying) return;
+    if (!record || record.kind !== "snapshot" || copying) return;
     setCopying(true);
     setCopyMessage(null);
     setEditError(null);
@@ -115,18 +116,19 @@ export function Lightbox({
       } else if (event.key === "ArrowLeft") step(-1);
       else if (event.key === "ArrowRight") step(1);
       else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+        if (isRecording) return;
         event.preventDefault();
         void copy();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [close, copy, step]);
+  }, [close, copy, step, isRecording]);
 
   if (!record) return null;
 
   async function edit() {
-    if (editing) return;
+    if (editing || record.kind !== "snapshot") return;
     setEditing(true);
     setEditError(null);
     try {
@@ -138,21 +140,28 @@ export function Lightbox({
     }
   }
 
+  const mediaClass = `lightbox-image ${opened.current ? "is-swapped" : ""} ${direction < 0 ? "from-prev" : ""}`;
+  const mediaStyle = box ? { width: box.width, height: box.height } : undefined;
+
   // 挂到 body 上：页面切换的位移动画会让祖先变成定位容器，放在里面会被框住
   return createPortal(
-    <div className={`lightbox ${isClosing ? "is-closing" : ""}`} role="dialog" aria-modal="true" aria-label={t("放大查看：{appName}", { appName: record.appName })}>
+    <div className={`lightbox ${isClosing ? "is-closing" : ""}`} role="dialog" aria-modal="true" aria-label={t(isRecording ? "录屏：{appName}" : "放大查看：{appName}", { appName: record.appName })}>
       <div className="lightbox-head">
         <button type="button" className="lightbox-back" onClick={() => void close()}>
           <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
           {t("返回")}
         </button>
         <span className="lightbox-title" title={record.appName}>{record.appName}</span>
-        <button type="button" className="lightbox-back" disabled={editing} onClick={() => void edit()}>
-          {editing ? t("正在打开…") : t("标注")}
-        </button>
-        <button type="button" className="lightbox-back" disabled={editing || copying} onClick={() => void copy()}>
-          {copying ? t("正在复制…") : t("复制")}
-        </button>
+        {!isRecording && (
+          <>
+            <button type="button" className="lightbox-back" disabled={editing} onClick={() => void edit()}>
+              {editing ? t("正在打开…") : t("标注")}
+            </button>
+            <button type="button" className="lightbox-back" disabled={editing || copying} onClick={() => void copy()}>
+              {copying ? t("正在复制…") : t("复制")}
+            </button>
+          </>
+        )}
         <span className="lightbox-count mono">{index + 1} / {records.length}</span>
       </div>
 
@@ -161,17 +170,28 @@ export function Lightbox({
           <svg width="12" height="22" viewBox="0 0 12 22" aria-hidden="true"><path d="M11 1L1 11l10 10" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
         </button>
         <div className="lightbox-stage" ref={stageRef}>
-          {box && (
+          {box && (isRecording ? (
+            <video
+              key={record.id}
+              ref={mediaRef as React.RefObject<HTMLVideoElement>}
+              className={mediaClass}
+              src={recordingUrl(record.id)}
+              style={mediaStyle}
+              controls
+              playsInline
+              aria-label={record.appName}
+            />
+          ) : (
             <img
               key={record.id}
-              ref={imageRef}
-              className={`lightbox-image ${opened.current ? "is-swapped" : ""} ${direction < 0 ? "from-prev" : ""}`}
+              ref={mediaRef as React.RefObject<HTMLImageElement>}
+              className={mediaClass}
               src={snapshotUrl(record.id)}
               alt={record.appName}
-              style={{ width: box.width, height: box.height }}
+              style={mediaStyle}
               draggable={false}
             />
-          )}
+          ))}
         </div>
         <button type="button" className="lightbox-arrow" aria-label={t("下一张")} disabled={editing || index >= records.length - 1} onClick={() => step(1)}>
           <svg width="12" height="22" viewBox="0 0 12 22" aria-hidden="true"><path d="M1 1l10 10L1 21" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
@@ -182,7 +202,9 @@ export function Lightbox({
         {editError && <span role="alert">{editError}</span>}
         {copyMessage && <span role="status">{copyMessage}</span>}
         <span className="mono lightbox-meta">
-          {record.width} × {record.height} · {formatBytes(record.sizeBytes)} · {record.fileName.split(".").pop()?.toUpperCase()} · {dayLabel(record.createdAt)} {formatClock(record.createdAt)}
+          {isRecording
+            ? `${record.durationMs != null ? `${formatDuration(record.durationMs)} · ` : ""}${formatBytes(record.sizeBytes)} · MP4 · ${dayLabel(record.createdAt)} ${formatClock(record.createdAt)}`
+            : `${record.width} × ${record.height} · ${formatBytes(record.sizeBytes)} · ${record.fileName.split(".").pop()?.toUpperCase()} · ${dayLabel(record.createdAt)} ${formatClock(record.createdAt)}`}
         </span>
       </div>
     </div>,

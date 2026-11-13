@@ -1,6 +1,7 @@
 import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, SavedPrompt, Settings, SnapshotRecord } from "../types";
+import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, RecordingRecord, SavedPrompt, Settings, SnapshotRecord } from "../types";
+import { demoVideos } from "./demoVideos";
 
 /**
  * 浏览器预览（直接 `npm run dev` 打开页面）用的假后端。
@@ -19,6 +20,54 @@ const windowLabel = params.get("window") ?? "main";
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 
 const BUILTIN_PROMPT = "你是提示词改写专家。保持原意不变，将用户草稿整理为清晰、完整、可执行的指令。只输出改写后的提示词。";
+
+/** 演示截图：按记录的真实比例画一张「窗口示意图」，浏览器预览里不依赖 media:// 协议。 */
+function demoSnapshotImage(record: SnapshotRecord) {
+  const palette = ["#dfe7f2", "#e8e2d4", "#dde8dd", "#e6dfe8", "#f0e3da", "#dce8ea"];
+  const index = record.id.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const bg = palette[index % palette.length];
+  const w = Math.max(1, record.width);
+  const h = Math.max(1, record.height);
+  const bar = Math.max(18, Math.round(h * 0.06));
+  const label = record.appName.replace(/[<>&"]/g, "");
+  const fontSize = Math.max(12, Math.round(Math.min(w, h) * 0.055));
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+    + `<rect width="${w}" height="${h}" fill="${bg}"/>`
+    + `<rect width="${w}" height="${bar}" fill="rgba(0,0,0,0.14)"/>`
+    + `<circle cx="${bar * 0.6}" cy="${bar / 2}" r="${bar * 0.18}" fill="rgba(255,255,255,0.75)"/>`
+    + `<text x="${bar * 1.2}" y="${bar * 0.68}" font-family="sans-serif" font-size="${Math.round(bar * 0.5)}" fill="rgba(0,0,0,0.55)">${label}</text>`
+    + `<rect x="${w * 0.06}" y="${bar + h * 0.06}" width="${w * 0.4}" height="${Math.max(8, h * 0.05)}" rx="4" fill="rgba(0,0,0,0.12)"/>`
+    + `<rect x="${w * 0.06}" y="${bar + h * 0.16}" width="${w * 0.88}" height="${Math.max(6, h * 0.03)}" rx="3" fill="rgba(0,0,0,0.08)"/>`
+    + `<rect x="${w * 0.06}" y="${bar + h * 0.23}" width="${w * 0.72}" height="${Math.max(6, h * 0.03)}" rx="3" fill="rgba(0,0,0,0.08)"/>`
+    + `<rect x="${w * 0.06}" y="${bar + h * 0.3}" width="${w * 0.8}" height="${Math.max(6, h * 0.03)}" rx="3" fill="rgba(0,0,0,0.08)"/>`
+    + `<text x="${w * 0.06}" y="${h * 0.92}" font-family="monospace" font-size="${fontSize}" fill="rgba(0,0,0,0.4)">${w} × ${h}</text>`
+    + `</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+/** 演示来源应用稳定标识：用一个可执行文件路径冒充，仅供预览角标取图，不代表真实应用 */
+function demoAppId(appName: string) {
+  return `/usr/bin/${appName.toLowerCase().replace(/\s+/g, "-")}`;
+}
+
+/** 演示来源应用图标：按标识取色、取首字母画一个圆角方块，让 ?demo 下的角标可见且有区分 */
+function demoAppIcon(id: string) {
+  const palette = ["#4285f4", "#ea4335", "#34a853", "#fbbc05", "#9c27b0", "#00acc1", "#ff7043", "#7cb342"];
+  const index = id.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const color = palette[index % palette.length];
+  const stem = id.split("/").pop() || "app";
+  const letter = (stem.replace(/[^a-zA-Z一-龥]/g, "").charAt(0) || "A").toUpperCase();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${color}"/><text x="32" y="44" font-family="sans-serif" font-size="34" font-weight="bold" fill="#fff" text-anchor="middle">${letter}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+/** 演示桌宠：一只简单的猫，供侧栏头像和舞台使用 */
+function demoPetImage(color: string) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><g stroke="#403d36" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M42 62 46 26 70 48Q80 44 90 48L114 26 118 62Q134 84 118 112Q108 130 80 129Q52 130 42 112Q26 84 42 62Z" fill="${color}"/><path d="M62 82v6m36-6v6m-26 12q8 7 16 0" fill="none"/><path d="M56 124v10m48-10v10"/></g></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+const demoPetColors = ["#e8d8bc", "#c9d6cf", "#ded4b8", "#d9c9c2", "#cfd4e0", "#e0d3c4", "#d6e0ca", "#c9c3b7"];
 
 /** 素材库的演示图内嵌在预览后端，不访问真实仓库，也不代表真实素材或授权。 */
 function demoCatalogPreview(body: string, color: string) {
@@ -40,7 +89,7 @@ const catalogFixtures: PetCatalogAsset[] = [
     sha256: "1".repeat(64), downloadUrl: "https://example.invalid/snapshot-demo/demo-block.zip", licenseStatus: "演示数据 · 不代表素材授权",
   },
   {
-    id: "demo-sprout", name: "演示 · 绿芽", description: "顶着一片新叶的小伙伴。可以试着导入、改名，再回到素材库重新导入。",
+    id: "demo-sprout", name: "演示 · 绿芽", description: "顶着一片新叶的小伙伴。可以试着导入，再回到素材库重新导入。",
     tags: ["演示", "植物", "轻巧"], version: "1.0.0-demo", file: "demo-sprout.zip", sizeBytes: 786_432,
     previewUrl: demoCatalogPreview('<path d="M80 48Q42 45 40 81Q37 114 80 114Q123 114 120 81Q118 45 80 48Z"/><path d="M80 48Q79 18 106 19Q107 44 80 48Z" fill="#a8b895"/><path d="M80 46 94 32" fill="none"/>', "#ded4b8"),
     sha256: "2".repeat(64), downloadUrl: "https://example.invalid/snapshot-demo/demo-sprout.zip", licenseStatus: "演示数据 · 不代表素材授权",
@@ -83,6 +132,7 @@ let settings: Settings = {
   petWander: false,
   petRandomActions: false,
   petGravity: true,
+  petHidden: false,
   shortcutsPaused: false,
   shortcuts: [
     { action: "snapshot", accelerator: demo ? "CommandOrControl+Shift+A" : null },
@@ -126,8 +176,17 @@ let snapshots: SnapshotRecord[] = demo
   ? Array.from({ length: 186 }, (_, index) => {
       const [appName, width, height, sizeBytes] = demoApps[index % demoApps.length];
       const minutes = index < 4 ? [6, 33, 165, 254][index] : index < 8 ? 60 * 24 + index * 70 : 60 * 24 * 3 + index * 40;
-      return { id: `snap-${index}`, fileName: `snap-${index}.png`, appName, width, height, sizeBytes, createdAt: minutesAgo(minutes) };
+      return { id: `snap-${index}`, fileName: `snap-${index}.png`, appName, width, height, sizeBytes, createdAt: minutesAgo(minutes), appId: demoAppId(appName) };
     })
+  : [];
+
+/** 演示录屏：和截图按时间混排。画面尺寸/时长由前端 video 元素量，这里只给文件信息 */
+let recordings: RecordingRecord[] = demo
+  ? [
+      { id: "rec-chrome", fileName: "应用快照-2026-11-12_09-40-00.mp4", appName: "Google Chrome", sizeBytes: 2_627, createdAt: minutesAgo(20), appId: demoAppId("Google Chrome") },
+      { id: "rec-wechat", fileName: "应用快照-2026-11-11_15-10-00.mp4", appName: "微信", sizeBytes: 2_276, createdAt: minutesAgo(60 * 24 + 40), appId: demoAppId("微信") },
+      { id: "rec-terminal", fileName: "Snapshot-2026-11-09_10-05-00.mp4", appName: "Windows Terminal", sizeBytes: 2_742, createdAt: minutesAgo(60 * 24 * 3 + 120), appId: demoAppId("Windows Terminal") },
+    ]
   : [];
 
 const activity: ActivityEntry[] = demo
@@ -249,8 +308,11 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     case "select_pet_appearance":
       return update({
         selectedAppearanceId: args.id,
+        petHidden: false,
         petAssets: settings.petAssets.map((asset) => (asset.id === args.id ? { ...asset, lastUsedAt: Date.now() } : asset)),
       });
+    case "hide_pet":
+      return update({ petHidden: true });
     case "show_pet_catalog": {
       const url = new URL(window.location.href);
       url.searchParams.set("window", "pet-catalog");
@@ -281,24 +343,30 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       };
       return update({
         selectedAppearanceId: asset.id,
+        petHidden: false,
         petAssets: existing ? settings.petAssets.map((pet) => pet.id === existing.id ? asset : pet) : [...settings.petAssets, asset],
       });
     }
     case "add_pet_assets": {
-      const added = (args.paths as string[]).map((path, index) => ({
-        id: `pet-${Date.now()}-${index}`,
-        name: (path.split(/[\\/]/).pop() ?? "伴侣").replace(/\.[^.]+$/, ""),
-        path,
-        entry: "",
-        animations: [],
-        importedAt: Date.now(),
-        lastUsedAt: Date.now(),
-      }));
-      const next = update({ selectedAppearanceId: added[added.length - 1]?.id ?? settings.selectedAppearanceId, petAssets: [...settings.petAssets, ...added] });
+      const taken = new Set(settings.petAssets.map((asset) => asset.name));
+      const added = (args.paths as string[]).map((path, index) => {
+        const stem = (path.split(/[\\/]/).pop() ?? "伴侣").replace(/\.[^.]+$/, "");
+        let name = stem;
+        for (let sequence = 2; taken.has(name); sequence++) name = `${stem} ${sequence}`;
+        taken.add(name);
+        return {
+          id: `pet-${Date.now()}-${index}`,
+          name,
+          path,
+          entry: "",
+          animations: [],
+          importedAt: Date.now(),
+          lastUsedAt: Date.now(),
+        };
+      });
+      const next = update({ selectedAppearanceId: added[added.length - 1]?.id ?? settings.selectedAppearanceId, petHidden: false, petAssets: [...settings.petAssets, ...added] });
       return { settings: next, imported: added.length, failed: [] };
     }
-    case "rename_pet_asset":
-      return update({ petAssets: settings.petAssets.map((asset) => (asset.id === args.id ? { ...asset, name: args.name } : asset)) });
     case "delete_pet_asset":
       return update({
         selectedAppearanceId: settings.selectedAppearanceId === args.id ? "app-icon" : settings.selectedAppearanceId,
@@ -332,6 +400,8 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       return "~/Downloads";
     case "list_snapshots":
       return structuredClone(snapshots);
+    case "list_recordings":
+      return structuredClone(recordings);
     case "list_prompt_history":
       return structuredClone(promptHistory);
     case "list_saved_prompts":
@@ -365,6 +435,9 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     case "delete_snapshots":
       snapshots = snapshots.filter((item) => !(args.ids as string[]).includes(item.id));
       return structuredClone(snapshots);
+    case "delete_recordings":
+      recordings = recordings.filter((item) => !(args.ids as string[]).includes(item.id));
+      return structuredClone(recordings);
     case "copy_snapshot":
       return "预览模式下不会写剪贴板";
     case "annotate_snapshot":
@@ -399,10 +472,23 @@ export function installPreviewBackend() {
   const convertFileSrc = internals.convertFileSrc;
   internals.convertFileSrc = (path, protocol) => {
     const [kind, id] = path.split("/");
-    if (protocol === "media" && (kind === "pet" || kind === "pet-thumb")) {
-      const source = settings.petAssets.find((asset) => asset.id === id)?.source;
-      const item = catalogFixtures.find((asset) => source === `https://github.com/Maxwilldoit/Pets#${asset.id}`);
-      if (item) return item.previewUrl;
+    if (protocol === "media") {
+      if (kind === "snapshot" || kind === "thumb") {
+        const record = snapshots.find((item) => item.id === id);
+        if (record) return demoSnapshotImage(record);
+      }
+      if (kind === "recording" && demoVideos[id]) return demoVideos[id];
+      // 历史角标：app-icon/<size>/<id>，id 是余下整段（可含斜杠），按它取一张演示图标
+      if (kind === "app-icon") return demoAppIcon(path.split("/").slice(2).join("/"));
+      if (kind === "pet" || kind === "pet-thumb") {
+        const asset = settings.petAssets.find((item) => item.id === id);
+        const item = catalogFixtures.find((fixture) => asset?.source === `https://github.com/Maxwilldoit/Pets#${fixture.id}`);
+        if (item) return item.previewUrl;
+        if (asset && !asset.missing) {
+          const index = settings.petAssets.indexOf(asset);
+          return demoPetImage(demoPetColors[index % demoPetColors.length]);
+        }
+      }
     }
     return convertFileSrc(path, protocol);
   };

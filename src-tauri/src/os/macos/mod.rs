@@ -18,6 +18,7 @@ use std::{path::Path, process::Command};
 
 pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
 pub(crate) use icon::png_for_pid as app_icon_png;
+pub(crate) use icon::{png_for_app_id as app_icon_for_id, stable_id_for_pid as app_stable_id};
 pub(crate) use permissions::require_screen_capture_access;
 pub(crate) use recorder::{start_recording, Recording};
 pub(crate) use window::{capture_window_image, list_windows};

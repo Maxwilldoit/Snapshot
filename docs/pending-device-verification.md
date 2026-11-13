@@ -172,3 +172,46 @@ CI（`linux-packages.yml`）每次发版都会在 22.04 和 24.04（x86_64 / aar
   - 验什么：移除动画数量/体积信息后仍能选到想要的动作；两种缩放作用域不变；透明窗口与导入素材显示正常。
 - [ ] **中英文与最小尺寸布局**（Windows / Linux）
   - 验什么：820×520 与 960×580 下侧栏、页头按钮和两种窗口按钮布局不截断；本机只在浏览器预览与 macOS debug 包上看过。
+
+## 九、界面刷新（codex/ui-refresh-20261112）待真机补验
+
+本轮把录屏并入历史墙、重做工具栏与桌宠侧栏，并删除录屏完成通知。新增 IPC（`list_recordings` / `delete_recordings` / `hide_pet`）、事件 `recordings-changed` 与设置字段 `petHidden`（`serde(default)`，旧配置缺省视为显示）经契约快照确认；窗口标签与存储键不变。浏览器预览用内存 mock 后端与示例 MP4，真实采集、播放与透明窗口行为仍需真机确认。
+
+- [ ] **录屏在历史墙里的封面、时长与播放**（三端，重点 macOS / Windows）
+  - 验什么：录屏按时间与截图混排；封面取首帧、右下角时长正确；点击进预览后 `<video controls>` 能播放并拖动进度（`media://` 的 `recording/<id>` 路由走 HTTP Range）；删除录屏会一起删掉本机文件。
+  - 为什么本机验不了：预览用的是示例 MP4，真实录屏产物的编码、首帧与 Range 响应需在各平台真机确认；Linux 录制本身仍待补验（见第一、七节）。
+- [ ] **点击已选中的桌宠把它收起**（macOS / Windows / Linux）
+  - 验什么：点选中的形象后透明窗口隐藏但应用继续运行（不是回退到应用图标）；再点一次恢复；`petHidden` 重启后仍生效；「前台应用图标」同样参与切换。
+  - 为什么本机验不了：透明窗口的隐藏/恢复与指针行为依赖各平台合成器；Wayland 若限制客户端窗口状态需单独确认。
+- [ ] **历史墙键盘操作与多选**（三端真键盘）
+  - 验什么：点击/空格进预览，←/→ 切换，Esc 关闭；左上勾选圈进入多选，悬停右上复制/标注/删除可达；焦点顺序与 aria-label 完整。
+  - 为什么本机验不了：浏览器预览只验了 jsdom 与 mock 焦点，真实键盘与读屏需真机确认。
+- [ ] **工具栏统一图标按钮与搜索展开**（三端）
+  - 验什么：常态无底色、悬停浅底加提示；搜索默认窄、聚焦或 `Ctrl/Cmd+F` 展开；Prompt 库独立窗口入口可达。
+- [ ] **录屏完成不再弹通知**（三端）
+  - 验什么：停止录屏后快捷菜单直接收起、不再出现「录制已保存」；保存中的忙碌与失败反馈仍保留；录屏可在历史里找到。
+
+## 十、来源应用图标（codex/ui-refresh-20261112，应用图标批次）待真机补验
+
+历史格子左下角改显「来源应用图标」，不再用截图/录屏类型图标。截图与录屏都记下来源应用的**稳定标识**（不是 pid，应用退出后仍能取图标）：macOS 用 bundle id（取不到退回 `.app` 路径），Windows / Linux 用可执行文件完整路径。标识只作为**可选字段**追加（`serde(default)`），旧历史与旧设置照常读取；旧条目没有标识就不显示角标，不猜测、也不退回类型图标。图标按标识取、内存缓存，取不到就不显示。契约快照逐字相同（`app_id` 在 `SnapshotRecord` / `RecordingRecord` 上而非 `Settings`；`app-icon` 是 `media://` 路由而非 IPC 命令/事件）。
+
+**本批已在 Linux 沙箱验过**（本批开发机为 Linux，与本文开头历史批次的 macOS 不同）：
+- [x] Linux 适配器编译与静态检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 通过。`app_stable_id` 走 `/proc/<pid>/exe` readlink；`app_icon_for_id` 复用 `icon_for_exe`（exe 名 → `.desktop` 图标 → 图标主题）。
+- [x] 向后兼容单测：`snapshot_record_reads_old_json_without_app_id`（旧 JSON 无 `appId` 仍可读）、`recording_meta_round_trips_and_skips_missing_identity`（标识落盘读回，旧录像无条目为 `None`）。
+- [x] 前端 `MediaTile` 测试：有标识显示图标 / 无标识不显示也不退回类型图标 / 加载失败收起角标 / 录屏显示图标且右下角保留时长。`?demo` 预览给演示数据 `appId` 与可显示图标（data-URL）。
+
+**待真机：**
+- [ ] **macOS 来源标识与图标**（`os/macos/icon.rs`）
+  - 验什么：截图/录屏后历史左下角显示来源应用图标；应用退出后图标仍在；bundle id 取不到时退回 `.app` 路径仍能取图标；取不到图标就不显示角标。
+  - 实现说明：`NSRunningApplication.bundleIdentifier`（退回 `bundleURL.path`）；`NSWorkspace` 的 `URLForApplicationWithBundleIdentifier` / `iconForFile`。macOS 采集用 `tracker.previous.pid` 取标识，不在采集热路径加窗口枚举。
+  - 为什么本机验不了：macOS 专有（objc2 / NSWorkspace），Linux 编译不到。
+- [ ] **Windows 来源标识与图标**（`os/windows/icon.rs`）
+  - 验什么：同上；exe 完整路径作为标识，应用退出后图标仍在；图标走既有 STA 线程按路径取图标。
+  - 实现说明：`QueryFullProcessImageNameW` 取 exe 路径；`png_for_path`。
+  - 为什么本机验不了：Windows 专有，Linux 编译不到。
+- [ ] **三端真实采集 → 标识落盘 → 历史显示**（端到端）
+  - 验什么：真实截图与录屏各一次，确认 `appId` 写入；录屏标识单独存 `recording-meta.json`（不受 `activity.json` 300 条上限影响），重启后历史仍显示图标；录屏取被录窗口所属应用。
+  - 为什么本机验不了：浏览器预览用内存 mock，真实采集需各平台真机。
+- [ ] **Linux 真实桌面图标主题渲染**
+  - 验什么：在装有图标主题的真实 Linux 桌面上，按 exe 名能取到对应 `.desktop` 图标并清晰显示；无图标主题时不显示角标。
+  - 为什么本机验不了：本沙箱无完整桌面图标主题，只验了编译与逻辑。

@@ -38,9 +38,9 @@ pub(crate) fn app_icon_png(pid: u32, size: u32) -> Option<Vec<u8>> {
     crate::capture::encode_png(&icon_for_process(pid, size)?).ok()
 }
 
-/// `size` 是想要的像素边长：窗口列表只显示 24px，桌宠最大 68px，没必要按 256px 取。
-fn icon_for_process(pid: u32, size: u32) -> Option<RgbaImage> {
-    let size = size as i32;
+/// pid → 可执行文件完整路径（宽字符，结尾带 0）。进程已退出或无权限时返回 None。
+/// 实时取图标与历史稳定标识共用这一步。
+fn exe_path_for_pid(pid: u32) -> Option<Vec<u16>> {
     unsafe {
         let process: HANDLE = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if process.is_null() {
@@ -55,7 +55,23 @@ fn icon_for_process(pid: u32, size: u32) -> Option<RgbaImage> {
         }
         path.truncate(len as usize);
         path.push(0);
+        Some(path)
+    }
+}
 
+/// 进程的稳定应用标识：可执行文件完整路径。应用退出后路径仍在，历史据此取图标，
+/// 不像 pid 那样进程一结束就失效。
+pub(crate) fn stable_id_for_pid(pid: u32) -> Option<String> {
+    let wide = exe_path_for_pid(pid)?;
+    let len = wide.len().saturating_sub(1); // 去掉结尾的 0
+    Some(String::from_utf16_lossy(&wide[..len]))
+}
+
+/// `size` 是想要的像素边长：窗口列表只显示 24px，桌宠最大 68px，没必要按 256px 取。
+fn icon_for_process(pid: u32, size: u32) -> Option<RgbaImage> {
+    let size = size as i32;
+    let path = exe_path_for_pid(pid)?;
+    unsafe {
         let mut extracted_icon = null_mut();
         let mut icon_id = 0u32;
         let extracted = PrivateExtractIconsW(

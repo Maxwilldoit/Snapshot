@@ -113,6 +113,8 @@ export interface Settings {
   petRandomActions?: boolean;
   /** 拖拽松开后落回工作区底部 */
   petGravity?: boolean;
+  /** 桌宠被收起来了：选中的形象保留，只是不显示；旧设置缺省时视为显示 */
+  petHidden?: boolean;
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
   shortcutsPaused?: boolean;
@@ -164,6 +166,19 @@ export interface SnapshotRecord {
   height: number;
   sizeBytes: number;
   createdAt: number;
+  /** 来源应用稳定标识。旧记录没有这一项，缺省不显示角标 */
+  appId?: string;
+}
+
+/** 一段录屏成品。时长和画面尺寸由前端用 video 元素量，后端只给文件信息 */
+export interface RecordingRecord {
+  id: string;
+  fileName: string;
+  appName: string;
+  sizeBytes: number;
+  createdAt: number;
+  /** 来源应用稳定标识。旧录像没有这一项，缺省不显示角标 */
+  appId?: string;
 }
 
 /** 后端记下的一件事：截了什么、录了什么、润色了什么、哪里失败了 */

@@ -5,7 +5,7 @@ import { Lightbox } from "./Lightbox";
 import { setupTauriMock, invokeArgs } from "../test/tauri";
 
 const records = ["first", "second"].map((id) => ({
-  id, appName: id, fileName: `${id}.png`, width: 200, height: 100, sizeBytes: 1000, createdAt: 1,
+  id, kind: "snapshot" as const, appName: id, fileName: `${id}.png`, width: 200, height: 100, sizeBytes: 1000, createdAt: 1,
 }));
 
 describe("历史预览标注", () => {

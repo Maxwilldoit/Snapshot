@@ -42,6 +42,14 @@ impl ActivityLog {
         }
     }
 
+    /// 录像的目标应用名：record 活动的 detail 记的是落盘路径
+    pub(crate) fn recording_target(&self, path: &str) -> Option<String> {
+        self.entries
+            .iter()
+            .find(|entry| entry.kind == "record" && entry.detail.as_deref() == Some(path))
+            .map(|entry| entry.title.clone())
+    }
+
     fn push(&mut self, mut entry: ActivityEntry) -> ActivityEntry {
         self.counter += 1;
         entry.id = format!("act-{}-{}", entry.at, self.counter);

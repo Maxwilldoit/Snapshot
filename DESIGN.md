@@ -29,11 +29,19 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
 
 ## Layout and components
 
-- Sidebar contains navigation. A stable capture/record control belongs in the main
-  window shell; page headers contain the page title and local actions.
+- Sidebar contains navigation only; capture and recording are reached through the pet
+  quick menu and global shortcuts. Page headers contain the page title and local actions.
+- Each pet row has a deselectable toggle dot left of the name: pressing it shows that pet
+  on the desktop, pressing the selected one hides the desktop pet entirely (the app keeps
+  running). The rest of the row opens the detail page. The dot is an `aria-pressed` toggle
+  button, not a standard radio, because it can be deselected.
 - Pages use the existing `mw-page`, `mw-toolbar`, `mw-scroll`, `panel`, `row`, `btn`,
   `tb-btn`, `input`, and dialog patterns. Independent windows may reuse these visual
   primitives without importing main-window context or navigation.
+- Toolbar actions are uniform icon buttons: no background until hover or an expanded
+  state, a tooltip and an accessible label on every one. A clear gap separates page
+  actions from the window controls. Toolbar search stays collapsed to an icon until
+  focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
 - Hierarchy comes from position, type, and whitespace. Avoid decorative cards,
   gradients, slogans, sequence numbers, and permanent metadata counters.
 - An empty collection shows a title and an actionable primary button. A shortcut
@@ -50,12 +58,15 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
 - Keep recoverable errors and permission actions. Disabled functionality needs a
   discoverable reason, not a silent disappearance.
 - Remove success notices only when the resulting control or content visibly confirms
-  success. Keep recording completion feedback until recordings have a visible home.
+  success. Recordings now land in History (mixed with screenshots by time), so stopping
+  a recording dismisses the quick menu without a completion toast; keep the busy and
+  error feedback while saving.
 - Preserve persistent field labels. Placeholders provide optional examples, not labels.
 - Preserve meaningful time, selection, and position information; show secondary metadata
   on demand only when the interaction remains discoverable and keyboard accessible.
-- Keep Chinese and English terminology consistent: 截图/Screenshot, 录屏/Recording,
-  长截图/Scrolling screenshot. Use Window/Fullscreen where the distinction changes behavior.
+- Keep Chinese and English terminology consistent: 历史/History, 截图/Screenshot,
+  录屏/Recording, 长截图/Scrolling screenshot. Use Window/Fullscreen where the
+  distinction changes behavior.
 
 ## Motion
 

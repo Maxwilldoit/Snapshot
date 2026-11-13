@@ -463,6 +463,8 @@ async fn perform_with_trace(
                     &state,
                     image,
                     &name,
+                    // 全屏截的是整块屏幕，不属于某个应用，没有来源角标
+                    None,
                     cursor_degraded,
                     capture_trace,
                 )
@@ -473,13 +475,14 @@ async fn perform_with_trace(
         // 滚动长截图只有 Linux/X11 有实现（其余平台的 SHORTCUT_ACTIONS 里也没有这一项）
         #[cfg(target_os = "linux")]
         "scrolling" => {
-            let target_id = state
+            let previous = state
                 .tracker
                 .lock()
                 .previous
-                .as_ref()
-                .map(|window| window.id)
+                .clone()
                 .ok_or_else(|| "还没有上一个应用可截取".to_string())?;
+            let target_id = previous.id;
+            let app_id = os::app_stable_id(previous.pid);
             let image = tauri::async_runtime::spawn_blocking(move || {
                 os::capture_scrolling_window(target_id)
             })
@@ -490,6 +493,7 @@ async fn perform_with_trace(
                 &state,
                 image,
                 ui_text("滚动长截图", "Scrolling Screenshot"),
+                app_id,
                 None,
                 trace.cloned().unwrap_or_else(CaptureTrace::start),
             )
