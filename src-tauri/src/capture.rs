@@ -52,7 +52,15 @@ pub(crate) fn capture_window(
                 os::capture_own_window(hwnd)
             })?;
         let app_id = os::app_stable_id(std::process::id());
-        return finalize_capture(&app, &state, image, "snapshot", app_id, cursor_degraded, trace);
+        return finalize_capture(
+            &app,
+            &state,
+            image,
+            "snapshot",
+            app_id,
+            cursor_degraded,
+            trace,
+        );
     }
     #[cfg(target_os = "macos")]
     {
@@ -104,7 +112,15 @@ pub(crate) fn capture_window(
                     .map_err(|error| format!("截取失败：{error}"))
             })?;
         let app_id = window.pid().ok().and_then(os::app_stable_id);
-        finalize_capture(&app, &state, image, &app_name, app_id, cursor_degraded, trace)
+        finalize_capture(
+            &app,
+            &state,
+            image,
+            &app_name,
+            app_id,
+            cursor_degraded,
+            trace,
+        )
     }
 }
 

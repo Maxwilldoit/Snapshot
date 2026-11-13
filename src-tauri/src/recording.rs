@@ -229,11 +229,7 @@ pub(crate) fn toggle_recording(
                     .and_then(|name| name.to_str())
                     .and_then(recording_stem)
                 {
-                    write_recording_meta_entry(
-                        &state.recording_meta_path,
-                        stem,
-                        finished.app_id,
-                    );
+                    write_recording_meta_entry(&state.recording_meta_path, stem, finished.app_id);
                 }
                 let _ = app.emit("recording-changed", &status);
                 // 录像在历史页有了固定的家：列表据此刷新，不再靠完成提示指路
@@ -570,7 +566,11 @@ mod tests {
             now_millis()
         ));
         // 取得到标识就落盘，读得回来；旧录像没有条目就是 None
-        super::write_recording_meta_entry(&path, "应用快照-2026-11-12_10-00-00", Some("/usr/bin/obs".into()));
+        super::write_recording_meta_entry(
+            &path,
+            "应用快照-2026-11-12_10-00-00",
+            Some("/usr/bin/obs".into()),
+        );
         let meta = super::read_recording_meta(&path);
         assert_eq!(
             meta.get("应用快照-2026-11-12_10-00-00").map(String::as_str),
