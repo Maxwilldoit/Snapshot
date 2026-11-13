@@ -24,6 +24,7 @@ export const backendErrorEnglish: Record<string, string> = {
   "图标尺寸无效": "The icon size is invalid.",
   "pid 无效": "The process ID is invalid.",
   "这个进程没有可用的图标": "This process has no icon.",
+  "这个应用没有可用的图标": "This app has no icon.",
   "只能读取设置里选定的音效文件": "Only the sound chosen in Settings can be played.",
   "音效文件已被移动或删除": "The sound file was moved or deleted. Choose it again in Settings.",
   "找不到这条快照": "That screenshot couldn’t be found.",
