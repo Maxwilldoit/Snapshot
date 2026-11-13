@@ -283,6 +283,19 @@ pub(crate) fn icon_bytes(state: &AppState, id: &str, size: u32) -> Result<Vec<u8
     Ok(bytes)
 }
 
+/// 旧历史缺少稳定标识时，只接受安装清单里唯一的同名应用。
+pub(crate) fn icon_bytes_for_name(state: &AppState, name: &str, size: u32) -> Option<Vec<u8>> {
+    let apps = cached_catalog(state);
+    let mut matches = apps
+        .iter()
+        .filter(|app| app.name.eq_ignore_ascii_case(name.trim()));
+    let entry = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    icon_bytes(state, &entry.id, size).ok()
+}
+
 fn monitor_for(window: &tauri::WebviewWindow, x: f64, y: f64) -> Option<tauri::Monitor> {
     let scale = window.scale_factor().unwrap_or(1.0);
     let (sx, sy) = (x * scale, y * scale);

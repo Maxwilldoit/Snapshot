@@ -20,6 +20,7 @@ import { Lightbox } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
 import { SearchField } from "../components/SearchField";
+import { Menu, MenuItem, MenuSeparator } from "../components/Menu";
 import { Keys } from "../components/ui/Keys";
 import { Toolbar } from "../app/Shell";
 import { acceleratorOf } from "../lib/shortcuts";
@@ -28,7 +29,9 @@ import { useI18n } from "../lib/i18n";
 import { mergeTimeline, type MediaItem, type RecordingMeta } from "../lib/mediaTimeline";
 import type { RecordingRecord, SnapshotRecord } from "../types";
 
-/** 历史：截图和录屏按时间混排成两端对齐的媒体墙；点一格放大，勾选圈进入多选批量删除 */
+type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y: number } };
+
+/** 历史：截图点开标注，录屏点开播放；右键进入多选、复制或确认删除。 */
 export function HistoryPage() {
   const { settings, onSaved, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
   const { t } = useI18n();
@@ -41,13 +44,20 @@ export function HistoryPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [contextMenu, setContextMenu] = useState<HistoryMenu | null>(null);
+  const closeMenu = useCallback(() => setContextMenu(null), []);
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const confirming = deleteIds !== null;
   const [deleting, setDeleting] = useState(false);
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const known = useRef<Set<string> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const flip = useFlip(listRef);
+  const pendingHandled = useRef<string | null>(null);
+  const annotateItem = useCallback((item: MediaItem) => {
+    void annotateSnapshot(item.id).catch((error) => notify(errorText(error), "error"));
+  }, [notify]);
 
   // 录屏封面 video 读到真实尺寸/时长后回填，时间线据此重新排版
   const reportMeta = useCallback((id: string, meta: RecordingMeta) => {
@@ -90,13 +100,20 @@ export function HistoryPage() {
     };
   }, [refresh]);
 
-  // 从别处点进来的那格，直接放大
+  // 从别处点进来的截图也直接标注；录屏仍打开播放器。
   useEffect(() => {
-    if (!pendingPreviewId || snapshots === null) return;
+    if (!pendingPreviewId) {
+      pendingHandled.current = null;
+      return;
+    }
+    if (snapshots === null || pendingHandled.current === pendingPreviewId) return;
+    pendingHandled.current = pendingPreviewId;
     const items = mergeTimeline(snapshots, recordings, metaRef.current);
-    if (items.some((item) => item.id === pendingPreviewId)) setPreviewId(pendingPreviewId);
+    const item = items.find((item) => item.id === pendingPreviewId);
+    if (item?.kind === "snapshot") annotateItem(item);
+    else if (item) setPreviewId(item.id);
     consumePreviewId();
-  }, [pendingPreviewId, snapshots, recordings, consumePreviewId]);
+  }, [pendingPreviewId, snapshots, recordings, consumePreviewId, annotateItem]);
 
   useEffect(() => {
     if (!fresh.size) return;
@@ -122,13 +139,13 @@ export function HistoryPage() {
   }, []);
 
   useEffect(() => {
-    if (!selecting || previewId || confirming) return;
+    if (!selecting || previewId || confirming || contextMenu) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") exitSelecting();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selecting, previewId, confirming, exitSelecting]);
+  }, [selecting, previewId, confirming, contextMenu, exitSelecting]);
 
   function toggle(id: string, range: boolean) {
     setSelected((current) => {
@@ -149,28 +166,26 @@ export function HistoryPage() {
     setAnchor(id);
   }
 
-  function toggleGroup(ids: string[]) {
-    setSelected((current) => {
-      const next = new Set(current);
-      const all = ids.every((id) => next.has(id));
-      ids.forEach((id) => (all ? next.delete(id) : next.add(id)));
-      return next;
-    });
-  }
-
-  // 勾选圈：还没进多选就先进入，再选中这一格
-  function check(item: MediaItem, event: React.MouseEvent) {
-    if (!selecting) setSelecting(true);
-    toggle(item.id, event.shiftKey);
-  }
-
   function open(item: MediaItem, event: React.MouseEvent) {
     if (selecting) toggle(item.id, event.shiftKey);
+    else if (item.kind === "snapshot") annotateItem(item);
     else setPreviewId(item.id);
   }
 
+  function selectItem(item: MediaItem) {
+    setSelecting(true);
+    toggle(item.id, false);
+  }
+
+  function menuAction(action: (item: MediaItem) => void) {
+    if (!contextMenu) return;
+    contextMenu.anchor.focus({ preventScroll: true });
+    closeMenu();
+    action(contextMenu.item);
+  }
+
   async function remove(ids: string[]) {
-    if (!ids.length) return;
+    if (!ids.length) return false;
     setDeleting(true);
     try {
       // 先消失再合拢：顺序反了会像是别的条目被删了
@@ -191,12 +206,14 @@ export function HistoryPage() {
       setLeaving(new Set());
       setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))));
       notify(t(ids.length === 1 ? "删掉了 1 项" : "删掉了 {count} 项", { count: ids.length }));
+      return true;
     } catch (error) {
       setLeaving(new Set());
       notify(errorText(error), "error");
+      return false;
     } finally {
       setDeleting(false);
-      setConfirming(false);
+      setDeleteIds(null);
     }
   }
 
@@ -214,14 +231,9 @@ export function HistoryPage() {
       .catch((error) => notify(errorText(error), "error"));
   }
 
-  function annotateItem(item: MediaItem) {
-    void annotateSnapshot(item.id).catch((error) => notify(errorText(error), "error"));
-  }
-
-  // 悬停删除：只针对这一格，弹确认框后走和批量删除同一条路
+  // 右键已选项时作用于整批；右键未选项时仅删除该项，取消确认不改变原选择。
   function deleteItem(item: MediaItem) {
-    setSelected(new Set([item.id]));
-    setConfirming(true);
+    setDeleteIds(selecting && selected.has(item.id) ? [...selected] : [item.id]);
   }
 
   const selectedBytes = useMemo(
@@ -231,17 +243,17 @@ export function HistoryPage() {
 
   const total = items?.length ?? 0;
   const visibleIds = useMemo(() => filtered.map((item) => item.id), [filtered]);
-  const previewRecords = filtered.length ? filtered : (items ?? []);
-  const allSelected = total > 0 && selected.size === total;
+  const previewRecords = (filtered.length ? filtered : (items ?? [])).filter((item) => item.kind === "recording");
+  const allDeleting = total > 0 && deleteIds?.length === total;
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   // 退场时文案别跟着变成「删除 0 项」：打开那一刻的文案一直留到对话框淡出
   const confirmDialog = usePresence(
     confirming
       ? {
-          title: allSelected
+          title: allDeleting
             ? t(total === 1 ? "删除全部 1 项？" : "删除全部 {count} 项？", { count: total })
-            : t(selected.size === 1 ? "删除选中的 1 项？" : "删除选中的 {count} 项？", { count: selected.size }),
-          label: t("删除 {count} 项", { count: selected.size }),
+            : t(deleteIds.length === 1 ? "删除选中的 1 项？" : "删除选中的 {count} 项？", { count: deleteIds.length }),
+          label: t("删除 {count} 项", { count: deleteIds.length }),
         }
       : null,
   );
@@ -283,7 +295,7 @@ export function HistoryPage() {
       <button type="button" className="tb-btn" aria-label={t("取消")} title={t("取消")} onClick={exitSelecting}>
         <X aria-hidden="true" />
       </button>
-      <button type="button" className="tb-btn is-danger" aria-label={deleteLabel} title={deleteLabel} disabled={selected.size === 0} onClick={() => setConfirming(true)}>
+      <button type="button" className="tb-btn is-danger" aria-label={deleteLabel} title={deleteLabel} disabled={selected.size === 0} onClick={() => setDeleteIds([...selected])}>
         <Trash2 aria-hidden="true" />
       </button>
     </Toolbar>
@@ -348,20 +360,10 @@ export function HistoryPage() {
     body = (
       <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
         {groups.map((group) => {
-          const ids = group.items.map((item) => item.id);
-          const picked = ids.filter((id) => selected.has(id)).length;
           return (
             <section className="day" key={group.key} aria-label={group.label}>
               <div className="day-label">
                 <h2 className="day-title">{group.label}</h2>
-                {selecting && (
-                  <>
-                    {picked > 0 && <span className="small quiet">{t("选了 {picked} / {count}", { picked, count: ids.length })}</span>}
-                    <button type="button" className="link small" onClick={() => toggleGroup(ids)}>
-                      {picked === ids.length ? t("取消整组") : t("选整组")}
-                    </button>
-                  </>
-                )}
               </div>
               <JustifiedGrid
                 items={group.items}
@@ -380,10 +382,7 @@ export function HistoryPage() {
                       selecting={selecting}
                       selected={selected.has(item.id)}
                       onOpen={open}
-                      onCheck={check}
-                      onCopy={copyItem}
-                      onAnnotate={annotateItem}
-                      onDelete={deleteItem}
+                      onMenu={(item, anchor, point) => setContextMenu({ item, anchor, point })}
                       onMeta={reportMeta}
                     />
                   </figure>
@@ -401,6 +400,17 @@ export function HistoryPage() {
       {toolbar}
       <div className="mw-scroll history-scroll">{body}</div>
 
+      {contextMenu && (
+        <Menu anchor={contextMenu.anchor} point={contextMenu.point} onClose={closeMenu} label={t("历史操作")}>
+          <MenuItem onSelect={() => menuAction(selectItem)}>
+            {selecting ? t(selected.has(contextMenu.item.id) ? "取消选择" : "选择") : t("多选")}
+          </MenuItem>
+          {contextMenu.item.kind === "snapshot" && <MenuItem onSelect={() => menuAction(copyItem)}>{t("复制")}</MenuItem>}
+          <MenuSeparator />
+          <MenuItem danger onSelect={() => menuAction(deleteItem)}>{t("删除")}</MenuItem>
+        </Menu>
+      )}
+
       {previewId && (
         <Lightbox
           records={previewRecords}
@@ -413,10 +423,10 @@ export function HistoryPage() {
           title={confirmDialog.item.title}
           body={t("文件会从本机一起删掉，没法恢复。")}
           confirmLabel={confirmDialog.item.label}
-          busy={deleting}
+          busy={deleting || !deleteIds}
           leaving={confirmDialog.leaving}
-          onCancel={() => setConfirming(false)}
-          onConfirm={() => void remove([...selected]).then(() => allSelected && exitSelecting())}
+          onCancel={() => !deleting && setDeleteIds(null)}
+          onConfirm={() => deleteIds && void remove(deleteIds).then((removed) => removed && allDeleting && exitSelecting())}
         />
       )}
     </div>

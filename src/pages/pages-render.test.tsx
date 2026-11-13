@@ -204,7 +204,7 @@ describe("B2 拆页后逐页渲染", () => {
     const user = userEvent.setup();
 
     // 截图页只放截图
-    expect(await screen.findByRole("button", { name: "放大：Codex" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "标注：Codex" })).toBeTruthy();
     // Prompt 页为保草稿常驻挂载但隐藏，可见内容以当前页为准
     const visiblePage = () => within(document.querySelector<HTMLElement>(".page-view:not([hidden])")!);
     expect(visiblePage().queryByText("帮我把按钮改得更容易找到")).toBeNull();
@@ -212,7 +212,7 @@ describe("B2 拆页后逐页渲染", () => {
 
     await user.click(screen.getByRole("button", { name: /^Prompt$/ }));
     expect(await screen.findByText("09:05")).toBeTruthy();
-    expect(visiblePage().queryByRole("button", { name: "放大：Codex" })).toBeNull();
+    expect(visiblePage().queryByRole("button", { name: "标注：Codex" })).toBeNull();
     const summary = visiblePage().getAllByText("帮我把按钮改得更容易找到")[0].closest("summary");
     expect(summary).toBeTruthy();
     await user.click(summary!);

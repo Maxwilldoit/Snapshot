@@ -20,9 +20,9 @@ export const historyEnglish: Record<string, string> = {
   "设置截图快捷键": "Set a Screenshot Shortcut",
   "截图后会自动留在这里": "Screenshots are saved here automatically",
   "没有含「{query}」的历史记录。": "No results for “{query}”.",
-  "选了 {picked} / {count}": "{picked} of {count} selected",
-  "取消整组": "Deselect Group",
-  "选整组": "Select Group",
+  "历史操作": "History Actions",
+  "多选": "Select Multiple",
+  "取消选择": "Deselect",
   "文件会从本机一起删掉，没法恢复。": "The files will be deleted from your computer. This can’t be undone.",
 
   "截图": "Screenshot",
@@ -39,7 +39,8 @@ export const historyEnglish: Record<string, string> = {
   "下一张": "Next",
 
   "选择：{label}": "Select {label}",
-  "放大：{label}": "Open {label}",
+  "标注：{label}": "Edit {label}",
+  "播放：{label}": "Play {label}",
 
   "原文": "Original",
   "润色文": "Enhanced",

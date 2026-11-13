@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MediaTile } from "./MediaTile";
 import { setupTauriMock } from "../test/tauri";
 import type { MediaItem } from "../lib/mediaTimeline";
@@ -23,7 +23,7 @@ const renderTile = (media: MediaItem) =>
       boxWidth={200}
       boxHeight={100}
       onOpen={() => {}}
-      onCheck={() => {}}
+      onMenu={() => {}}
     />,
   );
 
@@ -38,11 +38,25 @@ describe("历史格子的来源应用角标", () => {
     expect(container.querySelector(".tile-type")).toBeNull();
   });
 
-  it("旧记录没有标识就不显示角标，也不退回类型图标", () => {
+  it("旧记录没有标识时按来源应用名请求真实图标", () => {
     setupTauriMock(() => undefined);
     const { container } = renderTile(item());
-    expect(container.querySelector("img.tile-app")).toBeNull();
+    expect(container.querySelector("img.tile-app")?.getAttribute("src")).toContain("app-name-icon");
     expect(container.querySelector(".tile-type")).toBeNull();
+  });
+
+  it("格子只有一个主入口，没有悬停操作或圆形复选框，支持右键和键盘菜单", () => {
+    setupTauriMock();
+    const onOpen = vi.fn(), onMenu = vi.fn();
+    const { container } = render(<MediaTile item={item()} boxWidth={200} boxHeight={100} onOpen={onOpen} onMenu={onMenu} />);
+    const tile = screen.getByRole("button", { name: "标注：Google Chrome" });
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(container.querySelector(".tile-check, .tile-actions")).toBeNull();
+    fireEvent.contextMenu(tile, { clientX: 40, clientY: 60 });
+    expect(onMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "snap-1" }), tile, { x: 40, y: 60 });
+    fireEvent.keyDown(tile, { key: "F10", shiftKey: true });
+    expect(onMenu).toHaveBeenCalledTimes(2);
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("图标取不到（加载失败）时收起角标，不留空位也不换类型图标", () => {
