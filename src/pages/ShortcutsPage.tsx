@@ -54,6 +54,7 @@ function ShortcutsPanel() {
   const [shortcuts, setShortcuts] = useState(settings.shortcuts);
   const [recording, setRecording] = useState<ShortcutAction | null>(null);
   const [held, setHeld] = useState<string[]>([]);
+  const [pendingClear, setPendingClear] = useState<ShortcutAction | null>(null);
   const [rejected, setRejected] = useState<{ action: ShortcutAction; key: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -76,6 +77,12 @@ function ShortcutsPanel() {
   function stopRecording() {
     setRecording(null);
     setHeld([]);
+    setPendingClear(null);
+  }
+
+  function commitPendingClear(action: ShortcutAction) {
+    if (pendingClear === action) changeBinding(action, null);
+    stopRecording();
   }
 
   function onRowKeyDown(action: ShortcutAction, event: React.KeyboardEvent<HTMLButtonElement>) {
@@ -83,6 +90,7 @@ function ShortcutsPanel() {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         setRecording(action);
+        setPendingClear(null);
         setRejected(null);
       }
       return;
@@ -93,15 +101,23 @@ function ShortcutsPanel() {
       stopRecording();
       return;
     }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      setPendingClear(action);
+      setHeld([]);
+      setRejected(null);
+      return;
+    }
     const modifiers = pressedModifiers(event);
     if (MODIFIERS.includes(event.key)) {
       setHeld(modifiers);
+      setPendingClear(null);
       return;
     }
     const key = shortcutKey(event);
     if (modifiers.length === 0) {
       // 原先这里是静默 return，用户按了没反应还以为坏了
       setRejected({ action, key });
+      setPendingClear(null);
       return;
     }
     const accelerator = [...modifiers, key].join("+");
@@ -111,7 +127,7 @@ function ShortcutsPanel() {
   }
 
   function onRowKeyUp(action: ShortcutAction, event: React.KeyboardEvent<HTMLButtonElement>) {
-    if (recording === action) setHeld(pressedModifiers(event));
+    if (recording === action && pendingClear !== action) setHeld(pressedModifiers(event));
   }
 
   async function persist(next: ShortcutBinding[]) {
@@ -158,6 +174,7 @@ function ShortcutsPanel() {
     const label = ACTION_LABELS[binding.action] ?? { name: binding.action };
     const labelName = t(label.name);
     const isRecording = recording === binding.action;
+    const clearing = pendingClear === binding.action;
     const saved = settings.shortcuts.find((item) => item.action === binding.action)?.accelerator ?? null;
     const conflicted = Boolean(binding.accelerator && binding.accelerator === saved && conflicts.includes(binding.accelerator));
     const unavailable = binding.action === "record" && caps && !caps.recording.available;
@@ -175,46 +192,43 @@ function ShortcutsPanel() {
             </span>
           )}
         </span>
-        <span className={`key-field-wrap ${binding.accelerator && !isRecording ? "has-value" : ""}`}>
+        <span className="key-field-wrap">
           <button
             type="button"
-            className={`key-field ${isRecording ? "is-recording" : ""} ${binding.accelerator ? "" : "is-empty"}`}
+            className={`key-field ${isRecording ? "is-recording" : ""} ${clearing ? "is-clearing" : ""} ${binding.accelerator && !clearing ? "" : "is-empty"}`}
             aria-label={t("快捷键：{name}，当前按键：{keys}", {
               name: labelName,
-              keys: binding.accelerator || t("未设置"),
+              keys: clearing ? t("未设置") : binding.accelerator || t("未设置"),
             })}
             aria-pressed={isRecording}
             disabled={locked}
             onClick={() => {
-              // 点框开始录，再点一次（或 Esc、点别处）取消
               setRejected(null);
-              if (isRecording) stopRecording();
-              else setRecording(binding.action);
+              if (isRecording) {
+                commitPendingClear(binding.action);
+              } else {
+                setRecording(binding.action);
+                setPendingClear(null);
+              }
             }}
             onKeyDown={(event) => onRowKeyDown(binding.action, event)}
             onKeyUp={(event) => onRowKeyUp(binding.action, event)}
-            onBlur={() => isRecording && stopRecording()}
+            onBlur={() => {
+              if (isRecording) commitPendingClear(binding.action);
+            }}
           >
-            {isRecording ? (
-              held.length > 0 ? <Keys value={held.join("+")} /> : <span className="key-field-hint">{t("按下快捷键…")}</span>
+            {clearing ? (
+              <span className="key-field-hint" aria-hidden="true">—</span>
+            ) : isRecording && held.length > 0 ? (
+              <Keys value={held.join("+")} />
             ) : binding.accelerator ? (
               <Keys value={binding.accelerator} struck={conflicted} />
+            ) : isRecording ? (
+              <span className="key-field-hint">{t("按下快捷键…")}</span>
             ) : (
               <span className="key-field-hint" aria-hidden="true">—</span>
             )}
           </button>
-          {!isRecording && binding.accelerator && (
-            <button
-              type="button"
-              className="key-field-clear"
-              aria-label={t("清除「{name}」的快捷键", { name: labelName })}
-              title={t("清除")}
-              disabled={locked}
-              onClick={() => changeBinding(binding.action, null)}
-            >
-              <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 1.5l5 5M6.5 1.5l-5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
-            </button>
-          )}
         </span>
       </div>
     );

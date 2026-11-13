@@ -11,8 +11,6 @@ export const shortcutsEnglish: Record<string, string> = {
   "没注册上，这组键已被其他程序占用": "Another app is using this shortcut.",
   "不可用": "Unavailable",
   "只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个": "{rejection} alone won’t work. Add Control, Shift, or Alt (Option).",
-  "清除「{name}」的快捷键": "Clear {name} shortcut",
-  "清除": "Clear",
   "暂停全局快捷键": "Pause Shortcuts",
   "启用全局快捷键": "Use global shortcuts",
   "按下快捷键…": "Press keys…",
