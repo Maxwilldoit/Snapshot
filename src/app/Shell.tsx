@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { Images, Keyboard, MessageSquareText, Plus, Settings2, SlidersHorizontal } from "lucide-react";
+import { Plus } from "lucide-react";
 import { usePresence } from "../lib/motion";
 import { errorText, useApp } from "./context";
 import { hidePet, selectPetAppearance } from "../lib/backend";
@@ -49,7 +49,7 @@ export function Toolbar({ title, lead, children }: { title: ReactNode; lead?: Re
   );
 }
 
-type NavItem = { page: NavPage; label: string; icon: ReactNode; trailing?: ReactNode };
+type NavItem = { page: NavPage; label: string; trailing?: ReactNode };
 
 /** 侧栏里伴侣的顺序：后导入的在前；导入时间一样就照原顺序。前台应用图标总在最后 */
 function sortedPets(assets: PetAsset[]) {
@@ -74,18 +74,17 @@ export function SideNav() {
   }
 
   const library: NavItem[] = [
-    { page: "history", label: t("历史"), icon: <Images aria-hidden="true" /> },
-    { page: "prompts", label: t("Prompt"), icon: <MessageSquareText aria-hidden="true" /> },
+    { page: "history", label: t("历史") },
+    { page: "prompts", label: t("Prompt") },
   ];
   const prefs: NavItem[] = [
-    { page: "capture", label: t("截图与录制"), icon: <SlidersHorizontal aria-hidden="true" /> },
+    { page: "capture", label: t("截图与录制") },
     {
       page: "shortcuts",
       label: t("快捷键"),
-      icon: <Keyboard aria-hidden="true" />,
       trailing: conflicts.length ? <span className="mw-nav-badge" aria-label={t("{count} 个冲突", { count: conflicts.length })}>{conflicts.length}</span> : null,
     },
-    { page: "general", label: t("通用"), icon: <Settings2 aria-hidden="true" /> },
+    { page: "general", label: t("通用") },
   ];
 
   const item = (entry: NavItem) => (
@@ -96,7 +95,6 @@ export function SideNav() {
       aria-current={page === entry.page ? "page" : undefined}
       onClick={() => navigate(entry.page)}
     >
-      {entry.icon}
       <span className="nav-label">{entry.label}</span>
       {entry.trailing}
     </button>
@@ -116,6 +114,20 @@ export function SideNav() {
       >
         <button
           type="button"
+          className="nav-pet-main"
+          aria-current={current ? "page" : undefined}
+          title={name}
+          onClick={() => navigate("pet", { petId: id })}
+        >
+          <span className="nav-label">{name}</span>
+          <span className="nav-avatar" aria-hidden="true">
+            {!asset ? <span className="app-glyph"><span /></span>
+              : asset.missing ? <CatShape height={16} outline />
+              : <PetThumb assetId={asset.id} entry={asset.entry} fallback={<CatShape height={16} outline />} />}
+          </span>
+        </button>
+        <button
+          type="button"
           className={`pet-dot ${onDesk ? "is-on" : ""}`}
           aria-pressed={onDesk}
           aria-label={t("桌面显示：{name}", { name })}
@@ -124,20 +136,6 @@ export function SideNav() {
           onClick={() => void toggleDesk(id, onDesk)}
         >
           <span className="pet-dot-core" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="nav-pet-main"
-          aria-current={current ? "page" : undefined}
-          title={name}
-          onClick={() => navigate("pet", { petId: id })}
-        >
-          <span className="nav-avatar" aria-hidden="true">
-            {!asset ? <span className="app-glyph"><span /></span>
-              : asset.missing ? <CatShape height={16} outline />
-              : <PetThumb assetId={asset.id} entry={asset.entry} fallback={<CatShape height={16} outline />} />}
-          </span>
-          <span className="nav-label">{name}</span>
         </button>
       </div>
     );

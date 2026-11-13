@@ -350,9 +350,9 @@ describe("B2 拆页后逐页渲染", () => {
     localStorage.setItem("snapshot-layout", layout);
     await renderApp();
     const nav = screen.getByRole("navigation", { name: "主导航" });
-    // 导入按钮、伴侣行的圆点和名字各是一个按钮
+    // 导入按钮、伴侣行名字和行尾圆点各是一个按钮
     expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "历史", "Prompt", "截图与录制", "快捷键", "通用", "", "", "前台应用图标",
+      "历史", "Prompt", "截图与录制", "快捷键", "通用", "", "前台应用图标", "",
     ]);
     expect(within(nav).getByRole("button", { name: "导入伴侣素材…" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();

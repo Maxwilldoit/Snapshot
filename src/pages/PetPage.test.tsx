@@ -79,6 +79,23 @@ function deskIds() {
 }
 
 describe("侧栏里伴侣的固定位置", () => {
+  it("导航文字同列，伴侣缩略图靠右，桌面开关位于行尾", async () => {
+    await renderPetPage();
+
+    const nav = screen.getByRole("navigation", { name: "主导航" });
+    const groups = Array.from(nav.querySelectorAll<HTMLElement>(".nav-group"));
+    for (const group of groups.slice(0, 2)) {
+      expect(group.querySelector(".nav-item > svg")).toBeNull();
+    }
+
+    const row = petGroup().querySelector<HTMLElement>('[data-pet-id="app-icon"]')!;
+    const main = row.querySelector<HTMLElement>(".nav-pet-main")!;
+    expect(row.firstElementChild).toBe(main);
+    expect(row.lastElementChild?.classList.contains("pet-dot")).toBe(true);
+    expect(main.firstElementChild?.classList.contains("nav-label")).toBe(true);
+    expect(main.lastElementChild?.classList.contains("nav-avatar")).toBe(true);
+  });
+
   it("按导入时间由新到旧排列，相同或缺省时间沿用原顺序，不受选中项和最近使用时间影响", async () => {
     await renderPetPage(undefined, shelfSettings);
 
