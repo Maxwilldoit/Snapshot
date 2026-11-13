@@ -7,20 +7,29 @@ import { LoadingState } from "../components/LoadingState";
 import { Toolbar } from "../app/Shell";
 import { SearchField } from "../components/SearchField";
 import { PromptSettings } from "../components/PromptSettings";
+import { PromptLibraryPage } from "./PromptLibraryPage";
 import { Keys } from "../components/ui/Keys";
 import { acceleratorOf } from "../lib/shortcuts";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { PromptHistoryEntry } from "../types";
 
-/** Prompt 记录：每次成功润色的原文、结果和所用规则，按天分组；点一条展开全文 */
-export function PromptsPage() {
-  const { notify, settings, conflicts, navigate } = useApp();
+/**
+ * Prompt 页：润色历史按天分组；Prompt 库和润色设置都是页内区块，
+ * 用工具栏按钮切换，不再各占一个侧栏入口。
+ */
+export function PromptsPage({ active = true, libraryRequest = 0 }: { active?: boolean; libraryRequest?: number }) {
+  const { notify, settings, conflicts } = useApp();
   const { t } = useI18n();
   const [records, setRecords] = useState<PromptHistoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
-  const [showSettings, setShowSettings] = useState(false);
+  const [view, setView] = useState<"history" | "library" | "settings">("history");
   const shortcut = settings.shortcutsPaused ? null : acceleratorOf(settings, "polish");
+
+  // 全局入口（快捷键、快捷菜单）打开库：切到本页并显示库区块。
+  useEffect(() => {
+    if (libraryRequest > 0) setView("library");
+  }, [libraryRequest]);
 
   const refresh = useCallback(async () => {
     try {
@@ -49,15 +58,15 @@ export function PromptsPage() {
   }, [records, query]);
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
 
-  const toolbar = (
-    <Toolbar title={t("Prompt 记录")}>
-      <SearchField value={query} onChange={setQuery} label={t("搜索 Prompt")} />
+  const toggles = (
+    <>
       <button
         type="button"
         className="tb-btn"
-        aria-label={t("打开 Prompt 库")}
-        title={t("打开 Prompt 库")}
-        onClick={() => navigate("prompt-library")}
+        aria-label={t("Prompt 库")}
+        title={t("Prompt 库")}
+        aria-expanded={view === "library"}
+        onClick={() => setView((current) => (current === "library" ? "history" : "library"))}
       >
         <LibraryBig aria-hidden="true" />
       </button>
@@ -66,26 +75,27 @@ export function PromptsPage() {
         className="tb-btn"
         aria-label={t("设置")}
         title={t("设置")}
-        aria-expanded={showSettings}
+        aria-expanded={view === "settings"}
         aria-controls="prompt-settings"
-        onClick={() => setShowSettings((value) => !value)}
+        onClick={() => setView((current) => (current === "settings" ? "history" : "settings"))}
       >
         <Settings2 aria-hidden="true" />
       </button>
+    </>
+  );
+
+  const toolbar = (
+    <Toolbar title={t("Prompt")}>
+      {/* 页面隐藏时不渲染搜索框，避免抢走其它页的 Ctrl/Cmd+F */}
+      {active && <SearchField value={query} onChange={setQuery} label={t("搜索 Prompt")} />}
+      {toggles}
     </Toolbar>
   );
 
-  if (records === null) {
-    return (
-      <div className="mw-page">
-        {toolbar}
-        <LoadingState text={t("正在读取历史记录…")} />
-      </div>
-    );
-  }
-
   let body;
-  if (records.length === 0) {
+  if (records === null) {
+    body = <LoadingState text={t("正在读取历史记录…")} />;
+  } else if (records.length === 0) {
     body = (
       <div className="empty mw-empty">
         <h2 className="empty-title">{t("还没有 Prompt 记录")}</h2>
@@ -123,9 +133,19 @@ export function PromptsPage() {
 
   return (
     <div className="mw-page prompts-page">
-      {toolbar}
-      <div className={`mw-scroll ${showSettings ? "pane" : ""}`}>
-        {showSettings ? <PromptSettings /> : body}
+      {view !== "library" && (
+        <>
+          {toolbar}
+          {records === null ? body : (
+            <div className={`mw-scroll ${view === "settings" ? "pane" : ""}`}>
+              {view === "settings" ? <PromptSettings /> : body}
+            </div>
+          )}
+        </>
+      )}
+      {/* 库常驻挂载：切区块、换页都不丢未保存的草稿；隐藏时不接管键盘。 */}
+      <div className="library-embed" hidden={view !== "library"}>
+        <PromptLibraryPage active={active && view === "library"} toolbarExtras={toggles} />
       </div>
     </div>
   );

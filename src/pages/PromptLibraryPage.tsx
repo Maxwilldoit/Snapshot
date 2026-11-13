@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Toolbar } from "../app/Shell";
 import { WindowTitleBar } from "../components/WindowTitleBar";
@@ -33,8 +33,18 @@ const errorText = (error: unknown) =>
 /**
  * Prompt 库。这里保存的是用户反复使用、复制的原文，
  * 与润色规则和润色历史互不相干。
+ * 主窗口里作为 Prompt 页的内嵌区块（toolbarExtras 接上页级切换按钮），
+ * 兼容窗口里仍以 standalone 方式独占整窗。
  */
-export function PromptLibraryPage({ active = true, standalone = false }: { active?: boolean; standalone?: boolean }) {
+export function PromptLibraryPage({
+  active = true,
+  standalone = false,
+  toolbarExtras,
+}: {
+  active?: boolean;
+  standalone?: boolean;
+  toolbarExtras?: ReactNode;
+}) {
   const { t } = useI18n();
 
   const [prompts, setPrompts] = useState<SavedPrompt[]>([]);
@@ -318,7 +328,7 @@ export function PromptLibraryPage({ active = true, standalone = false }: { activ
           <span className="mw-fill" data-tauri-drag-region />
           <span className="mw-tools">{actions}</span>
         </WindowTitleBar>
-      ) : <Toolbar title={t("Prompt 库")}>{actions}</Toolbar>}
+      ) : <Toolbar title={t("Prompt")}>{actions}{toolbarExtras}</Toolbar>}
       <div className="mw-scroll pane">
         <div className="library-content">
           {editing ? (

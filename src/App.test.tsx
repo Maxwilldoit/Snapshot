@@ -52,7 +52,7 @@ async function renderApp(handle: (command: string, payload?: InvokeArgs) => unkn
   render(<App />);
 }
 
-describe("主窗口 Prompt 库", () => {
+describe("主窗口 Prompt 页的内嵌 Prompt 库", () => {
   it("只提供一个新建入口，换页和快捷入口保留草稿，隐藏时不接管快捷键", async () => {
     const calls: string[] = [];
     await renderApp((command) => {
@@ -63,7 +63,8 @@ describe("主窗口 Prompt 库", () => {
       return undefined;
     });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Prompt 库" }));
+    await user.click(await screen.findByRole("button", { name: "Prompt" }));
+    await user.click(screen.getByRole("button", { name: "Prompt 库" }));
     const main = within(screen.getByRole("main"));
     await main.findByText("这里还空着");
     expect(main.getAllByRole("button", { name: "新建" })).toHaveLength(1);
@@ -82,9 +83,39 @@ describe("主窗口 Prompt 库", () => {
     await user.keyboard("{Escape}");
     await main.findByText("这里还空着");
     await user.keyboard("{Escape}");
-    expect(main.getByRole("heading", { name: "Prompt 库" })).toBeTruthy();
+    expect(main.getByRole("heading", { name: "Prompt" })).toBeTruthy();
     expect(calls).not.toContain("hide_prompt_library");
     expect(calls).not.toContain("show_prompt_library_window");
+  });
+
+  it("工具栏在历史、库、设置三个区块间切换，草稿跨区块保留", async () => {
+    await renderApp((command) => {
+      if (command === "load_settings") return settings;
+      if (command === "platform_capabilities") return capabilities;
+      if (command === "list_saved_prompts" || command === "list_snapshots" || command === "list_prompt_history") return [];
+      return undefined;
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Prompt" }));
+    const main = within(screen.getByRole("main"));
+    await main.findByText("还没有 Prompt 记录");
+
+    await user.click(main.getByRole("button", { name: "Prompt 库" }));
+    await main.findByText("这里还空着");
+    await user.click(main.getByRole("button", { name: "新建" }));
+    await user.type(main.getByRole("textbox", { name: "正文" }), "跨区块草稿");
+
+    // 切去设置再回来：编辑器草稿还在，工具栏始终只有一个
+    await user.click(main.getByRole("button", { name: "设置" }));
+    await main.findByRole("heading", { name: "润色用的模型" });
+    expect(main.queryByRole("textbox", { name: "正文" })).toBeNull();
+    await user.click(main.getByRole("button", { name: "Prompt 库" }));
+    expect(await main.findByRole("textbox", { name: "正文" })).toHaveProperty("value", "跨区块草稿");
+    expect(main.getAllByRole("banner")).toHaveLength(1);
+
+    // 再点一次库按钮回到历史
+    await user.click(main.getByRole("button", { name: "Prompt 库" }));
+    await main.findByText("还没有 Prompt 记录");
   });
 
   it("读取失败可以重试；保存失败仍保留正文和可操作的编辑器", async () => {
@@ -97,7 +128,8 @@ describe("主窗口 Prompt 库", () => {
       return undefined;
     });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Prompt 库" }));
+    await user.click(await screen.findByRole("button", { name: "Prompt" }));
+    await user.click(screen.getByRole("button", { name: "Prompt 库" }));
     const main = within(screen.getByRole("main"));
     expect(await main.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("无法读取文件"));
     await user.click(main.getByRole("button", { name: "重试" }));

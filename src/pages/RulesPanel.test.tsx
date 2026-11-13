@@ -58,7 +58,7 @@ async function openPreferences() {
   const { App } = await import("../App");
   render(<App />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: /^Prompt 记录/ }));
+  await user.click(await screen.findByRole("button", { name: /^Prompt$/ }));
   await user.click(screen.getByRole("button", { name: "设置" }));
   await screen.findByText("润色规则");
   return { user, saves };

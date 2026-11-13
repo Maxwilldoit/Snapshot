@@ -1,4 +1,11 @@
 /* Shared library layout; colors and controls come from main-window.css. */
+.library-embed {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.library-embed[hidden] { display: none; }
 .library-content {
   width: 100%;
   max-width: 1000px;

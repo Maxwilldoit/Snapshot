@@ -85,7 +85,7 @@ export const coreEnglish: Record<string, string> = {
   // 主窗口：侧栏、工具栏与分组设置
   "资料库": "History",
   "历史": "History",
-  "Prompt 记录": "Prompts",
+  "Prompt": "Prompts",
   "截图与录制": "Capture & Recording",
   "快捷键": "Shortcuts",
   "通用": "General",
