@@ -102,6 +102,13 @@ describe("主窗口 Prompt 页的内嵌 Prompt 库", () => {
 
     await user.click(main.getByRole("button", { name: "Prompt 库" }));
     await main.findByText("这里还空着");
+    // 点击库按钮只切区块，不把焦点送进搜索框（搜索框聚焦时会展开）
+    const librarySearch = main.getByRole("textbox", { name: "搜索" });
+    expect(document.activeElement).not.toBe(librarySearch);
+    // 全局入口（快捷键、快捷菜单）打开库时才聚焦搜索
+    await act(async () => { await emit("prompt-library-opened"); });
+    await waitFor(() => expect(document.activeElement).toBe(librarySearch));
+
     await user.click(main.getByRole("button", { name: "新建" }));
     await user.type(main.getByRole("textbox", { name: "正文" }), "跨区块草稿");
 

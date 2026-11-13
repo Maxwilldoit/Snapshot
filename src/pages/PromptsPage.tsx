@@ -24,11 +24,14 @@ export function PromptsPage({ active = true, libraryRequest = 0 }: { active?: bo
   const [records, setRecords] = useState<PromptHistoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"history" | "library" | "settings">("history");
+  const [libraryFocusRequest, setLibraryFocusRequest] = useState(0);
   const shortcut = settings.shortcutsPaused ? null : acceleratorOf(settings, "polish");
 
-  // 全局入口（快捷键、快捷菜单）打开库：切到本页并显示库区块。
+  // 全局入口（快捷键、快捷菜单）打开库：切到本页、显示库区块并把焦点放进搜索框。
   useEffect(() => {
-    if (libraryRequest > 0) setView("library");
+    if (libraryRequest === 0) return;
+    setView("library");
+    setLibraryFocusRequest((value) => value + 1);
   }, [libraryRequest]);
 
   const refresh = useCallback(async () => {
@@ -145,7 +148,11 @@ export function PromptsPage({ active = true, libraryRequest = 0 }: { active?: bo
       )}
       {/* 库常驻挂载：切区块、换页都不丢未保存的草稿；隐藏时不接管键盘。 */}
       <div className="library-embed" hidden={view !== "library"}>
-        <PromptLibraryPage active={active && view === "library"} toolbarExtras={toggles} />
+        <PromptLibraryPage
+          active={active && view === "library"}
+          toolbarExtras={toggles}
+          focusRequest={libraryFocusRequest}
+        />
       </div>
     </div>
   );

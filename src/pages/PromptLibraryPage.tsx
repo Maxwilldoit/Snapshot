@@ -40,10 +40,12 @@ export function PromptLibraryPage({
   active = true,
   standalone = false,
   toolbarExtras,
+  focusRequest = 0,
 }: {
   active?: boolean;
   standalone?: boolean;
   toolbarExtras?: ReactNode;
+  focusRequest?: number;
 }) {
   const { t } = useI18n();
 
@@ -63,6 +65,7 @@ export function PromptLibraryPage({
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const loadVersion = useRef(0);
   const editorVersion = useRef(0);
+  const handledFocusRequest = useRef(0);
 
   const load = useCallback(async () => {
     const version = ++loadVersion.current;
@@ -118,9 +121,18 @@ export function PromptLibraryPage({
   }, [active, editing?.key, editing?.id]);
 
   useEffect(() => {
-    if (!active || loading || editing) return;
+    if (!standalone || !active || loading || editing) return;
     searchRef.current?.focus();
-  }, [active, editing, loading]);
+  }, [active, editing, loading, standalone]);
+
+  // 内嵌在主窗口时，点击工具栏的库按钮不抢焦点；
+  // 只有全局入口明确要求展开库（focusRequest 递增）才把焦点放进搜索框。
+  useEffect(() => {
+    if (standalone || !active || focusRequest === 0 || focusRequest === handledFocusRequest.current) return;
+    if (loading || editing) return;
+    handledFocusRequest.current = focusRequest;
+    searchRef.current?.focus();
+  }, [active, editing, focusRequest, loading, standalone]);
 
   useEffect(() => {
     if (!deleteArmed) return;
