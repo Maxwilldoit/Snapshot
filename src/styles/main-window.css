@@ -475,8 +475,9 @@ html[data-surface="app"] .pet-grid {
 html[data-surface="app"] .pet-grid.is-single { grid-template-columns: minmax(0, 1fr); }
 html[data-surface="app"] .pet-column {
   min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
-  overscroll-behavior: contain; scrollbar-width: thin;
+  overscroll-behavior: contain; scrollbar-width: none;
 }
+html[data-surface="app"] .pet-column::-webkit-scrollbar { display: none; }
 html[data-surface="app"] .pet-column:focus-visible { outline-offset: -3px; }
 html[data-surface="app"] .pet-main-pane,
 html[data-surface="app"] .pet-actions-pane { display: flex; flex-direction: column; }
