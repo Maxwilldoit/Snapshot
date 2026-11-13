@@ -243,11 +243,19 @@ describe("桌面伴侣页面滚动", () => {
     expect(actions.getAttribute("class")).toContain("pet-actions-pane");
     expect(main.parentElement).toBe(actions.parentElement);
     expect(main).toHaveProperty("tabIndex", 0);
-    expect(actions).toHaveProperty("tabIndex", 0);
+    expect(actions).toHaveProperty("tabIndex", -1);
     expect(within(main).getByRole("heading", { name: "桌面" })).toBeTruthy();
     expect(within(main).queryByRole("radiogroup", { name: "预览动作" })).toBeNull();
     expect(within(actions).getByRole("radiogroup", { name: "预览动作" })).toBeTruthy();
     expect(within(actions).queryByRole("heading", { name: "桌面" })).toBeNull();
+
+    const heading = within(actions).getByRole("heading", { name: "动作" });
+    const scroll = within(actions).getByRole("region", { name: "动作列表" });
+    expect(scroll.getAttribute("class")).toContain("pet-actions-scroll");
+    expect(scroll).toHaveProperty("tabIndex", 0);
+    expect(scroll.contains(heading)).toBe(false);
+    expect(heading.nextElementSibling).toBe(scroll);
+    expect(within(scroll).getByRole("radiogroup", { name: "预览动作" })).toBeTruthy();
   });
 
   it("没有动作时只保留预览和桌面设置，不留下空白右栏", async () => {

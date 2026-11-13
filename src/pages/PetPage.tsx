@@ -165,23 +165,25 @@ export function PetPage() {
           </section>
 
           {asset && asset.animations.length > 0 && (
-            <section className="pet-column pet-actions-pane" aria-labelledby="pet-actions-title" tabIndex={0}>
+            <section className="pet-column pet-actions-pane" aria-labelledby="pet-actions-title">
               <h2 id="pet-actions-title" className="group-title">{t("动作")}</h2>
-              <div className="group pet-actions-grid" role="radiogroup" aria-label={t("预览动作")}>
-                {asset.animations.map((entry, index) => (
-                  <button
-                    key={entry}
-                    type="button"
-                    role="radio"
-                    aria-checked={activeEntry === entry}
-                    className={`pet-action ${activeEntry === entry ? "is-on" : ""}`}
-                    style={stagger(index)}
-                    onClick={() => setActiveEntry(entry)}
-                  >
-                    <span>{entryLabel(entry, prefix, t)}</span>
-                    <svg className="pet-action-play" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 1.5v7l6-3.5z" fill="currentColor" /></svg>
-                  </button>
-                ))}
+              <div className="pet-actions-scroll" role="region" aria-label={t("动作列表")} tabIndex={0}>
+                <div className="group pet-actions-grid" role="radiogroup" aria-label={t("预览动作")}>
+                  {asset.animations.map((entry, index) => (
+                    <button
+                      key={entry}
+                      type="button"
+                      role="radio"
+                      aria-checked={activeEntry === entry}
+                      className={`pet-action ${activeEntry === entry ? "is-on" : ""}`}
+                      style={stagger(index)}
+                      onClick={() => setActiveEntry(entry)}
+                    >
+                      <span>{entryLabel(entry, prefix, t)}</span>
+                      <svg className="pet-action-play" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 1.5v7l6-3.5z" fill="currentColor" /></svg>
+                    </button>
+                  ))}
+                </div>
               </div>
             </section>
           )}

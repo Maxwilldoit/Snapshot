@@ -214,6 +214,9 @@ html[data-surface="app"] .history-scroll { margin: 0; padding: 0; }
 html[data-surface="app"] .gallery { display: block; padding: 2px 16px 24px; }
 html[data-surface="app"] .mw .day { display: block; margin-top: 12px; padding: 0; border-top: 0; }
 html[data-surface="app"] .mw .day-label { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0 0 7px; padding: 6px 0; background: var(--win); }
+html[data-surface="app"] .mw .day-label::after {
+  content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--win); pointer-events: none;
+}
 html[data-surface="app"] .mw .day-title { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; color: var(--text3); }
 html[data-surface="app"] .jgrid { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 html[data-surface="app"] .jrow { display: flex; align-items: flex-start; min-width: 0; }
@@ -482,10 +485,19 @@ html[data-surface="app"] .pet-main-pane,
 html[data-surface="app"] .pet-actions-pane { display: flex; flex-direction: column; }
 html[data-surface="app"] .pet-main-pane > .group,
 html[data-surface="app"] .pet-main-pane > .panel,
-html[data-surface="app"] .pet-actions-pane > .group,
 html[data-surface="app"] .pet-actions-pane > .group-title { flex: 0 0 auto; }
 html[data-surface="app"] .pet-main-pane > .group,
 html[data-surface="app"] .pet-main-pane > .panel { margin-top: 20px; }
+html[data-surface="app"] .pet-actions-pane { overflow-y: hidden; }
+html[data-surface="app"] .pet-actions-pane > .group-title {
+  margin-top: -2px; margin-bottom: 2px; line-height: 16px;
+}
+html[data-surface="app"] .pet-actions-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  overscroll-behavior: contain; scrollbar-width: none;
+}
+html[data-surface="app"] .pet-actions-scroll::-webkit-scrollbar { display: none; }
+html[data-surface="app"] .pet-actions-scroll:focus-visible { outline-offset: -3px; }
 @media (max-width: 1100px) {
   html[data-surface="app"] .pet-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
