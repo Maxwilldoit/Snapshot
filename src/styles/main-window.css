@@ -469,7 +469,10 @@ html[data-surface="app"] .pet-grid {
   width: 100%; height: 100%; min-height: 0; overflow: hidden;
   padding: 20px 24px 24px;
 }
-html[data-surface="app"] .pet-grid { --pet-stage-height: 380px; }
+html[data-surface="app"] .pet-grid {
+  --pet-stage-height: 380px;
+  --pet-shadow-top: calc(var(--pet-stage-height) / 2 + 112px);
+}
 html[data-surface="app"] .pet-grid.is-single { grid-template-columns: minmax(0, 1fr); }
 html[data-surface="app"] .pet-column {
   min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
@@ -485,13 +488,13 @@ html[data-surface="app"] .pet-actions-pane > .group-title { flex: 0 0 auto; }
 html[data-surface="app"] .pet-main-pane > .group,
 html[data-surface="app"] .pet-main-pane > .panel { margin-top: 20px; }
 html[data-surface="app"] .pet-actions-pane {
-  height: calc(var(--pet-stage-height) / 2 + 112px); max-height: 100%; overflow-y: hidden; align-self: start;
+  height: auto; max-height: var(--pet-shadow-top); overflow-y: hidden; align-self: start;
 }
 html[data-surface="app"] .pet-actions-pane > .group-title {
   margin-top: -2px; margin-bottom: 2px; line-height: 16px;
 }
 html[data-surface="app"] .pet-actions-scroll {
-  flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  flex: 0 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
   overscroll-behavior: contain; scrollbar-width: none;
   border-radius: 8px; background: var(--group); box-shadow: 0 0 0 0.5px var(--sep);
 }
@@ -514,7 +517,7 @@ html[data-surface="app"] .mw .pet-stage {
   overflow: hidden; border-radius: 8px; background: var(--stage2); box-shadow: 0 0 0 0.5px var(--sep);
 }
 html[data-surface="app"] .mw .pet-stage::after {
-  content: ""; position: absolute; left: 50%; top: calc(50% + 112px); width: 170px; height: 14px; margin-left: -85px;
+  content: ""; position: absolute; left: 50%; top: var(--pet-shadow-top); width: 170px; height: 14px; margin-left: -85px;
   border-radius: 50%; background: radial-gradient(closest-side, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)); pointer-events: none;
 }
 html[data-surface="app"][data-theme="dark"] .mw .pet-stage::after { background: radial-gradient(closest-side, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0)); }
@@ -527,7 +530,7 @@ html[data-surface="app"] .mw .pet-stage .shelf-drop {
   border-radius: 6px; background: color-mix(in srgb, var(--stage2) 85%, transparent); color: var(--accent); font-size: 13px;
 }
 html[data-surface="app"] .pet-actions-grid {
-  display: grid; grid-template-columns: 1fr; min-height: 100%; overflow: hidden;
+  display: grid; grid-template-columns: 1fr; min-height: 0; overflow: hidden;
   border-radius: 0; background: none; box-shadow: none;
 }
 html[data-surface="app"] .mw .pet-actions-grid > * + * { border-top: 0.5px solid var(--sep); }
