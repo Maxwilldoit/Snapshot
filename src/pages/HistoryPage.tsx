@@ -273,7 +273,8 @@ export function HistoryPage() {
         aria-label={selectAllLabel}
         title={selectAllLabel}
         onClick={() => {
-          if (allVisibleSelected) setSelected(new Set());
+          // 全选/全不选都只作用于当前可见的格；被搜索过滤隐藏的已选项保持不变
+          if (allVisibleSelected) setSelected(new Set([...selected].filter((id) => !visibleIds.includes(id))));
           else setSelected(new Set([...selected, ...visibleIds]));
         }}
       >

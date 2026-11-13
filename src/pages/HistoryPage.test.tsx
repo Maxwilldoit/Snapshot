@@ -86,6 +86,41 @@ describe("history selection under a filter", () => {
     fireEvent.click(screen.getByRole("button", { name: "全选 1 项" }));
     expect(await screen.findByText("已选 1 项")).toBeTruthy();
   });
+
+  it("select-all / deselect-all both act on the visible tiles only", async () => {
+    setupTauriMock((command) => {
+      if (command === "list_snapshots") return structuredClone(snapshots);
+      if (command === "list_recordings") return [];
+      if (command === "list_prompt_history") return [];
+      return undefined;
+    }, { shouldMockEvents: true });
+    render(
+      <AppContext.Provider value={context}>
+        <HistoryPage />
+      </AppContext.Provider>,
+    );
+
+    // 勾选圈在挑选模式下与主按钮同名，按 class 取唯一的那个
+    const checkCircle = (label: string) =>
+      screen.getAllByRole("button", { name: `选择：${label}` }).find((b) => b.classList.contains("tile-check"))!;
+
+    await screen.findByRole("button", { name: "放大：Alpha" });
+    fireEvent.click(checkCircle("Alpha"));
+    fireEvent.click(checkCircle("Beta"));
+    expect(await screen.findByText("已选 2 项")).toBeTruthy();
+
+    // 两格都可见且选中 → 「全不选」；清掉的恰好是可见的这两格
+    fireEvent.click(screen.getByRole("button", { name: "全不选" }));
+    await waitFor(() => expect(screen.getByText("已选 0 项")).toBeTruthy());
+    expect(checkCircle("Alpha").getAttribute("aria-pressed")).toBe("false");
+    expect(checkCircle("Beta").getAttribute("aria-pressed")).toBe("false");
+
+    // 按钮翻成「全选 2 项」；再点一次把可见的两格选回来
+    fireEvent.click(screen.getByRole("button", { name: "全选 2 项" }));
+    await waitFor(() => expect(screen.getByText("已选 2 项")).toBeTruthy());
+    expect(checkCircle("Alpha").getAttribute("aria-pressed")).toBe("true");
+    expect(checkCircle("Beta").getAttribute("aria-pressed")).toBe("true");
+  });
 });
 
 describe("history mixes recordings into the timeline", () => {
