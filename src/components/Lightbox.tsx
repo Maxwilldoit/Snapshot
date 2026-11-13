@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { recordingUrl, snapshotUrl } from "../lib/media";
-import { annotateSnapshot, copySnapshot } from "../lib/backend";
+import { copySnapshot } from "../lib/backend";
 import { errorText } from "../app/context";
 import { formatBytes, formatClock, formatDuration, dayLabel } from "../lib/format";
 import { growFrom, shrinkTo } from "../lib/motion";
@@ -19,7 +19,7 @@ function thumbRect(id: string): DOMRect | null {
 
 /**
  * 放大查看。图从缩略图原位长出来，关掉时缩回原位——始终知道它在列表哪儿。
- * ← → 切换，Esc 返回；截图还能 Ctrl C 复制、标注，录屏直接用原生控件播放。
+ * ← → 切换，Esc 返回；截图可 Ctrl/Cmd+C 复制，录屏直接用原生控件播放。
  */
 export function Lightbox({
   records,
@@ -33,12 +33,11 @@ export function Lightbox({
   const [currentId, setCurrentId] = useState(startId);
   const [box, setBox] = useState<{ width: number; height: number } | null>(null);
   const [isClosing, setIsClosing] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  // 翻页方向：下一张从右边滑进来，上一张从左边
-  const [direction, setDirection] = useState<1 | -1>(1);
+  // 首次打开只播缩略图放大；真正翻页后才播左右滑入，尺寸回调不触发翻页。
+  const [direction, setDirection] = useState<0 | 1 | -1>(0);
   const { t } = useI18n();
   const stageRef = useRef<HTMLDivElement>(null);
   const mediaRef = useRef<HTMLElement>(null);
@@ -56,7 +55,8 @@ export function Lightbox({
     const measure = () => {
       const { width, height } = stage.getBoundingClientRect();
       const scale = Math.min(width / record.width, height / record.height, 1);
-      setBox({ width: Math.round(record.width * scale), height: Math.round(record.height * scale) });
+      const next = { width: Math.round(record.width * scale), height: Math.round(record.height * scale) };
+      setBox((current) => current?.width === next.width && current.height === next.height ? current : next);
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
@@ -82,27 +82,26 @@ export function Lightbox({
 
   const step = useCallback(
     (delta: number) => {
-      if (editing) return;
       const next = records[index + delta];
       if (next) {
         setDirection(delta > 0 ? 1 : -1);
         setCurrentId(next.id);
-        setEditError(null);
+        setCopyError(null);
         setCopyMessage(null);
       }
     },
-    [index, records, editing],
+    [index, records],
   );
 
   const copy = useCallback(async () => {
     if (!record || record.kind !== "snapshot" || copying) return;
     setCopying(true);
     setCopyMessage(null);
-    setEditError(null);
+    setCopyError(null);
     try {
       setCopyMessage(await copySnapshot(record.id));
     } catch (error) {
-      setEditError(errorText(error));
+      setCopyError(errorText(error));
     } finally {
       setCopying(false);
     }
@@ -127,20 +126,7 @@ export function Lightbox({
 
   if (!record) return null;
 
-  async function edit() {
-    if (editing || record.kind !== "snapshot") return;
-    setEditing(true);
-    setEditError(null);
-    try {
-      await annotateSnapshot(record.id);
-    } catch (error) {
-      setEditError(errorText(error));
-    } finally {
-      setEditing(false);
-    }
-  }
-
-  const mediaClass = `lightbox-image ${opened.current ? "is-swapped" : ""} ${direction < 0 ? "from-prev" : ""}`;
+  const mediaClass = `lightbox-image ${direction !== 0 ? "is-swapped" : ""} ${direction < 0 ? "from-prev" : ""}`;
   const mediaStyle = box ? { width: box.width, height: box.height } : undefined;
 
   // 挂到 body 上：页面切换的位移动画会让祖先变成定位容器，放在里面会被框住
@@ -152,21 +138,11 @@ export function Lightbox({
           {t("返回")}
         </button>
         <span className="lightbox-title" title={record.appName}>{record.appName}</span>
-        {!isRecording && (
-          <>
-            <button type="button" className="lightbox-back" disabled={editing} onClick={() => void edit()}>
-              {editing ? t("正在打开…") : t("标注")}
-            </button>
-            <button type="button" className="lightbox-back" disabled={editing || copying} onClick={() => void copy()}>
-              {copying ? t("正在复制…") : t("复制")}
-            </button>
-          </>
-        )}
         <span className="lightbox-count mono">{index + 1} / {records.length}</span>
       </div>
 
       <div className="lightbox-body">
-        <button type="button" className="lightbox-arrow" aria-label={t("上一张")} disabled={editing || index === 0} onClick={() => step(-1)}>
+        <button type="button" className="lightbox-arrow" aria-label={t("上一张")} disabled={index === 0} onClick={() => step(-1)}>
           <svg width="12" height="22" viewBox="0 0 12 22" aria-hidden="true"><path d="M11 1L1 11l10 10" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
         </button>
         <div className="lightbox-stage" ref={stageRef}>
@@ -193,13 +169,13 @@ export function Lightbox({
             />
           ))}
         </div>
-        <button type="button" className="lightbox-arrow" aria-label={t("下一张")} disabled={editing || index >= records.length - 1} onClick={() => step(1)}>
+        <button type="button" className="lightbox-arrow" aria-label={t("下一张")} disabled={index >= records.length - 1} onClick={() => step(1)}>
           <svg width="12" height="22" viewBox="0 0 12 22" aria-hidden="true"><path d="M1 1l10 10L1 21" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
         </button>
       </div>
 
       <div className="lightbox-foot">
-        {editError && <span role="alert">{editError}</span>}
+        {copyError && <span role="alert">{copyError}</span>}
         {copyMessage && <span role="status">{copyMessage}</span>}
         <span className="mono lightbox-meta">
           {isRecording

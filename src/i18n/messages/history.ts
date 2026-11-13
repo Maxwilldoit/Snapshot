@@ -33,7 +33,6 @@ export const historyEnglish: Record<string, string> = {
   "放大查看：{appName}": "Screenshot of {appName}",
   "录屏：{appName}": "Recording of {appName}",
   "返回": "Back",
-  "正在打开…": "Opening…",
   "正在复制…": "Copying…",
   "标注": "Markup",
   "上一张": "Previous",
