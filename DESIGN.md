@@ -42,6 +42,14 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
   state, a tooltip and an accessible label on every one. A clear gap separates page
   actions from the window controls. Toolbar search stays collapsed to an icon until
   focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
+- History hides the native scrollbar. While scrolling, a timeline scrollbar fades in over
+  the right gutter: date ticks sit at each day's real content offset, an accent thumb
+  covers the visible share, and a date pill beside it names the day under the sticky
+  header (a hovered tick previews its day instead). Drag the thumb, click the track or a
+  tick, or use the thumb's keys (↑↓, PgUp/PgDn, Home/End, ←→ for the previous/next day).
+  It fades out 1.2 s after scrolling stops, stays while hovered, focused, or dragged, and
+  returns when the pointer comes back to the right edge. With nothing to scroll it is
+  absent. Reuse `--accent`, `--pop`, and the motion tokens; no new palette.
 - Hierarchy comes from position, type, and whitespace. Avoid decorative cards,
   gradients, slogans, sequence numbers, and permanent metadata counters.
 - An empty collection shows a title and an actionable primary button. A shortcut
