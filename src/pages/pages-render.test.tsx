@@ -82,7 +82,7 @@ async function renderApp(handle: IPCHandler = handler) {
 }
 
 describe("B2 拆页后逐页渲染", () => {
-  it("空状态展示已绑定的截图快捷键，不再放截图按钮；Prompt 页润色按钮仍触发润色", async () => {
+  it("空状态展示已绑定的截图快捷键，不再放截图或 Prompt 润色按钮", async () => {
     const run = vi.fn((_payload: InvokeArgs | undefined) => Promise.resolve(undefined));
     await renderApp((command, payload) => command === "run_action" ? run(payload) : handler(command));
     const user = userEvent.setup();
@@ -92,9 +92,10 @@ describe("B2 拆页后逐页渲染", () => {
     expect(main.getByText("截图后会自动留在这里")).toBeTruthy();
     expect(main.queryByRole("button", { name: "截图" })).toBeNull();
     expect(main.queryByRole("button", { name: "设置截图快捷键" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Prompt 记录" }));
-    await user.click(await main.findByRole("button", { name: "润色 Prompt" }));
-    await waitFor(() => expect(run).toHaveBeenLastCalledWith({ action: "polish", targetId: null }));
+    await user.click(screen.getByRole("button", { name: "Prompt" }));
+    expect(await main.findByText("还没有 Prompt 记录")).toBeTruthy();
+    expect(main.queryByRole("button", { name: "润色 Prompt" })).toBeNull();
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("空状态未绑定截图快捷键时引导去快捷键设置", async () => {
@@ -117,7 +118,7 @@ describe("B2 拆页后逐页渲染", () => {
     expect(aside.queryByRole("button", { name: "截图" })).toBeNull();
     expect(aside.queryByRole("button", { name: "录屏" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "润色规则" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Prompt 记录" }));
+    await user.click(screen.getByRole("button", { name: "Prompt" }));
     await user.click(screen.getByRole("button", { name: "设置" }));
     expect(await screen.findByRole("heading", { name: "润色用的模型" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "润色规则" })).toBeTruthy();
@@ -131,7 +132,7 @@ describe("B2 拆页后逐页渲染", () => {
     expect(
       await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" }),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Prompt$/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^Prompt$/ })).toBeNull();
     expect(screen.queryByText("应用数据目录（默认）")).toBeNull();
     expect(screen.queryByText("系统「下载」目录")).toBeNull();
   });
@@ -162,8 +163,8 @@ describe("B2 拆页后逐页渲染", () => {
 
   it.each([
     [/^历史/, "还没有截图或录屏"],
-    [/^Prompt 记录/, "还没有 Prompt 记录"],
-    [/^前台应用图标/, "自由走动"],
+    [/^Prompt$/, "还没有 Prompt 记录"],
+    [/^应用图标/, "自由走动"],
     [/^截图与录制/, "截图时"],
     [/^快捷键/, "启用全局快捷键"],
     [/^通用/, "界面语言"],
@@ -175,7 +176,7 @@ describe("B2 拆页后逐页渲染", () => {
     expect(await screen.findAllByText(marker, { exact: false })).not.toHaveLength(0);
   });
 
-  it("截图和 Prompt 记录分在资料库的两页，Prompt 可展开原文与润色文", async () => {
+  it("截图和 Prompt 分在资料库的两页，Prompt 可展开原文与润色文", async () => {
     const createdAt = new Date(2026, 9, 24, 9, 5).getTime();
     await renderApp((command) => {
       if (command === "list_snapshots") {
@@ -203,18 +204,20 @@ describe("B2 拆页后逐页渲染", () => {
     const user = userEvent.setup();
 
     // 截图页只放截图
-    expect(await screen.findByRole("button", { name: "放大：Codex" })).toBeTruthy();
-    expect(screen.queryByText("帮我把按钮改得更容易找到")).toBeNull();
+    expect(await screen.findByRole("button", { name: "标注：Codex" })).toBeTruthy();
+    // Prompt 页为保草稿常驻挂载但隐藏，可见内容以当前页为准
+    const visiblePage = () => within(document.querySelector<HTMLElement>(".page-view:not([hidden])")!);
+    expect(visiblePage().queryByText("帮我把按钮改得更容易找到")).toBeNull();
     expect(screen.queryByRole("tablist", { name: "历史类型" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /^Prompt 记录/ }));
+    await user.click(screen.getByRole("button", { name: /^Prompt$/ }));
     expect(await screen.findByText("09:05")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "放大：Codex" })).toBeNull();
-    const summary = screen.getAllByText("帮我把按钮改得更容易找到")[0].closest("summary");
+    expect(visiblePage().queryByRole("button", { name: "标注：Codex" })).toBeNull();
+    const summary = visiblePage().getAllByText("帮我把按钮改得更容易找到")[0].closest("summary");
     expect(summary).toBeTruthy();
     await user.click(summary!);
-    expect(screen.getAllByText("帮我把按钮改得更容易找到")).toHaveLength(2);
-    expect(screen.getAllByText("请提高主操作按钮的视觉层级，并明确其交互状态。")).toHaveLength(2);
+    expect(visiblePage().getAllByText("帮我把按钮改得更容易找到")).toHaveLength(2);
+    expect(visiblePage().getAllByText("请提高主操作按钮的视觉层级，并明确其交互状态。")).toHaveLength(2);
   });
 
   it("桌面伴侣页里拖桌宠大小：存下百分比，旁边跟着显示", async () => {
@@ -225,7 +228,7 @@ describe("B2 拆页后逐页渲染", () => {
       return handler(command);
     });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^前台应用图标/ }));
+    await user.click(screen.getByRole("button", { name: /^应用图标/ }));
     const slider = await screen.findByRole("slider", { name: "大小" });
     fireEvent.change(slider, { target: { value: "150" } });
     expect(await screen.findByText("150%")).toBeTruthy();
@@ -293,7 +296,7 @@ describe("B2 拆页后逐页渲染", () => {
       return handler(command);
     });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^前台应用图标/ }));
+    await user.click(screen.getByRole("button", { name: /^应用图标/ }));
 
     const wander = await screen.findByRole("switch", { name: "自由走动" });
     const random = screen.getByRole("switch", { name: "随机动作" });
@@ -348,16 +351,16 @@ describe("B2 拆页后逐页渲染", () => {
     localStorage.setItem("snapshot-layout", layout);
     await renderApp();
     const nav = screen.getByRole("navigation", { name: "主导航" });
-    // 导入按钮、伴侣行的圆点和名字各是一个按钮
+    // 导入按钮、伴侣行名字和行尾圆点各是一个按钮
     expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "历史", "Prompt 记录", "截图与录制", "快捷键", "通用", "", "", "前台应用图标",
+      "历史", "Prompt", "截图与录制", "快捷键", "通用", "", "应用图标", "",
     ]);
     expect(within(nav).getByRole("button", { name: "导入伴侣素材…" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();
     expect(document.querySelector(".companion")).toBeNull();
 
     const user = userEvent.setup();
-    await user.click(within(nav).getByRole("button", { name: /^前台应用图标/ }));
+    await user.click(within(nav).getByRole("button", { name: /^应用图标/ }));
     expect(await screen.findByRole("slider", { name: "大小" })).toBeTruthy();
     expect(screen.queryByRole("radiogroup", { name: "布局主题" })).toBeNull();
     expect(screen.queryByRole("radiogroup", { name: "颜色" })).toBeNull();

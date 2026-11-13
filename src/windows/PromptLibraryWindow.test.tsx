@@ -157,7 +157,10 @@ describe("Prompt 库窗口", () => {
     const library = await renderLibrary();
     expect(await screen.findByText("这里还空着")).toBeTruthy();
 
+    expect(screen.getAllByRole("button", { name: "新建" })).toHaveLength(1);
     await library.user.keyboard("{Control>}n{/Control}");
+    expect(screen.queryByRole("textbox", { name: "正文" })).toBeNull();
+    await library.user.click(screen.getByRole("button", { name: "新建" }));
     expect(await screen.findByRole("heading", { name: "新建" })).toBeTruthy();
     const save = screen.getByRole("button", { name: "保存" });
     expect(save).toHaveProperty("disabled", true);
@@ -216,7 +219,7 @@ describe("Prompt 库窗口", () => {
     await library.user.keyboard("{Control>}f{/Control}");
     expect(document.activeElement).toBe(search);
 
-    await library.user.keyboard("{Control>}n{/Control}");
+    await library.user.click(screen.getByRole("button", { name: "新建" }));
     await library.user.keyboard("{Escape}");
     expect(await screen.findByRole("heading", { name: "Prompt 库" })).toBeTruthy();
     expect(commandCalls(library.calls, "hide_prompt_library")).toHaveLength(0);
@@ -249,6 +252,6 @@ describe("Prompt 库窗口", () => {
     await library.user.keyboard("{Control>}n{/Control}");
     expect(screen.getByRole("heading", { name: "编辑" })).toBeTruthy();
     expect((screen.getByRole("textbox", { name: "正文" }) as HTMLTextAreaElement).value).toBe("仍需保留的草稿");
-    expect(screen.getByRole("alert").textContent).toBe("请先保存或取消当前编辑");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

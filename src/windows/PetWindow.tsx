@@ -18,7 +18,8 @@ import {
 import { iconUrl } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
 import { PetMedia, type PetMediaElement } from "../components/PetMedia";
-import { createPetAlphaReader } from "../lib/petMediaBounds";
+import { createPetAlphaReader, unionMediaBounds } from "../lib/petMediaBounds";
+import { cachePetMediaShape, loadPetMediaShapes, mediaShapeKey, type PetMediaShape } from "../lib/petMediaShapeCache";
 import { petVideoPixels } from "../lib/petVideoAlpha";
 import { petImageFrame, usePetImages, type PetImageFrame } from "../hooks/usePetImages";
 import { broadcastPetAnimation, onPetAnimationAsked } from "../lib/petSync";
@@ -37,12 +38,11 @@ import { createPetPlayback, type PetPlaybackOwner } from "../lib/petPlayback";
 import { usePetBehaviorAutonomy } from "../hooks/usePetBehaviorAutonomy";
 import type { PetAsset, PetEvent, PetLayout, PreviousApp, RecordingStatus, Settings } from "../types";
 
-type MediaShape = { width: number; height: number; bounds: MediaBounds | null };
-const shapeKey = (frame: PetImageFrame) => JSON.stringify([frame.assetId, frame.entry, frame.walk]);
+type MediaShape = PetMediaShape;
 
 function framePlacement(side: number, layout: PetLayout | null, frame: PetImageFrame | null, shapes: Map<string, MediaShape>) {
   if (!frame) return null;
-  const shape = shapes.get(shapeKey(frame));
+  const shape = shapes.get(mediaShapeKey(frame.assetId, frame.entry ?? "", frame.walk));
   const place = placementForEntry(side, layout, frame.entry, frame.flip) ??
     (shape ? mediaPlacement(side, shape.width, shape.height) : null);
   return place ? cropPetPlacement(place, shape?.bounds ?? null, frame.flip) : null;
@@ -68,7 +68,8 @@ function viewportGround(side: number, layout: PetLayout | null, frame: PetImageF
 }
 
 function viewportContent(place: PetPlacement, frame: PetImageFrame, shapes: Map<string, MediaShape>): MediaBounds {
-  const bounds = shapes.get(shapeKey(frame))?.bounds ?? { left: 0, top: 0, width: 1, height: 1 };
+  const bounds = shapes.get(mediaShapeKey(frame.assetId, frame.entry ?? "", frame.walk))?.bounds ??
+    { left: 0, top: 0, width: 1, height: 1 };
   return {
     left: place.imageX - place.shiftX + (frame.flip ? 1 - bounds.left - bounds.width : bounds.left) * place.imageWidth,
     top: place.imageY - place.shiftY + bounds.top * place.imageHeight,
@@ -276,26 +277,40 @@ export function PetWindow() {
   const readAlpha = alphaReader.current ??= createPetAlphaReader();
   const squash = useRef<Animation | null>(null);
 
-  function rememberMediaShape(frame: PetImageFrame, media: PetMediaElement, bounds: MediaBounds | null) {
+  function rememberMediaDimensions(frame: PetImageFrame, media: PetMediaElement) {
     const width = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
     const height = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
     if (!(width > 0 && height > 0)) return;
+    const key = mediaShapeKey(frame.assetId, frame.entry ?? "", frame.walk);
     setMediaShapes((previous) => {
-      const key = shapeKey(frame);
       const cached = previous.get(key);
-      const old = cached?.width === width && cached.height === height ? cached.bounds : null;
-      let next = bounds ?? old;
-      if (old && bounds) {
-        const left = Math.min(old.left, bounds.left);
-        const top = Math.min(old.top, bounds.top);
-        const right = Math.max(old.left + old.width, bounds.left + bounds.width);
-        const bottom = Math.max(old.top + old.height, bounds.top + bounds.height);
-        next = { left, top, width: right - left, height: bottom - top };
-      }
-      if (cached?.width === width && cached.height === height && (next === old || (old && next &&
-        Math.abs(old.left - next.left) < 1e-6 && Math.abs(old.top - next.top) < 1e-6 &&
-        Math.abs(old.width - next.width) < 1e-6 && Math.abs(old.height - next.height) < 1e-6))) return previous;
-      return new Map(previous).set(key, { width, height, bounds: next });
+      if (cached?.width === width && cached.height === height) return previous;
+      return new Map(previous).set(key, { width, height, bounds: null });
+    });
+  }
+
+  function rememberCompleteMediaShape(
+    frame: PetImageFrame,
+    media: PetMediaElement,
+    bounds: MediaBounds,
+  ) {
+    const width = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
+    const height = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
+    if (!(width > 0 && height > 0)) return;
+    const key = mediaShapeKey(frame.assetId, frame.entry ?? "", frame.walk);
+    const cached = mediaShapes.get(key);
+    const complete = cached?.width === width && cached.height === height && cached.bounds
+      ? unionMediaBounds(cached.bounds, bounds)
+      : bounds;
+    cachePetMediaShape(latestAsset.current, frame.entry, { width, height, bounds: complete });
+    setMediaShapes((previous) => {
+      const current = previous.get(key);
+      if (current && current.width === width && current.height === height && current.bounds &&
+        Math.abs(current.bounds.left - complete.left) < 1e-6 &&
+        Math.abs(current.bounds.top - complete.top) < 1e-6 &&
+        Math.abs(current.bounds.width - complete.width) < 1e-6 &&
+        Math.abs(current.bounds.height - complete.height) < 1e-6) return previous;
+      return new Map(previous).set(key, { width, height, bounds: complete });
     });
   }
 
@@ -424,7 +439,8 @@ export function PetWindow() {
         stateActions: { ...profile?.stateActions, ...original.stateActions },
       } : undefined;
       latestAsset.current = asset ?? null;
-      const key = JSON.stringify([id, asset?.path, asset?.entry, asset?.animations, asset?.layout, asset?.eventActions, asset?.stateActions]);
+      const key = JSON.stringify([id, asset?.path, asset?.entry, asset?.animations, asset?.layout,
+        asset?.actionBounds, asset?.eventActions, asset?.stateActions]);
       if (appearanceKey.current !== key) {
         appearanceKey.current = key;
         cancelBehaviorPlayback();
@@ -450,7 +466,7 @@ export function PetWindow() {
         setAppearanceId(id);
         setAnimations(entries);
         setLayout(asset?.layout ?? null);
-        setMediaShapes(new Map());
+        setMediaShapes(loadPetMediaShapes(asset));
         setEventActions(asset?.eventActions ?? {});
         setStateActions(asset?.stateActions ?? {});
         setRestingEntry(nextResting);
@@ -1098,13 +1114,22 @@ export function PetWindow() {
   useLayoutEffect(() => {
     const root = petRootRef.current;
     if (!root) return;
+    const displayedFrame = displayed;
     let animationFrame = 0;
     let videoFrame = 0;
     let observer: ResizeObserver | null = null;
-    let alphaBounds: { left: number; top: number; right: number; bottom: number } | null = null;
+    let alphaBounds: MediaBounds | null = null;
     let lastHitbox = "";
     let lastScan = 0;
     let alphaScanUnavailable = false;
+    let videoObservedFromStart: boolean | null = null;
+    let videoWasPlayed = false;
+    let videoEnded = false;
+    let lastVideoTime: number | null = null;
+    const initialShape = displayedFrame
+      ? mediaShapes.get(mediaShapeKey(displayedFrame.assetId, displayedFrame.entry ?? "", displayedFrame.walk))
+      : null;
+    let videoCommitted = Boolean(initialShape?.bounds);
 
     const send = (bounds: { left: number; top: number; width: number; height: number }) => {
       const key = [bounds.left, bounds.top, bounds.width, bounds.height].map(Math.round).join("/");
@@ -1118,25 +1143,24 @@ export function PetWindow() {
       try {
         const sample = readAlpha(media);
         if (!sample) return null;
-        alphaBounds = {
-          left: Math.min(alphaBounds?.left ?? 1, sample.left),
-          top: Math.min(alphaBounds?.top ?? 1, sample.top),
-          right: Math.max(alphaBounds?.right ?? 0, sample.left + sample.width),
-          bottom: Math.max(alphaBounds?.bottom ?? 0, sample.top + sample.height),
-        };
-        const frame = displayedRef.current;
-        if (frame) rememberMediaShape(frame, media, sample);
+        alphaBounds = unionMediaBounds(alphaBounds, sample);
         return {
-          left: content.left + (visibleFlip ? 1 - alphaBounds.right : alphaBounds.left) * content.width,
+          left: content.left + (visibleFlip ? 1 - alphaBounds.left - alphaBounds.width : alphaBounds.left) * content.width,
           top: content.top + alphaBounds.top * content.height,
-          width: (alphaBounds.right - alphaBounds.left) * content.width,
-          height: (alphaBounds.bottom - alphaBounds.top) * content.height,
+          width: alphaBounds.width * content.width,
+          height: alphaBounds.height * content.height,
         };
       } catch {
         // 老 WebView 或跨域限制读不到像素时，退回整块媒体矩形。
         alphaScanUnavailable = true;
         return null;
       }
+    };
+
+    const commitCompleteVideo = (media: HTMLVideoElement) => {
+      if (videoCommitted || !videoObservedFromStart || !alphaBounds || !displayedFrame) return;
+      videoCommitted = true;
+      rememberCompleteMediaShape(displayedFrame, media, alphaBounds);
     };
 
     const report = () => {
@@ -1171,6 +1195,20 @@ export function PetWindow() {
         return;
       }
       const scanned = scanAlpha(media, content);
+      if (media instanceof HTMLVideoElement) {
+        const currentTime = media.currentTime;
+        const duration = media.duration;
+        if (videoObservedFromStart === null) {
+          videoObservedFromStart = currentTime <= 0.15 &&
+            typeof media.requestVideoFrameCallback === "function";
+        }
+        if (currentTime > 0.02) videoWasPlayed = true;
+        const wrapped = videoWasPlayed && lastVideoTime !== null && currentTime + 0.05 < lastVideoTime;
+        const reachedEnd = videoEnded || media.ended ||
+          (Number.isFinite(duration) && duration > 0 && currentTime >= duration - 0.02);
+        if (wrapped || reachedEnd) commitCompleteVideo(media);
+        lastVideoTime = currentTime;
+      }
       const measured = scanned ?? content;
       visibleBounds.current = measured;
       send(measured);
@@ -1192,7 +1230,9 @@ export function PetWindow() {
     };
 
     requestBoundsReport.current = schedule;
-    schedule();
+    // Read the ready frame synchronously before playback advances. This makes
+    // the first-frame sample part of the complete WebM envelope.
+    report();
     if (typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(schedule);
       observer.observe(root);
@@ -1200,9 +1240,16 @@ export function PetWindow() {
       if (media) observer.observe(media);
     }
     const media = root.querySelector<PetMediaElement>(".pet-current");
+    const onVideoEnded = () => {
+      videoEnded = true;
+      report();
+    };
+    if (media instanceof HTMLVideoElement) media.addEventListener("ended", onVideoEnded);
     if (media instanceof HTMLVideoElement && typeof media.requestVideoFrameCallback === "function") {
       const scanFrame = (now: number) => {
-        if (now - lastScan >= 100) {
+        // Before an action has a complete envelope, inspect every presented
+        // frame so a one-frame effect cannot disappear from the measured union.
+        if (!videoCommitted || now - lastScan >= 100) {
           lastScan = now;
           report();
         }
@@ -1219,6 +1266,7 @@ export function PetWindow() {
       if (media instanceof HTMLVideoElement && typeof media.cancelVideoFrameCallback === "function") {
         media.cancelVideoFrameCallback(videoFrame);
       }
+      if (media instanceof HTMLVideoElement) media.removeEventListener("ended", onVideoEnded);
       observer?.disconnect();
       window.clearInterval(scanTimer);
       window.removeEventListener("resize", schedule);
@@ -1269,11 +1317,7 @@ export function PetWindow() {
                   loop={frame.loop}
                   onReady={(element) => {
                     readyMedia.current.set(frame.key, element);
-                    // MacPetVideo 只在透明合成首帧完成后 ready；在交接前读取它，
-                    // 不能先用整张画布重排旧画面、再等下一轮 RAF 才裁掉透明边距。
-                    let bounds: MediaBounds | null = null;
-                    try { bounds = readAlpha(element); } catch { /* 老 WebView 保留媒体矩形回退。 */ }
-                    rememberMediaShape(frame, element, bounds);
+                    rememberMediaDimensions(frame, element);
                     void onPetImageReady(frame, element);
                   }}
                   onEnded={() => onBehaviorEnded(frame)}

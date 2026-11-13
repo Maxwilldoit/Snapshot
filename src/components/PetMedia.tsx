@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { isWebmEntry, petAlphaUrl, petThumbUrl, petUrl } from "../lib/media";
+import { isWebmEntry, petAlphaUrl } from "../lib/media";
 import { usePlayableMediaUrl } from "../lib/mediaBlob";
 import { MacPetVideo } from "./MacPetVideo";
 
@@ -22,7 +22,7 @@ export type PetMediaProps = {
   onError?: () => void;
 };
 
-/** PetWindow、伴侣舞台和侧栏共用：GIF 走 img，WebM 走静音透明 video。 */
+/** PetWindow、伴侣舞台和素材库共用：GIF 走 img，WebM 走静音透明 video。 */
 export function PetMedia({
   src,
   entry,
@@ -113,30 +113,4 @@ export function PetMedia({
       onError={() => { setFailed(true); onError?.(); }}
     />
   );
-}
-
-/** 形象架/静态侧栏：GIF 用后端首帧，WebM 用暂停视频显示首帧。 */
-export function PetThumb({
-  assetId,
-  entry,
-  className,
-  fallback,
-}: {
-  assetId: string;
-  entry: string | null | undefined;
-  className?: string;
-  fallback?: ReactNode;
-}) {
-  if (isWebmEntry(entry)) {
-    return (
-      <PetMedia
-        src={petUrl(assetId, entry)}
-        entry={entry}
-        className={className}
-        playing={false}
-        fallback={fallback}
-      />
-    );
-  }
-  return <PetMedia src={petThumbUrl(assetId)} entry={entry} className={className} playing={false} fallback={fallback} />;
 }

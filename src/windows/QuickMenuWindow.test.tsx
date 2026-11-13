@@ -43,15 +43,55 @@ async function renderPalette(handle: (command: string, payload?: InvokeArgs) => 
 describe("快捷菜单：截取自身主窗口", () => {
   it.each([false, true])("长截图按平台能力 enabled=%s 调用既有动作", async (enabled) => {
     const { calls, user } = await renderPalette((command) => {
-      if (command === "platform_capabilities") return { os: "linux", recording: { available: true }, scrolling: { available: enabled } };
+      if (command === "platform_capabilities") return { os: "linux", displayServer: "X11", recording: { available: true }, scrolling: { available: enabled } };
       return undefined;
     });
-    const option = await screen.findByRole("option", { name: "长截图" });
+    const option = await screen.findByRole("option", { name: /长截图/ });
     await waitFor(() => expect(option).toHaveProperty("disabled", !enabled));
+    if (!enabled) expect(option.textContent).toContain("需要 xdotool");
     await user.click(option);
     expect(calls.filter((call) => call.command === "run_action")).toEqual(enabled
       ? [expect.objectContaining({ payload: { action: "scrolling", targetId: null } })]
       : []);
+  });
+
+  it.each([
+    ["macos", "desktop", "仅支持 Linux X11"],
+    ["linux", "Wayland", "需要 X11 会话"],
+  ] as const)("长截图在 %s 上直接显示不可用原因", async (os, displayServer, reason) => {
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "platform_capabilities") return { os, displayServer, recording: { available: true }, scrolling: os === "linux" ? { available: false } : undefined };
+      return undefined;
+    });
+    const option = await screen.findByRole("option", { name: /长截图/ });
+    await waitFor(() => expect(option).toHaveProperty("disabled", true));
+    expect(option.textContent).toContain(reason);
+    await user.click(option);
+    expect(calls.some((call) => call.command === "run_action")).toBe(false);
+  });
+
+  it("键盘跳过不可用的长截图，原因仍可见", async () => {
+    const { user } = await renderPalette((command) => {
+      if (command === "platform_capabilities") return { os: "macos", displayServer: "desktop", recording: { available: true } };
+      return undefined;
+    });
+    await screen.findByRole("option", { name: /长截图/ });
+    await waitFor(() => expect(screen.getByRole("option", { name: /长截图/ })).toHaveProperty("disabled", true));
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(screen.getByRole("option", { name: /录屏/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("option", { name: /长截图/ }).textContent).toContain("仅支持 Linux X11");
+  });
+
+  it("长截图可用时仍显示已启用的快捷键", async () => {
+    await renderPalette((command) => {
+      if (command === "platform_capabilities") return { os: "linux", displayServer: "X11", recording: { available: true }, scrolling: { available: true } };
+      if (command === "load_settings") return { shortcuts: [{ action: "scrolling", accelerator: "Alt+Shift+S" }], shortcutsPaused: false };
+      return undefined;
+    });
+    const option = await screen.findByRole("option", { name: /长截图/ });
+    await waitFor(() => expect(option).toHaveProperty("disabled", false));
+    expect(option.textContent).toContain("Alt");
+    expect(option.textContent).toContain("S");
   });
 
   it.each([
@@ -381,6 +421,20 @@ describe("快捷菜单：窗口大小", () => {
     await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 225 + 24 + 40 }));
     expect(sizes()).toHaveLength(callsBeforeSwitch + 2);
     expect(sizes().every((size) => size.width === 360 + 80)).toBe(true);
+  });
+
+  it("六项菜单按实际高度包裹，最后一项不被固定五行高度裁掉", async () => {
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("palette") ? parseFloat((this.parentElement as HTMLElement).style.width) || 0 : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      if (!this.isConnected || !this.classList.contains("palette")) return 0;
+      const menu = this.querySelector(".palette-menu");
+      return menu ? menu.querySelectorAll(".palette-item").length * 45 : 194;
+    });
+    const { calls } = await renderPalette(() => undefined);
+    await waitFor(() => expect(calls.some((call) => call.command === "resize_quick_menu" && (call.payload as { height: number }).height === 270 + 24 + 40)).toBe(true));
+    expect(screen.getAllByRole("option")).toHaveLength(6);
   });
 });
 

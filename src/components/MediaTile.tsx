@@ -1,15 +1,14 @@
 import { useState } from "react";
-import { Check, Copy, PenLine, Trash2 } from "lucide-react";
-import { appIconUrl, recordingUrl, thumbUrl } from "../lib/media";
+import { appIconUrl, appNameIconUrl, recordingUrl, thumbUrl } from "../lib/media";
 import { formatClock, formatDuration } from "../lib/format";
 import { useI18n } from "../lib/i18n";
 import type { MediaItem, RecordingMeta } from "../lib/mediaTimeline";
 
 /**
  * 时间线上的一格：截图或录屏。封面铺满格子，平时只露左下角的来源应用图标（录屏再加右下角时长）；
- * 悬停或聚焦时底部浮出窗口名和时间，右上角浮出复制/标注/删除，左上角的勾选圈进入多选。
+ * 悬停或聚焦时底部只浮出时间；来源应用由图标表达。截图点开标注，右键（或 Shift+F10）打开操作菜单。
  * 窄长的竖图给一个最小宽度，整张图居中放在浅底上，不裁成一条缝。
- * 来源图标取不到（旧记录没有标识、应用已卸载）就不显示角标，不用类型图标顶替——
+ * 旧记录按应用名查找已安装应用的图标；取不到就不显示角标，不用类型图标顶替——
  * 截图和录屏靠封面与时长就能分清，角标只回答「这是哪个应用」。
  */
 export function MediaTile({
@@ -19,10 +18,7 @@ export function MediaTile({
   selecting = false,
   selected = false,
   onOpen,
-  onCheck,
-  onCopy,
-  onAnnotate,
-  onDelete,
+  onMenu,
   onMeta,
 }: {
   item: MediaItem;
@@ -31,10 +27,7 @@ export function MediaTile({
   selecting?: boolean;
   selected?: boolean;
   onOpen: (item: MediaItem, event: React.MouseEvent) => void;
-  onCheck: (item: MediaItem, event: React.MouseEvent) => void;
-  onCopy?: (item: MediaItem) => void;
-  onAnnotate?: (item: MediaItem) => void;
-  onDelete?: (item: MediaItem) => void;
+  onMenu: (item: MediaItem, anchor: HTMLElement, point: { x: number; y: number }) => void;
   onMeta?: (id: string, meta: RecordingMeta) => void;
 }) {
   const { t } = useI18n();
@@ -43,19 +36,36 @@ export function MediaTile({
   const isRecording = item.kind === "recording";
   const narrow = boxWidth < 48;
   const label = item.appName;
+  const iconSrc = item.appId ? appIconUrl(item.appId, 20) : appNameIconUrl(item.appName, 20);
+  const hasIcon = !iconFailed;
+
+  function openMenu(anchor: HTMLElement, point?: { x: number; y: number }) {
+    const box = anchor.getBoundingClientRect();
+    onMenu(item, anchor, point ?? { x: box.left + Math.min(20, box.width / 2), y: box.top + Math.min(20, box.height / 2) });
+  }
 
   return (
     <div
-      className={`tile ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${narrow ? "is-narrow" : ""} ${failed ? "is-failed" : ""}`}
+      className={`tile ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${hasIcon ? "has-app-icon" : ""} ${narrow ? "is-narrow" : ""} ${failed ? "is-failed" : ""}`}
       style={{ width: boxWidth, height: boxHeight }}
     >
       <button
         type="button"
         className="tile-main"
         data-thumb-id={item.id}
-        aria-label={selecting ? t("选择：{label}", { label }) : t("放大：{label}", { label })}
+        aria-label={selecting ? t("选择：{label}", { label }) : t(isRecording ? "播放：{label}" : "标注：{label}", { label })}
+        aria-keyshortcuts="Shift+F10"
         aria-pressed={selecting ? selected : undefined}
         onClick={(event) => onOpen(item, event)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          openMenu(event.currentTarget, event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : undefined);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+          event.preventDefault();
+          openMenu(event.currentTarget);
+        }}
       >
         {isRecording ? (
           <video
@@ -84,10 +94,10 @@ export function MediaTile({
         )}
       </button>
 
-      {item.appId && !iconFailed && (
+      {hasIcon && (
         <img
           className="tile-app"
-          src={appIconUrl(item.appId, 20)}
+          src={iconSrc}
           alt=""
           aria-hidden="true"
           loading="lazy"
@@ -101,35 +111,9 @@ export function MediaTile({
       )}
 
       <div className="tile-info" aria-hidden="true">
-        <span className="tile-name">{label}</span>
         <span className="tile-time mono">{formatClock(item.createdAt)}</span>
       </div>
 
-      <button
-        type="button"
-        className="tile-check"
-        aria-label={t("选择：{label}", { label })}
-        aria-pressed={selected}
-        onClick={(event) => onCheck(item, event)}
-      >
-        {selected && <Check aria-hidden="true" />}
-      </button>
-
-      <div className="tile-actions">
-        {!isRecording && (
-          <>
-            <button type="button" className="tile-action" aria-label={t("复制")} title={t("复制")} onClick={() => onCopy?.(item)}>
-              <Copy aria-hidden="true" />
-            </button>
-            <button type="button" className="tile-action" aria-label={t("标注")} title={t("标注")} onClick={() => onAnnotate?.(item)}>
-              <PenLine aria-hidden="true" />
-            </button>
-          </>
-        )}
-        <button type="button" className="tile-action is-danger" aria-label={t("删除")} title={t("删除")} onClick={() => onDelete?.(item)}>
-          <Trash2 aria-hidden="true" />
-        </button>
-      </div>
     </div>
   );
 }

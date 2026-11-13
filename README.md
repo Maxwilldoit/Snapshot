@@ -78,6 +78,7 @@ See [scripts/linux/README.md](scripts/linux/README.md) for distribution details 
 - Painted backgrounds are removed from imported GIFs while interior colors such as a white shirt are preserved. WebM files should carry their own alpha channel.
 - Archives are limited to 100 MB; individual animation files are limited to 50 MB.
 - WebM should use VP9 with an alpha channel. It is played directly by the WebView; transparent playback support depends on the platform WebView.
+- For GIFs, Snapshot measures the union of every frame's visible pixels during import, so a short pose or effect is never cropped because the first frame was smaller. A WebM keeps its full action canvas until one complete playback has been observed; the exact union is then cached for later runs.
 - Actions with a larger canvas can use a `pet.json` file for a shared base canvas and foot anchors. The [Pets authoring guide](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md#给素材作者按事件设计动作) documents the format.
 - GIF/WebM companions without an authored layout automatically adapt their default size to the visible content of the idle animation. Large transparent margins are compensated up to 2×, and the result is reused across actions and restarts. Packages with `pet.json` keep their authored proportions. A manual **Size at 100%** adjustment affects only the current companion; **Auto fit** restores its automatic baseline.
 

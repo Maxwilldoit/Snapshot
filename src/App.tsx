@@ -3,6 +3,7 @@ import {
   getShortcutConflicts,
   loadSettings,
   onCaptureShot,
+  onPromptLibraryOpened,
   onSettingsChanged,
   platformCapabilities,
 } from "./lib/backend";
@@ -34,8 +35,6 @@ const NOTICE_MS: Record<NoticeKind, number> = { info: 3200, error: 9000 };
 
 function PageView({ page }: { page: NavPage }) {
   switch (page) {
-    case "prompts":
-      return <PromptsPage />;
     case "pet":
       return <PetPage />;
     case "capture":
@@ -55,6 +54,8 @@ export function App() {
   // 默认值只在后端有一份；拿到之前显示加载态，不在前端再抄一份默认设置
   const [settings, setSettings] = useState<Settings | null>(null);
   const [page, setPage] = useState<NavPage>("history");
+  // 每次全局「打开 Prompt 库」都自增，让常驻的 Prompt 页切到库区块（重复触发也生效）
+  const [libraryRequest, setLibraryRequest] = useState(0);
   const [viewedPetId, setViewedPetId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
@@ -191,6 +192,14 @@ export function App() {
     );
   }, []);
 
+  useEffect(() => {
+    const pending = onPromptLibraryOpened(() => {
+      setLibraryRequest((value) => value + 1);
+      navigate("prompts");
+    });
+    return () => { void pending.then((unlisten) => unlisten()).catch(() => {}); };
+  }, [navigate]);
+
   const value = useMemo<AppContextValue | null>(
     () =>
       settings && {
@@ -229,8 +238,12 @@ export function App() {
 
   const content = (
     <main className="main" ref={mainRef}>
-      <div key={page} className={`page-view page-${page} ${pageEnters.current ? "is-entering" : ""}`}>
-        <PageView page={page} />
+      <div key={page} hidden={page === "prompts"} className={`page-view page-${page} ${pageEnters.current ? "is-entering" : ""}`}>
+        {page !== "prompts" && <PageView page={page} />}
+      </div>
+      {/* Prompt 页常驻挂载：换页保留库的编辑草稿，隐藏时不接管搜索、保存或 Esc。 */}
+      <div hidden={page !== "prompts"} className={`page-view page-prompts ${pageEnters.current ? "is-entering" : ""}`}>
+        <PromptsPage active={page === "prompts"} libraryRequest={libraryRequest} />
       </div>
     </main>
   );

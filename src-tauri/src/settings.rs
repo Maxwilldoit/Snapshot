@@ -367,6 +367,7 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
         }
     }
     // annotate / scrolling 已实现：读盘时保留用户选择与绑定。
+    let mut backfilled_action_bounds = false;
     for asset in &mut settings.pet_assets {
         asset.source = normalize_pet_source(&asset.source);
         if asset.animations.is_empty() {
@@ -381,6 +382,19 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
         {
             asset.entry = asset.animations[0].clone();
         }
+        let gif_count = asset
+            .animations
+            .iter()
+            .filter(|entry| entry.to_ascii_lowercase().ends_with(".gif"))
+            .count();
+        if gif_count > asset.action_bounds.len() && PathBuf::from(&asset.path).is_file() {
+            if let Ok(bounds) =
+                super::pet::read_gif_action_bounds(&PathBuf::from(&asset.path), &asset.animations)
+            {
+                asset.action_bounds = bounds;
+                backfilled_action_bounds = true;
+            }
+        }
     }
     super::pet::refresh_missing(&mut settings.pet_assets);
     // 手改过配置文件、写了范围外的值：按边界算
@@ -392,6 +406,10 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
             .any(|asset| asset.id == settings.selected_appearance_id)
     {
         settings.selected_appearance_id = default_appearance_id();
+    }
+    if backfilled_action_bounds {
+        // Persist the one-time decode so startup does not remeasure every old GIF package.
+        let _ = persist_settings(path, &settings);
     }
     settings
 }
@@ -904,6 +922,63 @@ mod tests {
         assert!(reloaded.pet_hidden);
         assert_eq!(reloaded.selected_appearance_id, "app-icon");
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn old_gif_assets_gain_complete_action_bounds_when_settings_load() {
+        let directory = SettingsTestDir::new("pet-bounds");
+        let zip_path = directory.0.join("old-pet.zip");
+        let mut gif_bytes = Vec::new();
+        {
+            let palette = [0, 0, 0, 255, 0, 0];
+            let mut encoder = gif::Encoder::new(&mut gif_bytes, 4, 4, &palette).unwrap();
+            for (x, y) in [(1, 1), (2, 2)] {
+                let mut pixels = vec![0; 16];
+                pixels[y * 4 + x] = 1;
+                let mut frame = gif::Frame::from_palette_pixels(4, 4, pixels, palette, Some(0));
+                frame.delay = 10;
+                frame.dispose = gif::DisposalMethod::Background;
+                encoder.write_frame(&frame).unwrap();
+            }
+        }
+        {
+            let file = fs::File::create(&zip_path).unwrap();
+            let mut archive = zip::ZipWriter::new(file);
+            archive
+                .start_file("idle.gif", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut archive, &gif_bytes).unwrap();
+            archive.finish().unwrap();
+        }
+        let settings = Settings {
+            pet_assets: vec![super::super::pet::PetAsset {
+                id: "old".into(),
+                name: "old".into(),
+                path: zip_path.to_string_lossy().into(),
+                entry: "idle.gif".into(),
+                animations: vec!["idle.gif".into()],
+                event_actions: Default::default(),
+                state_actions: Default::default(),
+                source: String::new(),
+                size_bytes: 0,
+                imported_at: 0,
+                last_used_at: 0,
+                missing: false,
+                layout: None,
+                action_bounds: Default::default(),
+            }],
+            ..Default::default()
+        };
+        let settings_path = directory.0.join("settings.json");
+        persist_settings(&settings_path, &settings).unwrap();
+
+        let reloaded = read_settings(&settings_path);
+        let shape = &reloaded.pet_assets[0].action_bounds["idle.gif"];
+        assert_eq!((shape.width, shape.height), (4, 4));
+        assert_eq!(shape.bounds.left, 0.25);
+        assert_eq!(shape.bounds.top, 0.25);
+
+        fs::remove_file(zip_path).unwrap();
     }
 
     #[test]

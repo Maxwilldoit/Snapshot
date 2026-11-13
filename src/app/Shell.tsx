@@ -1,11 +1,9 @@
 import { useMemo, type ReactNode } from "react";
-import { Images, Keyboard, MessageSquareText, Plus, Settings2, SlidersHorizontal } from "lucide-react";
+import { Plus } from "lucide-react";
 import { usePresence } from "../lib/motion";
 import { errorText, useApp } from "./context";
 import { hidePet, selectPetAppearance } from "../lib/backend";
 import { WindowControls } from "../components/WindowTitleBar";
-import { PetThumb } from "../components/PetMedia";
-import { CatShape } from "../components/ui/CatShape";
 import { usePetImport } from "./usePetImport";
 import type { NavPage, PetAsset, PlatformCapabilities } from "../types";
 import { useI18n } from "../lib/i18n";
@@ -49,9 +47,9 @@ export function Toolbar({ title, lead, children }: { title: ReactNode; lead?: Re
   );
 }
 
-type NavItem = { page: NavPage; label: string; icon: ReactNode; trailing?: ReactNode };
+type NavItem = { page: NavPage; label: string; trailing?: ReactNode };
 
-/** 侧栏里伴侣的顺序：后导入的在前；导入时间一样就照原顺序。前台应用图标总在最后 */
+/** 侧栏里伴侣的顺序：后导入的在前；导入时间一样就照原顺序。应用图标总在最后 */
 function sortedPets(assets: PetAsset[]) {
   return [...assets].sort((a, b) => (b.importedAt ?? 0) - (a.importedAt ?? 0));
 }
@@ -74,18 +72,17 @@ export function SideNav() {
   }
 
   const library: NavItem[] = [
-    { page: "history", label: t("历史"), icon: <Images aria-hidden="true" /> },
-    { page: "prompts", label: t("Prompt 记录"), icon: <MessageSquareText aria-hidden="true" /> },
+    { page: "history", label: t("历史") },
+    { page: "prompts", label: t("Prompt") },
   ];
   const prefs: NavItem[] = [
-    { page: "capture", label: t("截图与录制"), icon: <SlidersHorizontal aria-hidden="true" /> },
+    { page: "capture", label: t("截图与录制") },
     {
       page: "shortcuts",
       label: t("快捷键"),
-      icon: <Keyboard aria-hidden="true" />,
       trailing: conflicts.length ? <span className="mw-nav-badge" aria-label={t("{count} 个冲突", { count: conflicts.length })}>{conflicts.length}</span> : null,
     },
-    { page: "general", label: t("通用"), icon: <Settings2 aria-hidden="true" /> },
+    { page: "general", label: t("通用") },
   ];
 
   const item = (entry: NavItem) => (
@@ -96,7 +93,6 @@ export function SideNav() {
       aria-current={page === entry.page ? "page" : undefined}
       onClick={() => navigate(entry.page)}
     >
-      {entry.icon}
       <span className="nav-label">{entry.label}</span>
       {entry.trailing}
     </button>
@@ -104,7 +100,7 @@ export function SideNav() {
 
   const petRow = (asset: PetAsset | null) => {
     const id = asset?.id ?? "app-icon";
-    const name = asset ? asset.name : t("前台应用图标");
+    const name = asset ? asset.name : t("应用图标");
     const current = page === "pet" && viewing === id;
     const onDesk = settings.selectedAppearanceId === id && !settings.petHidden;
     const broken = Boolean(asset?.missing);
@@ -116,6 +112,15 @@ export function SideNav() {
       >
         <button
           type="button"
+          className="nav-pet-main"
+          aria-current={current ? "page" : undefined}
+          title={name}
+          onClick={() => navigate("pet", { petId: id })}
+        >
+          <span className="nav-label">{name}</span>
+        </button>
+        <button
+          type="button"
           className={`pet-dot ${onDesk ? "is-on" : ""}`}
           aria-pressed={onDesk}
           aria-label={t("桌面显示：{name}", { name })}
@@ -124,20 +129,6 @@ export function SideNav() {
           onClick={() => void toggleDesk(id, onDesk)}
         >
           <span className="pet-dot-core" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="nav-pet-main"
-          aria-current={current ? "page" : undefined}
-          title={name}
-          onClick={() => navigate("pet", { petId: id })}
-        >
-          <span className="nav-avatar" aria-hidden="true">
-            {!asset ? <span className="app-glyph"><span /></span>
-              : asset.missing ? <CatShape height={16} outline />
-              : <PetThumb assetId={asset.id} entry={asset.entry} fallback={<CatShape height={16} outline />} />}
-          </span>
-          <span className="nav-label">{name}</span>
         </button>
       </div>
     );

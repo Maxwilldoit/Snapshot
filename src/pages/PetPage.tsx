@@ -16,7 +16,7 @@ import { useI18n } from "../lib/i18n";
 import { ensurePetAutoScale } from "../lib/petScale";
 
 /**
- * 桌面伴侣：侧栏里点哪一只就看哪一只。左边是大舞台，右边是它的动作（点一下预览）和桌面上的设置。
+ * 桌面伴侣：侧栏里点哪一只就看哪一只。左边是大舞台和桌面设置，右边是它的动作（点一下预览），两栏独立滚动。
  * 换桌面上那只、或把它收起来，都由侧栏名字左边的圆点负责；看一看不会动桌面。
  */
 export function PetPage() {
@@ -104,7 +104,7 @@ export function PetPage() {
     void showPetCatalog().catch((error) => notify(t("打开素材库失败：{detail}", { detail: errorText(error) }), "error"));
   }
 
-  const name = asset ? asset.name : t("前台应用图标");
+  const name = asset ? asset.name : t("应用图标");
   const stageSrc = asset && !asset.missing ? petUrl(asset.id, activeEntry) : null;
 
   return (
@@ -133,27 +133,26 @@ export function PetPage() {
         </Menu>
       )}
 
-      <div className="mw-scroll pane">
-        <div className="pet-grid">
-          <section className="pet-stage" aria-label={t("当前伴侣")}>
-            {stageSrc ? (
-              <PetMedia
-                key={stageSrc}
-                className="pet-stage-image"
-                src={stageSrc}
-                entry={activeEntry}
-                alt={name}
-                fallback={<CatShape height={150} outline />}
-              />
-            ) : asset ? (
-              <CatShape height={150} outline />
-            ) : (
-              <span className="app-glyph app-glyph-large" aria-hidden="true"><span /></span>
-            )}
-            {dropping && <div className="shelf-drop">{t("松手导入")}</div>}
-          </section>
-
-          <div className="pet-col">
+      <div className="pet-page-body">
+        <div className={`pet-grid ${asset?.animations.length ? "" : "is-single"}`}>
+          <section className="pet-column pet-main-pane" aria-label={t("当前伴侣")} tabIndex={0}>
+            <div className="pet-stage">
+              {stageSrc ? (
+                <PetMedia
+                  key={stageSrc}
+                  className="pet-stage-image"
+                  src={stageSrc}
+                  entry={activeEntry}
+                  alt={name}
+                  fallback={<CatShape height={150} outline />}
+                />
+              ) : asset ? (
+                <CatShape height={150} outline />
+              ) : (
+                <span className="app-glyph app-glyph-large" aria-hidden="true"><span /></span>
+              )}
+              {dropping && <div className="shelf-drop">{t("松手导入")}</div>}
+            </div>
             {asset?.missing && (
               <div className="group">
                 <div className="row">
@@ -162,9 +161,13 @@ export function PetPage() {
                 </div>
               </div>
             )}
-            {asset && asset.animations.length > 0 && (
-              <>
-                <h2 className="group-title">{t("动作")}</h2>
+            <PetSettings assetId={asset?.id ?? "app-icon"} />
+          </section>
+
+          {asset && asset.animations.length > 0 && (
+            <section className="pet-column pet-actions-pane" aria-labelledby="pet-actions-title">
+              <h2 id="pet-actions-title" className="group-title">{t("动作")}</h2>
+              <div className="pet-actions-scroll" role="region" aria-label={t("动作列表")} tabIndex={0}>
                 <div className="group pet-actions-grid" role="radiogroup" aria-label={t("预览动作")}>
                   {asset.animations.map((entry, index) => (
                     <button
@@ -181,11 +184,9 @@ export function PetPage() {
                     </button>
                   ))}
                 </div>
-
-              </>
-            )}
-            <PetSettings assetId={asset?.id ?? "app-icon"} />
-          </div>
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>

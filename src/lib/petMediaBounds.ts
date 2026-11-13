@@ -1,6 +1,15 @@
 import { petVideoPixels } from "./petVideoAlpha";
 import type { MediaBounds } from "./petSize";
 
+export function unionMediaBounds(first: MediaBounds | null, next: MediaBounds): MediaBounds {
+  if (!first) return next;
+  const left = Math.min(first.left, next.left);
+  const top = Math.min(first.top, next.top);
+  const right = Math.max(first.left + first.width, next.left + next.width);
+  const bottom = Math.max(first.top + first.height, next.top + next.height);
+  return { left, top, width: right - left, height: bottom - top };
+}
+
 /** Share one small canvas between readiness and animation sampling. Read before
  * promoting a decoded frame: a full-canvas fallback can put both crossfade layers
  * outside the still-cropped native window for a frame. */

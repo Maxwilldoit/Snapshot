@@ -10,12 +10,14 @@ export function Menu({
   onClose,
   label,
   align = "end",
+  point,
   children,
 }: {
   anchor: HTMLElement | null;
   onClose: () => void;
   label: string;
   align?: "start" | "end";
+  point?: { x: number; y: number };
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -25,10 +27,18 @@ export function Menu({
   useLayoutEffect(() => {
     if (!anchor) return;
     const box = anchor.getBoundingClientRect();
-    setPosition(align === "end"
-      ? { top: box.bottom + 4, right: Math.max(8, window.innerWidth - box.right) }
-      : { top: box.bottom + 4, left: Math.max(8, box.left) });
-  }, [anchor, align]);
+    if (point) {
+      const menu = ref.current?.getBoundingClientRect();
+      setPosition({
+        top: Math.max(8, Math.min(point.y, window.innerHeight - (menu?.height ?? 0) - 8)),
+        left: Math.max(8, Math.min(point.x, window.innerWidth - (menu?.width ?? 0) - 8)),
+      });
+    } else {
+      setPosition(align === "end"
+        ? { top: box.bottom + 4, right: Math.max(8, window.innerWidth - box.right) }
+        : { top: box.bottom + 4, left: Math.max(8, box.left) });
+    }
+  }, [anchor, align, point]);
 
   useEffect(() => {
     const first = ref.current?.querySelector<HTMLElement>("[role=menuitem]:not(:disabled), [role=menuitemcheckbox]:not(:disabled)");
@@ -39,7 +49,7 @@ export function Menu({
       onClose();
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" || event.key === "Tab") {
         event.preventDefault();
         event.stopPropagation();
         onClose();
@@ -54,13 +64,22 @@ export function Menu({
       const next = event.key === "ArrowDown" ? (index + 1) % items.length : (index - 1 + items.length) % items.length;
       items[next].focus();
     };
+    const onScroll = (event: Event) => {
+      if (!(event.target instanceof Node) || !ref.current?.contains(event.target)) onClose();
+    };
     window.addEventListener("mousedown", onDown, true);
     window.addEventListener("keydown", onKey, true);
+    if (point) {
+      window.addEventListener("scroll", onScroll, true);
+      window.addEventListener("resize", onClose);
+    }
     return () => {
       window.removeEventListener("mousedown", onDown, true);
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onClose);
     };
-  }, [anchor, onClose]);
+  }, [anchor, onClose, point]);
 
   return createPortal(
     <div

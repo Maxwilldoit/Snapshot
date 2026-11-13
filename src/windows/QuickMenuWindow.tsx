@@ -374,6 +374,13 @@ export function QuickMenuWindow() {
   }
 
   const items = useMemo<Item[]>(() => {
+    const scrollingReason = caps && !caps.scrolling?.available
+      ? caps.os !== "linux"
+        ? t("仅支持 Linux X11")
+        : caps.displayServer !== "X11"
+          ? t("需要 X11 会话")
+          : t("需要 xdotool")
+      : null;
     const list: Item[] = [
       {
         id: "capture",
@@ -390,9 +397,9 @@ export function QuickMenuWindow() {
       {
         id: "scrolling",
         label: t("长截图"),
-        hint: shortcutHint("scrolling"),
+        hint: scrollingReason ? <span className="small quiet">{scrollingReason}</span> : shortcutHint("scrolling"),
         disabled: Boolean(caps && !caps.scrolling?.available),
-        reason: t("长截图需要 Linux X11 和 xdotool"),
+        reason: scrollingReason ?? undefined,
         run: () => void runAction("scrolling").catch((error) => showStatus({ kind: "error", text: errorText(error) })),
       },
       recording.active

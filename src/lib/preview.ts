@@ -479,7 +479,7 @@ export function installPreviewBackend() {
       }
       if (kind === "recording" && demoVideos[id]) return demoVideos[id];
       // 历史角标：app-icon/<size>/<id>，id 是余下整段（可含斜杠），按它取一张演示图标
-      if (kind === "app-icon") return demoAppIcon(path.split("/").slice(2).join("/"));
+      if (kind === "app-icon" || kind === "app-name-icon") return demoAppIcon(path.split("/").slice(2).join("/"));
       if (kind === "pet" || kind === "pet-thumb") {
         const asset = settings.petAssets.find((item) => item.id === id);
         const item = catalogFixtures.find((fixture) => asset?.source === `https://github.com/Maxwilldoit/Pets#${fixture.id}`);

@@ -46,6 +46,35 @@ pub fn png_for_app_id(id: &str, size: u32) -> Option<Vec<u8>> {
     }
 }
 
+/// 兼容只有应用名的旧历史：优先匹配真实运行应用，再交给 LaunchServices 按名称解析。
+/// 不拼接或猜测 bundle id；名称无法解析时不返回替代图标。
+pub fn png_for_app_name(name: &str, size: u32) -> Option<Vec<u8>> {
+    let name = name.trim();
+    if name.is_empty() || name.contains('/') || name.contains('\\') {
+        return None;
+    }
+    let workspace = NSWorkspace::sharedWorkspace();
+    let paths: std::collections::HashSet<_> = workspace
+        .runningApplications()
+        .iter()
+        .filter(|app| {
+            app.localizedName()
+                .is_some_and(|label| label.to_string().eq_ignore_ascii_case(name))
+        })
+        .filter_map(|app| app.bundleURL()?.path().map(|path| path.to_string()))
+        .collect();
+    if paths.len() > 1 {
+        return None;
+    }
+    if let Some(path) = paths.into_iter().next() {
+        return png_for_app_id(&path, size);
+    }
+    // 旧记录没有 bundle id，仍需系统提供的名称解析兼容接口。
+    #[allow(deprecated)]
+    let path = workspace.fullPathForApplication(&NSString::from_str(name))?;
+    png_for_app_id(&path.to_string(), size)
+}
+
 /// 图标的 TIFF 里带全套尺寸（最大 1024×1024）；setSize 只改逻辑尺寸、
 /// 动不了 TIFFRepresentation 里的像素。要真压到目标边长，得把它画进
 /// 一个新的同尺寸 bitmap rep 再导出。
@@ -76,6 +105,16 @@ unsafe fn downscale_to_png(icon: &NSImage, size: u32) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_app_names_resolve_real_icons_without_guessing_missing_apps() {
+        let png = super::png_for_app_name("Finder", 32).expect("Finder 名称应可解析");
+        let decoded = image::load_from_memory(&png).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (32, 32));
+        assert!(super::png_for_app_name("Snapshot Missing App 8d8ddc5e", 32).is_none());
+        assert!(super::png_for_app_name("", 32).is_none());
+        assert!(super::png_for_app_name("/tmp/not-an-application", 32).is_none());
+    }
+
     #[test]
     fn finder_icon_encodes_as_64px_png() {
         let Ok(output) = std::process::Command::new("pgrep")

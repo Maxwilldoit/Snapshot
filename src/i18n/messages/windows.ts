@@ -43,12 +43,10 @@ export const windowsEnglish: Record<string, string> = {
   "已最小化": "Minimized",
   "Prompt 库": "Prompt Library",
   "搜索名称或正文": "Search names and text",
-  "Prompt 库 · Snapshot": "Prompt Library",
   "Prompt 已保存": "Prompt saved",
   "Prompt 已复制": "Prompt copied",
   "Prompt 已删除": "Prompt deleted",
   "没有匹配的 Prompt": "No Matching Prompts",
-  "请先保存或取消当前编辑": "Save or cancel your current edit first.",
   "粘贴或输入要长期保存的 Prompt": "Paste or type a prompt to keep",
 
   "正在读取截图…": "Loading screenshot…",

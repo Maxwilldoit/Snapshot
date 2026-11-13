@@ -12,19 +12,28 @@ let minimizedRestoreFailed = "目标窗口仍处于最小化，未能还原"
 struct AXWindowSnapshot: Equatable {
     let title: String
     let frame: CGRect
+    var minimized: Bool = false
+}
+
+private func windowFramesMatch(_ a: CGRect, _ b: CGRect) -> Bool {
+    abs(a.minX - b.minX) <= 2 && abs(a.minY - b.minY) <= 2 && abs(a.width - b.width) <= 2 && abs(a.height - b.height) <= 2
 }
 
 /// 在同一进程的最小化 AX 窗口里找出对应 SCWindow 的那个：标题相同且位置大小一致的优先；
 /// 只有一个同标题的最小化窗口时也算。找不到返回 nil（宁可不认，也不还原错窗口）。
 func matchMinimizedWindow(title: String, frame: CGRect, among candidates: [AXWindowSnapshot]) -> Int? {
-    let close = { (a: CGRect, b: CGRect) in
-        abs(a.minX - b.minX) <= 2 && abs(a.minY - b.minY) <= 2 && abs(a.width - b.width) <= 2 && abs(a.height - b.height) <= 2
-    }
     let sameTitle = candidates.indices.filter { candidates[$0].title == title }
-    if let exact = sameTitle.first(where: { close(candidates[$0].frame, frame) }) { return exact }
+    if let exact = sameTitle.first(where: { windowFramesMatch(candidates[$0].frame, frame) }) { return exact }
     if sameTitle.count == 1 { return sameTitle[0] }
-    let sameFrame = candidates.indices.filter { close(candidates[$0].frame, frame) }
+    let sameFrame = candidates.indices.filter { windowFramesMatch(candidates[$0].frame, frame) }
     return sameFrame.count == 1 ? sameFrame[0] : nil
+}
+
+/// 未最小化的离屏窗口必须对上几何位置，不能只凭同名认出缓存窗口。
+func matchOffscreenWindow(title: String, frame: CGRect, among candidates: [AXWindowSnapshot]) -> Int? {
+    guard let match = matchMinimizedWindow(title: title, frame: frame, among: candidates) else { return nil }
+    let candidate = candidates[match]
+    return candidate.minimized || windowFramesMatch(candidate.frame, frame) ? match : nil
 }
 
 private func axRawValue(_ element: AXUIElement, _ attribute: String) -> AXValue? {
@@ -64,8 +73,8 @@ private func setAXMinimized(_ element: AXUIElement, _ minimized: Bool) -> Bool {
     AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, (minimized ? kCFBooleanTrue : kCFBooleanFalse) as CFTypeRef) == .success
 }
 
-/// 某个进程当前最小化的窗口（AX 元素 + 标题/位置）。没有辅助功能权限时为空。
-func minimizedAXWindows(pid: pid_t, timeout: Float? = nil) -> [(element: AXUIElement, snapshot: AXWindowSnapshot)] {
+/// 应用当前仍存在的 AX 窗口，不主动申请辅助功能权限。
+private func axWindows(pid: pid_t, timeout: Float? = nil) -> [(element: AXUIElement, snapshot: AXWindowSnapshot)] {
     guard AXIsProcessTrusted() else { return [] }
     let application = AXUIElementCreateApplication(pid)
     if let timeout { AXUIElementSetMessagingTimeout(application, timeout) }
@@ -73,27 +82,35 @@ func minimizedAXWindows(pid: pid_t, timeout: Float? = nil) -> [(element: AXUIEle
     guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &raw) == .success,
           let windows = raw as? [AXUIElement] else { return [] }
     return windows.compactMap { element in
-        guard axBool(element, kAXMinimizedAttribute) else { return nil }
         var title: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &title)
         let origin = axPosition(element) ?? .zero
         let size = axSize(element) ?? .zero
-        return (element, AXWindowSnapshot(title: (title as? String) ?? "", frame: CGRect(origin: origin, size: size)))
+        return (element, AXWindowSnapshot(title: (title as? String) ?? "", frame: CGRect(origin: origin, size: size), minimized: axBool(element, kAXMinimizedAttribute)))
     }
+}
+
+/// 截取时只还原明确最小化的窗口。
+func minimizedAXWindows(pid: pid_t, timeout: Float? = nil) -> [(element: AXUIElement, snapshot: AXWindowSnapshot)] {
+    axWindows(pid: pid, timeout: timeout).filter { $0.snapshot.minimized }
 }
 
 /// 并发地问多个进程各自有哪些最小化窗口。每个进程单独设了消息超时，
 /// 一个卡住的应用不会拖住整份列表（最多等它 0.3 秒，问不到就当它没有最小化窗口）。
-func minimizedAXSnapshots(pids: [pid_t]) -> [pid_t: [AXWindowSnapshot]] {
+func axWindowSnapshots(pids: [pid_t]) -> [pid_t: [AXWindowSnapshot]] {
     guard !pids.isEmpty, AXIsProcessTrusted() else { return [:] }
     var results = [[AXWindowSnapshot]](repeating: [], count: pids.count)
     results.withUnsafeMutableBufferPointer { buffer in
         let slots = buffer
         DispatchQueue.concurrentPerform(iterations: pids.count) { index in
-            slots[index] = minimizedAXWindows(pid: pids[index], timeout: 0.3).map(\.snapshot)
+            slots[index] = axWindows(pid: pids[index], timeout: 0.3).map(\.snapshot)
         }
     }
     return Dictionary(uniqueKeysWithValues: zip(pids, results))
+}
+
+func minimizedAXSnapshots(pids: [pid_t]) -> [pid_t: [AXWindowSnapshot]] {
+    axWindowSnapshots(pids: pids).mapValues { $0.filter(\.minimized) }
 }
 
 /// 这个 SCWindow 是不是一个（Dock 里的）最小化窗口；是的话返回它的 AX 元素。

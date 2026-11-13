@@ -48,6 +48,12 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
   accompanies the action only when it is bound and enabled.
 - Prompt model/rule controls belong with Prompt history; general preferences hold
   app-wide settings. Recording audio choices belong at the recording entry point.
+- The sidebar entry is Prompt. History, the saved-prompt library, and the polish
+  model/rule settings are sections of that one page, switched by toolbar toggles
+  like the settings section. The quick menu and existing global library shortcut
+  open the page with the library section shown. Keep one New action in each state
+  and leave it unbound; search and save retain their keyboard commands. Page
+  navigation preserves unfinished drafts without letting hidden editors handle keys.
 
 ## Interaction and text
 

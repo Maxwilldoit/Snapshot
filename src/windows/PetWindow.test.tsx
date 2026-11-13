@@ -2,7 +2,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { emit } from "@tauri-apps/api/event";
 import type { PetAsset, PetLayout, Settings } from "../types";
-import { petPlacement, petRenderCanvas, type PetRenderCanvas } from "../lib/petFrame";
+import { cropPetPlacement, mediaPlacement, petPlacement, petRenderCanvas, type PetRenderCanvas } from "../lib/petFrame";
 import { petWindowSize } from "../lib/petSize";
 import { setupTauriMock } from "../test/tauri";
 import petStyles from "../styles.css?raw";
@@ -473,7 +473,7 @@ describe("桌宠：重力", () => {
     expect(position.y).toBe(1364);
   });
 
-  it("没有脚底锚点的透明视频按 alpha 底边下拉，不按视频画布限位", async () => {
+  it("透明视频尚未完整测量时按整张动作画布限位，避免首轮动作被裁坏", async () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       return this.classList.contains("pet-framed")
         ? new DOMRect(parseFloat(this.style.left), parseFloat(this.style.top), parseFloat(this.style.width), parseFloat(this.style.height))
@@ -496,9 +496,9 @@ describe("桌宠：重力", () => {
     await elapse(32);
     await startDrag(container);
     await dragTo(100, 400);
-    expect(position.y).toBe(638); // 裁去透明顶部后，alpha 底边相对窗口为 102px。
+    expect(position.y).toBe(621); // 完整画布兜底；测完一轮后才收紧到 alpha 底边。
     await endDrag();
-    expect(position.y).toBe(638);
+    expect(position.y).toBe(621);
   });
 });
 
@@ -638,7 +638,7 @@ describe("桌宠：左右屏幕边界", () => {
     expect(position.x).toBe(edgeX);
   });
 
-  it("带 pet.json 的透明 WebM 也按 alpha 可见范围贴边", async () => {
+  it("带 pet.json 的透明 WebM 首轮先按完整画布贴边，不提前裁掉短暂动作", async () => {
     mediaBox();
     vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(96);
     vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(96);
@@ -659,9 +659,9 @@ describe("桌宠：左右屏幕边界", () => {
     await elapse(32);
     await startDrag(container);
     await dragTo(-1000, 100);
-    expect(position.x).toBe(-4);
+    expect(position.x).toBe(-41);
     await endDrag();
-    expect(position.x).toBe(-4);
+    expect(position.x).toBe(-41);
   });
 });
 
@@ -793,7 +793,7 @@ describe("桌宠：动作画面交接", () => {
     expect(canvases.at(-1)).toEqual(backing);
   });
 
-  it("macOS 的 alpha 外框扩大只改变原生裁切，不移动图片、不扩大实际窗口到整个画布", async () => {
+  it("macOS 首帧直接使用导入时算好的完整外框，不因当前帧较窄而裁掉后段动作", async () => {
     vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(100);
     vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(100);
     vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
@@ -808,7 +808,20 @@ describe("桌宠：动作画面交接", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       return new DOMRect(parseFloat(this.style.left), parseFloat(this.style.top), parseFloat(this.style.width), parseFloat(this.style.height));
     });
-    const { container, size, canvases } = await renderPet({ ...grok, animations: [grok.entry] }, {}, undefined, null, {}, { userAgent: "Macintosh" });
+    const asset = {
+      ...grok,
+      animations: [grok.entry],
+      actionBounds: {
+        [grok.entry]: {
+          width: 100,
+          height: 100,
+          bounds: { left: .3, top: .2, width: .4, height: .6 },
+        },
+      },
+    };
+    const { container, size, canvases } = await renderPet(
+      asset, {}, undefined, null, {}, { userAgent: "Macintosh" },
+    );
     const image = shown(container).img;
     const style = image.getAttribute("style");
     const initialWidth = size.width;
@@ -817,8 +830,7 @@ describe("桌宠：动作画面交接", () => {
     expect(size.width).toBeLessThan(backing.width / 2);
     left = 30; right = 70;
     await elapse(250);
-    expect(size.width).toBeGreaterThan(initialWidth);
-    expect(size.width).toBeLessThan(backing.width / 2);
+    expect(size.width).toBe(initialWidth);
     expect(image.getAttribute("style")).toBe(style);
     expect(canvases.at(-1)).toEqual(backing);
     // Return to ordinary icon: reset native WebView layout and drop overscan.
@@ -1083,6 +1095,18 @@ describe("桌宠：应用图标和自定义宠物的大小", () => {
 });
 
 describe("桌宠：透明留白不占窗口面积", () => {
+  function alphaShaped(animations = [grok.entry]): PetAsset {
+    const bounds = { left: 24 / 96, top: 12 / 96, width: 48 / 96, height: 60 / 96 };
+    return {
+      ...grok,
+      animations,
+      actionBounds: Object.fromEntries(animations.map((entry) => [
+        entry,
+        { width: 96, height: 96, bounds },
+      ])),
+    };
+  }
+
   function alphaImage() {
     vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(96);
     vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(96);
@@ -1106,7 +1130,7 @@ describe("桌宠：透明留白不占窗口面积", () => {
 
   it("图片窗口只包住 alpha 外框，动画采样不反复缩放或改变画图大小", async () => {
     const setBounds = alphaImage();
-    const { container, size, sizes, position } = await renderPet({ ...grok, animations: [grok.entry] });
+    const { container, size, sizes, position } = await renderPet(alphaShaped());
     await elapse(120);
     expect(size).toEqual({ width: 86, height: 106 });
     const image = shown(container).img;
@@ -1123,7 +1147,7 @@ describe("桌宠：透明留白不占窗口面积", () => {
 
   it("新动作显示前已测量 alpha，不先退回整张画布把宠物裁出旧窗口", async () => {
     alphaImage();
-    const { container, size, sizes, delay } = await renderPet(grok);
+    const { container, size, sizes, delay } = await renderPet(alphaShaped(grok.animations));
     await elapse(120);
     // 从已经收紧的旧窗口切换，load/decode 交接前就必须量好新图。
     expect(size).toEqual({ width: 86, height: 106 });
@@ -1146,9 +1170,62 @@ describe("桌宠：透明留白不占窗口面积", () => {
     expect(sizes).toHaveLength(count);
   });
 
-  it("按住宠物时外框扩大，鼠标抓点和松手位置仍然稳定", async () => {
+  it("WebM 首轮先用完整画布，完整结束后才收紧到所有帧的并集并缓存", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "currentTime", "get").mockReturnValue(.05);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(96);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(96);
+    Object.defineProperty(HTMLVideoElement.prototype, "requestVideoFrameCallback", {
+      configurable: true,
+      value: vi.fn(() => 1),
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return new DOMRect(parseFloat(this.style.left), parseFloat(this.style.top),
+        parseFloat(this.style.width), parseFloat(this.style.height));
+    });
+    const data = new Uint8ClampedArray(96 * 96 * 4);
+    for (let y = 12; y < 72; y++) {
+      for (let x = 24; x < 72; x++) data[(y * 96 + x) * 4 + 3] = 255;
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(), drawImage: vi.fn(), getImageData: () => ({ data }),
+    } as unknown as CanvasRenderingContext2D);
+    const entry = "idle.webm";
+    const asset: PetAsset = {
+      ...grok,
+      entry,
+      animations: [entry],
+      layout: {
+        baseWidth: 96,
+        baseHeight: 96,
+        anchorX: 48,
+        anchorY: 96,
+        frames: [{ entry, width: 96, height: 96, anchorX: 48, anchorY: 96 }],
+      },
+    };
+    try {
+      const { container, size } = await renderPet(asset);
+      await loadPetVideos();
+      await elapse(32);
+      expect(size).toEqual({ width: 160, height: 160 });
+      const media = shownVideo(container).media;
+      await act(async () => { fireEvent.ended(media); });
+      await elapse(0);
+      const expected = cropPetPlacement(mediaPlacement(160, 96, 96)!,
+        { left: .25, top: .125, width: .5, height: .625 });
+      expect(size).toEqual({ width: expected.width, height: expected.height });
+      expect(localStorage.getItem(`snapshot-pet-media-shapes:${asset.id}`)).toContain(entry);
+    } finally {
+      Reflect.deleteProperty(HTMLVideoElement.prototype, "requestVideoFrameCallback");
+    }
+  });
+
+  it("完整外框已缓存在按住宠物时，鼠标抓点和松手位置仍然稳定", async () => {
     const setBounds = alphaImage();
-    const { container, position, shifts } = await renderPet({ ...grok, animations: [grok.entry] });
+    const { container, position, shifts } = await renderPet(alphaShaped());
     await elapse(120);
     const origin = { x: position.x - shifts.at(-1)!.x, y: position.y - shifts.at(-1)!.y };
     await startDrag(container);

@@ -2,7 +2,9 @@
 export const coreEnglish: Record<string, string> = {
   "清除搜索": "Clear Search",
   "录屏在当前环境不可用": "Recording is unavailable in this environment",
-  "长截图需要 Linux X11 和 xdotool": "Scrolling screenshots require Linux X11 and xdotool",
+  "仅支持 Linux X11": "Linux X11 only",
+  "需要 X11 会话": "Needs an X11 session",
+  "需要 xdotool": "Needs xdotool",
   "窗口截图": "Window Screenshot",
   "长截图": "Scrolling Screenshot",
   "API Key 已保存": "API Key is saved",
@@ -83,7 +85,7 @@ export const coreEnglish: Record<string, string> = {
   // 主窗口：侧栏、工具栏与分组设置
   "资料库": "History",
   "历史": "History",
-  "Prompt 记录": "Prompts",
+  "Prompt": "Prompts",
   "截图与录制": "Capture & Recording",
   "快捷键": "Shortcuts",
   "通用": "General",

@@ -42,7 +42,7 @@ const shelfSettings: Settings = {
   ],
 };
 
-/** 前台应用图标固定在最前；其余后导入的在前，导入时间相同保留原顺序 */
+/** 应用图标固定在最前；其余后导入的在前，导入时间相同保留原顺序 */
 const shelfOrder = ["app-icon", "new", "twin-z", "twin-a", "old", "legacy-z", "legacy-a"];
 
 function petGroup() {
@@ -79,6 +79,24 @@ function deskIds() {
 }
 
 describe("侧栏里伴侣的固定位置", () => {
+  it("导航文字同列，伴侣列表不显示预览，桌面开关位于行尾", async () => {
+    await renderPetPage();
+
+    const nav = screen.getByRole("navigation", { name: "主导航" });
+    const groups = Array.from(nav.querySelectorAll<HTMLElement>(".nav-group"));
+    for (const group of groups.slice(0, 2)) {
+      expect(group.querySelector(".nav-item > svg")).toBeNull();
+    }
+
+    const row = petGroup().querySelector<HTMLElement>('[data-pet-id="app-icon"]')!;
+    const main = row.querySelector<HTMLElement>(".nav-pet-main")!;
+    expect(row.firstElementChild).toBe(main);
+    expect(row.lastElementChild?.classList.contains("pet-dot")).toBe(true);
+    expect(main.firstElementChild?.classList.contains("nav-label")).toBe(true);
+    expect(main.querySelector(".nav-avatar")).toBeNull();
+    expect(main.textContent).toBe("应用图标");
+  });
+
   it("按导入时间由新到旧排列，相同或缺省时间沿用原顺序，不受选中项和最近使用时间影响", async () => {
     await renderPetPage(undefined, shelfSettings);
 
@@ -202,6 +220,53 @@ describe("桌面伴侣素材库入口", () => {
     }));
     expect(deskIds()).toEqual(["catalog-new"]);
     expect(screen.getByRole("heading", { name: "新伙伴" })).toBeTruthy();
+  });
+});
+
+describe("桌面伴侣页面滚动", () => {
+  it("桌宠与桌面设置共享左栏，动作单独占右栏，两栏互不包含", async () => {
+    await renderPetPage(undefined, {
+      ...base,
+      selectedAppearanceId: "many",
+      petAssets: [{
+        id: "many",
+        name: "多动作伴侣",
+        path: "pets/many.zip",
+        entry: "idle.gif",
+        animations: ["idle.gif", "walk.gif", "wave.gif"],
+      }],
+    });
+
+    const main = screen.getByRole("region", { name: "当前伴侣" });
+    const actions = screen.getByRole("region", { name: "动作" });
+
+    expect(main.getAttribute("class")).toContain("pet-main-pane");
+    expect(actions.getAttribute("class")).toContain("pet-actions-pane");
+    expect(main.parentElement).toBe(actions.parentElement);
+    expect(main).toHaveProperty("tabIndex", 0);
+    expect(actions).toHaveProperty("tabIndex", -1);
+    expect(within(main).getByRole("heading", { name: "桌面" })).toBeTruthy();
+    expect(within(main).queryByRole("radiogroup", { name: "预览动作" })).toBeNull();
+    expect(within(actions).getByRole("radiogroup", { name: "预览动作" })).toBeTruthy();
+    expect(within(actions).queryByRole("heading", { name: "桌面" })).toBeNull();
+
+    const heading = within(actions).getByRole("heading", { name: "动作" });
+    const scroll = within(actions).getByRole("region", { name: "动作列表" });
+    expect(scroll.getAttribute("class")).toContain("pet-actions-scroll");
+    expect(scroll).toHaveProperty("tabIndex", 0);
+    expect(scroll.contains(heading)).toBe(false);
+    expect(heading.nextElementSibling).toBe(scroll);
+    expect(within(scroll).getByRole("radiogroup", { name: "预览动作" })).toBeTruthy();
+  });
+
+  it("没有动作时只保留预览和桌面设置，不留下空白右栏", async () => {
+    await renderPetPage();
+
+    const main = screen.getByRole("region", { name: "当前伴侣" });
+    const grid = main.parentElement;
+    expect(grid?.getAttribute("class")).toContain("is-single");
+    expect(within(main).getByRole("heading", { name: "桌面" })).toBeTruthy();
+    expect(grid?.querySelector(".pet-actions-pane")).toBeNull();
   });
 });
 

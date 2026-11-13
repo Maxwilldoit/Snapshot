@@ -62,6 +62,7 @@ html[data-surface="app"] .mw .sidebar {
 }
 html[data-surface="app"] .mw .main { display: flex; flex-direction: column; overflow: hidden; background: var(--win); }
 html[data-surface="app"] .mw .page-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; }
+html[data-surface="app"] .mw .page-view[hidden] { display: none; }
 html[data-surface="app"] .mw-page { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; }
 html[data-surface="app"] .mw-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 html[data-surface="app"] .mw-scroll.pane { background: var(--pane); }
@@ -99,16 +100,11 @@ html[data-surface="app"] .mw .nav-item {
 }
 html[data-surface="app"] .mw .nav-item:hover { color: var(--text1); }
 html[data-surface="app"] .mw .nav-item.is-on { background: var(--side-sel); font-weight: 400; }
-html[data-surface="app"] .mw .nav-item > svg { flex: 0 0 auto; width: 16px; height: 16px; color: var(--accent); stroke-width: 1.6; }
 html[data-surface="app"] .mw .nav-label { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-html[data-surface="app"] .nav-avatar { display: grid; place-items: center; flex: 0 0 20px; width: 20px; height: 20px; margin-left: -2px; overflow: hidden; }
-html[data-surface="app"] .nav-avatar :is(img, video, canvas) { display: block; max-width: 20px; max-height: 20px; object-fit: contain; }
-html[data-surface="app"] .nav-avatar .app-glyph { width: 16px; height: 13px; border-width: 1.2px; border-radius: 3px; }
-html[data-surface="app"] .nav-avatar .app-glyph > span { height: 3px; border-bottom-width: 1.2px; }
-/* 伴侣行：左边圆点管桌面显示（可再点取消），右边整块点开详情 */
+/* 伴侣行：名称与上方导航同列，最右侧圆点管桌面显示 */
 html[data-surface="app"] .mw .nav-pet { gap: 6px; }
 html[data-surface="app"] .mw .nav-pet-main {
-  display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; height: 100%; padding: 0;
+  display: flex; align-items: center; flex: 1 1 auto; min-width: 0; height: 100%; padding: 0;
   border: 0; border-radius: 4px; background: none; color: inherit; font-size: 13px; font-weight: inherit; text-align: left;
 }
 html[data-surface="app"] .mw .pet-dot { position: relative; flex: 0 0 16px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: none; }
@@ -129,7 +125,6 @@ html[data-surface="app"] .mw-nav-badge {
   min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--red); color: #fff;
   font-size: 11px; line-height: 16px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums;
 }
-html[data-surface="app"][data-theme="dark"] .nav-avatar :is(img, video, canvas),
 html[data-surface="app"][data-theme="dark"] .pet-stage-image { filter: drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.55)); }
 
 /* ---------- 工具栏 ---------- */
@@ -165,10 +160,10 @@ html[data-surface="app"] .mw .window-controls button.is-close:hover { background
 /* 搜索平时收起成一个图标位；点它、Tab 到它或 Ctrl/Cmd+F 聚焦时展开，带着筛选词时也保持展开 */
 html[data-surface="app"] .mw-search {
   display: flex; align-items: center; gap: 0; flex: 0 0 auto; width: 28px; height: 28px; padding: 0 7px;
-  border: 0; border-radius: 6px; background: var(--fill); color: var(--text3); overflow: hidden;
-  transition: width 0.18s ease, box-shadow 0.15s;
+  border: 0; border-radius: 6px; background: transparent; color: var(--text3); overflow: hidden;
+  transition: width 0.18s ease, box-shadow 0.15s, background-color 0.15s;
 }
-html[data-surface="app"] .mw-search:focus-within, html[data-surface="app"] .mw-search.is-active { gap: 5px; width: 200px; }
+html[data-surface="app"] .mw-search:focus-within, html[data-surface="app"] .mw-search.is-active { gap: 5px; width: 200px; background: var(--fill); }
 html[data-surface="app"] .mw-search:focus-within { color: var(--text3); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent), 0 0 0 0.5px color-mix(in srgb, var(--accent) 60%, transparent); }
 html[data-surface="app"] .mw-search > svg { flex: 0 0 auto; width: 14px; height: 14px; }
 html[data-surface="app"] .mw-search input { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--text1); font-size: 13px; outline: none; }
@@ -214,6 +209,9 @@ html[data-surface="app"] .history-scroll { margin: 0; padding: 0; }
 html[data-surface="app"] .gallery { display: block; padding: 2px 16px 24px; }
 html[data-surface="app"] .mw .day { display: block; margin-top: 12px; padding: 0; border-top: 0; }
 html[data-surface="app"] .mw .day-label { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0 0 7px; padding: 6px 0; background: var(--win); }
+html[data-surface="app"] .mw .day-label::after {
+  content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--win); pointer-events: none;
+}
 html[data-surface="app"] .mw .day-title { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; color: var(--text3); }
 html[data-surface="app"] .jgrid { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 html[data-surface="app"] .jrow { display: flex; align-items: flex-start; min-width: 0; }
@@ -236,24 +234,11 @@ html[data-surface="app"] .mw .tile.is-narrow .tile-main img, html[data-surface="
 /* 来源应用图标：浅底衬托，深色截图上也看得清；取不到就不渲染（没有类型图标顶替） */
 html[data-surface="app"] .mw .tile-app { position: absolute; left: 5px; bottom: 5px; width: 18px; height: 18px; padding: 1px; border-radius: 4px; object-fit: contain; background: rgba(255, 255, 255, 0.88); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
 html[data-surface="app"] .mw .tile-duration { position: absolute; right: 5px; bottom: 5px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 10px; line-height: 14px; pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
-html[data-surface="app"] .mw .tile-info { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px; padding: 16px 7px 5px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.62)); color: #fff; font-size: 11px; opacity: 0; transition: opacity var(--t-press) var(--ease-out); pointer-events: none; }
-html[data-surface="app"] .mw .tile-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-surface="app"] .mw .tile-info { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: flex-end; padding: 16px 7px 5px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.62)); color: #fff; font-size: 11px; opacity: 0; transition: opacity var(--t-press) var(--ease-out); pointer-events: none; }
 html[data-surface="app"] .mw .tile-time { flex: 0 0 auto; }
 html[data-surface="app"] .mw .tile:hover .tile-info, html[data-surface="app"] .mw .tile:focus-within .tile-info { opacity: 1; }
-html[data-surface="app"] .mw .tile:hover .tile-app, html[data-surface="app"] .mw .tile:hover .tile-duration, html[data-surface="app"] .mw .tile:focus-within .tile-app, html[data-surface="app"] .mw .tile:focus-within .tile-duration { opacity: 0; }
-html[data-surface="app"] .mw .tile-check { position: absolute; left: 5px; top: 5px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; background: rgba(255, 255, 255, 0.72); color: #fff; box-shadow: inset 0 0 0 1.2px #fff, 0 0 0 0.5px rgba(0, 0, 0, 0.3); opacity: 0; transition: opacity var(--t-press) var(--ease-out); }
-html[data-surface="app"] .mw .tile-check svg { width: 11px; height: 11px; }
-html[data-surface="app"] .mw .tile-check:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; opacity: 1; }
-html[data-surface="app"] .mw .tile:hover .tile-check, html[data-surface="app"] .mw .tile:focus-within .tile-check, html[data-surface="app"] .mw .tile.is-selecting .tile-check { opacity: 1; }
-html[data-surface="app"] .mw .tile.is-selected .tile-check { background: var(--accent); opacity: 1; }
-html[data-surface="app"] .mw .tile-actions { position: absolute; right: 5px; top: 5px; display: flex; gap: 3px; opacity: 0; transition: opacity var(--t-press) var(--ease-out); }
-html[data-surface="app"] .mw .tile:hover .tile-actions, html[data-surface="app"] .mw .tile:focus-within .tile-actions { opacity: 1; }
-html[data-surface="app"] .mw .tile.is-selecting .tile-actions { display: none; }
-html[data-surface="app"] .mw .tile-action { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; cursor: pointer; background: rgba(0, 0, 0, 0.5); color: #fff; }
-html[data-surface="app"] .mw .tile-action svg { width: 13px; height: 13px; }
-html[data-surface="app"] .mw .tile-action:hover { background: rgba(0, 0, 0, 0.72); }
-html[data-surface="app"] .mw .tile-action.is-danger:hover { background: var(--red); }
-html[data-surface="app"] .mw .tile-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html[data-surface="app"] .mw .tile-app { z-index: 1; }
+html[data-surface="app"] .mw .tile:hover .tile-duration, html[data-surface="app"] .mw .tile:focus-within .tile-duration { opacity: 0; }
 html[data-surface="app"] .mw .shot.is-fresh .tile { animation: mw-fresh 1.2s var(--ease-out) both; }
 @keyframes mw-fresh { from { box-shadow: 0 0 0 3px var(--accent); } }
 
@@ -344,7 +329,25 @@ html[data-surface="app"] .mw .storage-path {
   font-size: 11.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 html[data-surface="app"] .mw .storage-path:hover { color: var(--text1); }
-html[data-surface="app"] .mw .range { width: 150px; flex: 0 1 150px; min-width: 72px; accent-color: var(--accent); }
+html[data-surface="app"] .mw .range {
+  width: 150px; flex: 0 1 150px; min-width: 72px; height: 20px;
+  accent-color: var(--accent); -webkit-appearance: none; appearance: none; background: transparent;
+}
+html[data-surface="app"] .mw .range::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 999px; background: var(--accent);
+}
+html[data-surface="app"] .mw .range::-webkit-slider-thumb {
+  width: 16px; height: 16px; margin-top: -6px; border: 2px solid var(--accent); border-radius: 50%;
+  -webkit-appearance: none; appearance: none; background: var(--win);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+html[data-surface="app"] .mw .range::-moz-range-track {
+  height: 4px; border-radius: 999px; background: var(--accent);
+}
+html[data-surface="app"] .mw .range::-moz-range-thumb {
+  width: 16px; height: 16px; border: 2px solid var(--accent); border-radius: 50%;
+  background: var(--win); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
 html[data-surface="app"] .mw .range-value { min-width: 36px; font-size: 11px; color: var(--text2); }
 html[data-surface="app"] .group-note { margin: 6px 6px 0; font-size: 11px; line-height: 1.5; color: var(--text3); font-family: inherit; }
 html[data-surface="app"] .mw .signal { color: var(--red); }
@@ -445,24 +448,63 @@ html[data-surface="app"] .mw .panel-rules .panel-head .text-btn { font-size: 12p
 /* ---------- 桌面伴侣 ---------- */
 
 html[data-surface="app"] .mw .pet-page { display: flex; grid-template-columns: none; min-height: 0; padding: 0; }
+html[data-surface="app"] .pet-page-body {
+  flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--pane);
+}
 html[data-surface="app"] .pet-grid {
   display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; align-items: stretch;
+  width: 100%; height: 100%; min-height: 0; overflow: hidden;
   padding: 20px 24px 24px;
 }
+html[data-surface="app"] .pet-grid {
+  --pet-stage-height: 380px;
+  --pet-shadow-top: calc(var(--pet-stage-height) / 2 + 112px);
+}
+html[data-surface="app"] .pet-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+html[data-surface="app"] .pet-column {
+  min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  overscroll-behavior: contain; scrollbar-width: none;
+}
+html[data-surface="app"] .pet-column::-webkit-scrollbar { display: none; }
+html[data-surface="app"] .pet-column:focus-visible { outline-offset: -3px; }
+html[data-surface="app"] .pet-main-pane,
+html[data-surface="app"] .pet-actions-pane { display: flex; flex-direction: column; }
+html[data-surface="app"] .pet-main-pane > .group,
+html[data-surface="app"] .pet-main-pane > .panel,
+html[data-surface="app"] .pet-actions-pane > .group-title { flex: 0 0 auto; }
+html[data-surface="app"] .pet-main-pane > .group,
+html[data-surface="app"] .pet-main-pane > .panel { margin-top: 20px; }
+html[data-surface="app"] .pet-actions-pane {
+  height: 100%; max-height: none; overflow-y: hidden; align-self: stretch;
+}
+html[data-surface="app"] .pet-actions-pane > .group-title {
+  margin-top: -2px; margin-bottom: 2px; line-height: 16px;
+}
+html[data-surface="app"] .pet-actions-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  overscroll-behavior: contain; scrollbar-width: none;
+  border-radius: 8px; background: var(--group); box-shadow: 0 0 0 0.5px var(--sep);
+}
+html[data-surface="app"] .pet-actions-scroll::-webkit-scrollbar { display: none; }
+html[data-surface="app"] .pet-actions-scroll:focus-visible { outline-offset: -3px; }
 @media (max-width: 1100px) {
   html[data-surface="app"] .pet-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 @media (max-width: 900px) {
-  html[data-surface="app"] .pet-grid { grid-template-columns: minmax(0, 1fr); }
-  html[data-surface="app"] .mw .pet-stage { min-height: 280px; }
+  html[data-surface="app"] .pet-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    --pet-stage-height: 280px;
+  }
+  html[data-surface="app"] .pet-grid.is-single { grid-template-rows: minmax(0, 1fr); }
 }
-/* 动作多的形象右栏会很长：舞台不跟着拉高，贴在顶上，往下翻动作时伴侣一直在眼前 */
 html[data-surface="app"] .mw .pet-stage {
-  position: sticky; top: 0; align-self: start; display: flex; align-items: center; justify-content: center; min-height: 380px; height: auto;
+  position: relative; display: flex; flex: 0 0 auto; align-items: center; justify-content: center;
+  min-height: var(--pet-stage-height); height: var(--pet-stage-height);
   overflow: hidden; border-radius: 8px; background: var(--stage2); box-shadow: 0 0 0 0.5px var(--sep);
 }
 html[data-surface="app"] .mw .pet-stage::after {
-  content: ""; position: absolute; left: 50%; top: calc(50% + 112px); width: 170px; height: 14px; margin-left: -85px;
+  content: ""; position: absolute; left: 50%; top: var(--pet-shadow-top); width: 170px; height: 14px; margin-left: -85px;
   border-radius: 50%; background: radial-gradient(closest-side, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)); pointer-events: none;
 }
 html[data-surface="app"][data-theme="dark"] .mw .pet-stage::after { background: radial-gradient(closest-side, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0)); }
@@ -474,9 +516,10 @@ html[data-surface="app"] .mw .pet-stage .shelf-drop {
   position: absolute; inset: 10px; z-index: 2; display: grid; place-items: center; border: 1.5px dashed var(--accent);
   border-radius: 6px; background: color-mix(in srgb, var(--stage2) 85%, transparent); color: var(--accent); font-size: 13px;
 }
-html[data-surface="app"] .pet-col { display: flex; flex-direction: column; min-width: 0; }
-html[data-surface="app"] .pet-col > .group + .group-title, html[data-surface="app"] .pet-col > .group-note + .panel, html[data-surface="app"] .pet-col > .group + .panel { margin-top: 20px; }
-html[data-surface="app"] .pet-actions-grid { display: grid; grid-template-columns: 1fr; overflow: hidden; }
+html[data-surface="app"] .pet-actions-grid {
+  display: grid; grid-template-columns: 1fr; align-content: start; min-height: 100%; overflow: hidden;
+  border-radius: 0; background: none; box-shadow: none;
+}
 html[data-surface="app"] .mw .pet-actions-grid > * + * { border-top: 0.5px solid var(--sep); }
 html[data-surface="app"] .pet-action {
   display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 0; border-top: 0.5px solid var(--sep);

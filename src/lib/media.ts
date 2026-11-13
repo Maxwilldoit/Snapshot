@@ -58,5 +58,9 @@ export const launchIconUrl = (id: string, cssSize: number) =>
 export const appIconUrl = (id: string, cssSize: number) =>
   media(`app-icon/${Math.min(256, Math.ceil(cssSize * (window.devicePixelRatio || 1)))}/${id}`);
 
+/** 旧历史只有应用名称，由本机应用目录解析；取不到真实图标时隐藏角标。 */
+export const appNameIconUrl = (name: string, cssSize: number) =>
+  media(`app-name-icon/${Math.min(256, Math.ceil(cssSize * (window.devicePixelRatio || 1)))}/${name}`);
+
 /** 后端只放行设置里选定的那一个音效文件 */
 export const soundUrl = (path: string) => media(`sound/${path}`);
