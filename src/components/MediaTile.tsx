@@ -6,7 +6,7 @@ import type { MediaItem, RecordingMeta } from "../lib/mediaTimeline";
 
 /**
  * 时间线上的一格：截图或录屏。封面铺满格子，平时只露左下角的来源应用图标（录屏再加右下角时长）；
- * 悬停或聚焦时底部浮出窗口名和时间；截图点开标注，右键（或 Shift+F10）打开操作菜单。
+ * 悬停或聚焦时底部只浮出时间；来源应用由图标表达。截图点开标注，右键（或 Shift+F10）打开操作菜单。
  * 窄长的竖图给一个最小宽度，整张图居中放在浅底上，不裁成一条缝。
  * 旧记录按应用名查找已安装应用的图标；取不到就不显示角标，不用类型图标顶替——
  * 截图和录屏靠封面与时长就能分清，角标只回答「这是哪个应用」。
@@ -111,7 +111,6 @@ export function MediaTile({
       )}
 
       <div className="tile-info" aria-hidden="true">
-        <span className="tile-name">{label}</span>
         <span className="tile-time mono">{formatClock(item.createdAt)}</span>
       </div>
 

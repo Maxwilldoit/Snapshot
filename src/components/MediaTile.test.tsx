@@ -45,6 +45,13 @@ describe("历史格子的来源应用角标", () => {
     expect(container.querySelector(".tile-type")).toBeNull();
   });
 
+  it("悬停信息只保留时间，不重复显示应用名称", () => {
+    setupTauriMock(() => undefined);
+    const { container } = renderTile(item());
+    expect(container.querySelector(".tile-name")).toBeNull();
+    expect(container.querySelector(".tile-info")?.textContent).toMatch(/\d{2}:\d{2}/);
+  });
+
   it("格子只有一个主入口，没有悬停操作或圆形复选框，支持右键和键盘菜单", () => {
     setupTauriMock();
     const onOpen = vi.fn(), onMenu = vi.fn();

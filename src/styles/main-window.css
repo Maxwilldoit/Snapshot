@@ -234,11 +234,9 @@ html[data-surface="app"] .mw .tile.is-narrow .tile-main img, html[data-surface="
 /* 来源应用图标：浅底衬托，深色截图上也看得清；取不到就不渲染（没有类型图标顶替） */
 html[data-surface="app"] .mw .tile-app { position: absolute; left: 5px; bottom: 5px; width: 18px; height: 18px; padding: 1px; border-radius: 4px; object-fit: contain; background: rgba(255, 255, 255, 0.88); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
 html[data-surface="app"] .mw .tile-duration { position: absolute; right: 5px; bottom: 5px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 10px; line-height: 14px; pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
-html[data-surface="app"] .mw .tile-info { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px; padding: 16px 7px 5px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.62)); color: #fff; font-size: 11px; opacity: 0; transition: opacity var(--t-press) var(--ease-out); pointer-events: none; }
-html[data-surface="app"] .mw .tile-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-surface="app"] .mw .tile-info { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: flex-end; padding: 16px 7px 5px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.62)); color: #fff; font-size: 11px; opacity: 0; transition: opacity var(--t-press) var(--ease-out); pointer-events: none; }
 html[data-surface="app"] .mw .tile-time { flex: 0 0 auto; }
 html[data-surface="app"] .mw .tile:hover .tile-info, html[data-surface="app"] .mw .tile:focus-within .tile-info { opacity: 1; }
-html[data-surface="app"] .mw .tile.has-app-icon .tile-info { padding-left: 31px; }
 html[data-surface="app"] .mw .tile-app { z-index: 1; }
 html[data-surface="app"] .mw .tile:hover .tile-duration, html[data-surface="app"] .mw .tile:focus-within .tile-duration { opacity: 0; }
 html[data-surface="app"] .mw .shot.is-fresh .tile { animation: mw-fresh 1.2s var(--ease-out) both; }
