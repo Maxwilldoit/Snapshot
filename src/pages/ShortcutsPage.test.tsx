@@ -117,7 +117,7 @@ describe("global shortcut editing", () => {
     expect(await screen.findByRole("button", { name: "快捷键：录屏，当前按键：Alt+Shift+3" })).toBeTruthy();
   });
 
-  it("saves a cleared binding immediately and rolls back a rejected change", async () => {
+  it("clears a binding only after Delete plus a click, and rolls back a rejected change", async () => {
     const reject = vi.fn((_payload?: unknown) => Promise.reject(new Error("快捷键已被占用")));
     let rejectNext = false;
     const { user } = await renderApp((command, payload) => {
@@ -126,8 +126,19 @@ describe("global shortcut editing", () => {
       return structuredClone({ ...base, shortcuts: invokeArgs(payload).shortcuts as ShortcutBinding[] });
     });
 
-    await user.click(screen.getByRole("button", { name: "清除「窗口截图」的快捷键" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "清除「窗口截图」的快捷键" })).toBeNull());
+    const snapshotRow = screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" });
+    await user.click(snapshotRow);
+    expect(snapshotRow.classList.contains("is-recording")).toBe(true);
+    expect(snapshotRow.textContent).toContain("2");
+    expect(screen.queryByText("按下快捷键…")).toBeNull();
+    expect(screen.queryByRole("button", { name: /清除/ })).toBeNull();
+
+    await user.keyboard("{Delete}");
+    expect(snapshotRow.classList.contains("is-clearing")).toBe(true);
+    expect(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：未设置" })).toBeTruthy();
+
+    await user.click(snapshotRow);
+    await waitFor(() => expect(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：未设置" }).classList.contains("is-recording")).toBe(false));
 
     rejectNext = true;
     const recordRow = screen.getByRole("button", { name: "快捷键：录屏，当前按键：未设置" });
@@ -135,6 +146,75 @@ describe("global shortcut editing", () => {
     await user.keyboard("{Alt>}{Shift>}3{/Shift}{/Alt}");
     expect((await screen.findByText("快捷键已被占用")).closest('[role="alert"]')).toBeTruthy();
     expect(await screen.findByRole("button", { name: "快捷键：录屏，当前按键：未设置" })).toBeTruthy();
+  });
+
+  it("keeps the current combo visible while recording and overwrites it with a new combo", async () => {
+    const save = vi.fn((args: Record<string, unknown>) => structuredClone({
+      ...base,
+      shortcuts: args.shortcuts as ShortcutBinding[],
+    }));
+    const { user } = await renderApp((command, payload) => {
+      if (command === "save_shortcuts") return save(invokeArgs(payload));
+      return undefined;
+    });
+
+    const row = screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" });
+    await user.click(row);
+    expect(row.classList.contains("is-recording")).toBe(true);
+    expect(row.textContent).toContain("2");
+    expect(screen.queryByText("按下快捷键…")).toBeNull();
+
+    await user.keyboard("{Control>}{Shift>}k{/Shift}{/Control}");
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(save.mock.calls[0][0]).toMatchObject({
+      shortcuts: [
+        { action: "snapshot", accelerator: "CommandOrControl+Shift+K" },
+        { action: "record", accelerator: null },
+      ],
+    });
+    expect(await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：CommandOrControl+Shift+K" })).toBeTruthy();
+  });
+
+  it("commits a Delete-pending clear when clicking outside the field", async () => {
+    const save = vi.fn((args: Record<string, unknown>) => structuredClone({
+      ...base,
+      shortcuts: args.shortcuts as ShortcutBinding[],
+    }));
+    const { user } = await renderApp((command, payload) => {
+      if (command === "save_shortcuts") return save(invokeArgs(payload));
+      return undefined;
+    });
+
+    const row = screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" });
+    await user.click(row);
+    await user.keyboard("{Delete}");
+    expect(save).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("switch", { name: TOGGLE }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(save.mock.calls[0][0]).toMatchObject({
+      shortcuts: [
+        { action: "snapshot", accelerator: null },
+        { action: "record", accelerator: null },
+      ],
+    });
+    expect(await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：未设置" })).toBeTruthy();
+  });
+
+  it("Escape after Delete keeps the existing binding", async () => {
+    const save = vi.fn();
+    const { user } = await renderApp((command) => {
+      if (command === "save_shortcuts") save();
+      return undefined;
+    });
+
+    const row = screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" });
+    await user.click(row);
+    await user.keyboard("{Delete}");
+    await user.keyboard("{Escape}");
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" })).toBeTruthy();
+    expect(row.classList.contains("is-recording")).toBe(false);
   });
 
   it("dims and locks the shortcut fields while global shortcuts are off", async () => {
@@ -146,7 +226,7 @@ describe("global shortcut editing", () => {
 
     const field = screen.getByRole("button", { name: "快捷键：录屏，当前按键：未设置" });
     expect(field).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "清除「窗口截图」的快捷键" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" })).toHaveProperty("disabled", true);
     expect(field.closest(".panel-shortcuts")?.classList.contains("is-off")).toBe(true);
     fireEvent.click(field);
     fireEvent.keyDown(field, { key: "#", code: "Digit3", altKey: true, shiftKey: true });

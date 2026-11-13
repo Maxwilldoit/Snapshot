@@ -401,7 +401,8 @@ html[data-surface="app"] .keys { gap: 3px; }
 html[data-surface="app"] .keys.is-struck .kbd { color: var(--red); }
 html[data-surface="app"] .kbd-slot { border: 1px dashed var(--accent); border-radius: 5px; }
 
-/* 快捷键：顶上一张卡片是总开关，下面两组，每行右边是同一种录制框（点一下开始录，Esc 取消） */
+/* 快捷键：顶上一张卡片是总开关，下面两组，每行右边是同一种录制框。
+   已绑定的键点一下保留原组合、蓝边待录；Delete 先置空，再点框内或框外才落盘清除。 */
 html[data-surface="app"] .mw .shortcuts-panel { display: flex; flex-direction: column; gap: 22px; }
 html[data-surface="app"] .mw .panel-shortcuts { transition: opacity 0.2s; }
 html[data-surface="app"] .mw .panel-shortcuts.is-off { opacity: 0.5; }
@@ -415,7 +416,6 @@ html[data-surface="app"] .mw .key-field {
   box-shadow: 0 0 0 0.5px var(--btn-line), 0 0.5px 1px rgba(0, 0, 0, 0.05); cursor: default;
   transition: box-shadow 0.15s, background-color 0.15s;
 }
-html[data-surface="app"] .mw .key-field-wrap.has-value .key-field { padding-right: 26px; }
 html[data-surface="app"] .mw .key-field:hover:not(:disabled) { background: color-mix(in srgb, var(--btn) 94%, var(--text1)); }
 html[data-surface="app"] .mw .key-field:focus-visible { outline: none; box-shadow: 0 0 0 0.5px var(--accent), 0 0 0 3.5px color-mix(in srgb, var(--accent) 35%, transparent); }
 html[data-surface="app"] .mw .key-field.is-recording,
@@ -426,18 +426,14 @@ html[data-surface="app"] .mw .key-field.is-recording:hover {
 html[data-surface="app"] .mw .key-field:disabled { cursor: default; }
 html[data-surface="app"] .mw .key-field-hint { color: var(--text3); white-space: nowrap; }
 html[data-surface="app"] .mw .key-field.is-recording .key-field-hint { color: var(--accent); }
+html[data-surface="app"] .mw .key-field.is-clearing { background: var(--win); }
+html[data-surface="app"] .mw .key-field.is-clearing .key-field-hint { color: var(--text3); }
 html[data-surface="app"] .mw .key-field .keys { gap: 2px; }
 html[data-surface="app"] .mw .key-field .kbd {
   min-width: 0; height: auto; padding: 0 1px; border: 0; background: none; box-shadow: none;
   font-size: 12.5px; font-weight: 500; letter-spacing: 0.02em; color: inherit;
 }
 html[data-surface="app"] .mw .key-field .keys.is-struck .kbd { color: var(--red); text-decoration: line-through; }
-html[data-surface="app"] .mw .key-field-clear {
-  position: absolute; top: 50%; right: 5px; display: grid; place-items: center; width: 16px; height: 16px; padding: 0;
-  border: 0; border-radius: 50%; background: var(--fill2); color: var(--text2); transform: translateY(-50%);
-}
-html[data-surface="app"] .mw .key-field-clear:hover:not(:disabled) { background: var(--text3); color: var(--win); }
-
 /* 润色规则 */
 html[data-surface="app"] .mw .rules { position: relative; overflow: hidden; }
 html[data-surface="app"] .mw .rules-bar { left: 0; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent); }
