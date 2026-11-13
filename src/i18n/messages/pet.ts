@@ -2,7 +2,7 @@
 export const petEnglish: Record<string, string> = {
   "动作列表": "Action list",
   // Companion page
-  "前台应用图标": "Frontmost App Icon",
+  "应用图标": "App Icon",
   "原文件丢了": "Original file is missing",
   "移除": "Remove",
   "只认 ZIP、GIF 或 WebM": "Only ZIP, GIF, and WebM files can be imported.",

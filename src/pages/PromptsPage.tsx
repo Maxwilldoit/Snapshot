@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LibraryBig, Settings2 } from "lucide-react";
-import { listPromptHistory, onPromptHistoryChanged, runAction } from "../lib/backend";
+import { listPromptHistory, onPromptHistoryChanged } from "../lib/backend";
 import { groupByDay } from "../lib/format";
 import { PromptHistoryRow } from "../components/PromptHistoryRow";
 import { LoadingState } from "../components/LoadingState";
@@ -8,8 +8,6 @@ import { Toolbar } from "../app/Shell";
 import { SearchField } from "../components/SearchField";
 import { PromptSettings } from "../components/PromptSettings";
 import { PromptLibraryPage } from "./PromptLibraryPage";
-import { Keys } from "../components/ui/Keys";
-import { acceleratorOf } from "../lib/shortcuts";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
 import type { PromptHistoryEntry } from "../types";
@@ -19,13 +17,12 @@ import type { PromptHistoryEntry } from "../types";
  * 用工具栏按钮切换，不再各占一个侧栏入口。
  */
 export function PromptsPage({ active = true, libraryRequest = 0 }: { active?: boolean; libraryRequest?: number }) {
-  const { notify, settings, conflicts } = useApp();
+  const { notify } = useApp();
   const { t } = useI18n();
   const [records, setRecords] = useState<PromptHistoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"history" | "library" | "settings">("history");
   const [libraryFocusRequest, setLibraryFocusRequest] = useState(0);
-  const shortcut = settings.shortcutsPaused ? null : acceleratorOf(settings, "polish");
 
   // 全局入口（快捷键、快捷菜单）打开库：切到本页、显示库区块并把焦点放进搜索框。
   useEffect(() => {
@@ -102,11 +99,6 @@ export function PromptsPage({ active = true, libraryRequest = 0 }: { active?: bo
     body = (
       <div className="empty mw-empty">
         <h2 className="empty-title">{t("还没有 Prompt 记录")}</h2>
-        <div className="empty-actions">
-          <button type="button" className="btn btn-primary" onClick={() => void runAction("polish").catch((error) => notify(errorText(error), "error"))}>
-            {t("润色 Prompt")}{shortcut && !conflicts.includes(shortcut) && <span aria-hidden="true"><Keys value={shortcut} quiet /></span>}
-          </button>
-        </div>
       </div>
     );
   } else if (filtered.length === 0) {

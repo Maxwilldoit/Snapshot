@@ -104,7 +104,7 @@ export function PetPage() {
     void showPetCatalog().catch((error) => notify(t("打开素材库失败：{detail}", { detail: errorText(error) }), "error"));
   }
 
-  const name = asset ? asset.name : t("前台应用图标");
+  const name = asset ? asset.name : t("应用图标");
   const stageSrc = asset && !asset.missing ? petUrl(asset.id, activeEntry) : null;
 
   return (

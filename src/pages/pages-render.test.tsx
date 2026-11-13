@@ -82,7 +82,7 @@ async function renderApp(handle: IPCHandler = handler) {
 }
 
 describe("B2 拆页后逐页渲染", () => {
-  it("空状态展示已绑定的截图快捷键，不再放截图按钮；Prompt 页润色按钮仍触发润色", async () => {
+  it("空状态展示已绑定的截图快捷键，不再放截图或 Prompt 润色按钮", async () => {
     const run = vi.fn((_payload: InvokeArgs | undefined) => Promise.resolve(undefined));
     await renderApp((command, payload) => command === "run_action" ? run(payload) : handler(command));
     const user = userEvent.setup();
@@ -93,8 +93,9 @@ describe("B2 拆页后逐页渲染", () => {
     expect(main.queryByRole("button", { name: "截图" })).toBeNull();
     expect(main.queryByRole("button", { name: "设置截图快捷键" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Prompt" }));
-    await user.click(await main.findByRole("button", { name: "润色 Prompt" }));
-    await waitFor(() => expect(run).toHaveBeenLastCalledWith({ action: "polish", targetId: null }));
+    expect(await main.findByText("还没有 Prompt 记录")).toBeTruthy();
+    expect(main.queryByRole("button", { name: "润色 Prompt" })).toBeNull();
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("空状态未绑定截图快捷键时引导去快捷键设置", async () => {
@@ -163,7 +164,7 @@ describe("B2 拆页后逐页渲染", () => {
   it.each([
     [/^历史/, "还没有截图或录屏"],
     [/^Prompt$/, "还没有 Prompt 记录"],
-    [/^前台应用图标/, "自由走动"],
+    [/^应用图标/, "自由走动"],
     [/^截图与录制/, "截图时"],
     [/^快捷键/, "启用全局快捷键"],
     [/^通用/, "界面语言"],
@@ -227,7 +228,7 @@ describe("B2 拆页后逐页渲染", () => {
       return handler(command);
     });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^前台应用图标/ }));
+    await user.click(screen.getByRole("button", { name: /^应用图标/ }));
     const slider = await screen.findByRole("slider", { name: "大小" });
     fireEvent.change(slider, { target: { value: "150" } });
     expect(await screen.findByText("150%")).toBeTruthy();
@@ -295,7 +296,7 @@ describe("B2 拆页后逐页渲染", () => {
       return handler(command);
     });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^前台应用图标/ }));
+    await user.click(screen.getByRole("button", { name: /^应用图标/ }));
 
     const wander = await screen.findByRole("switch", { name: "自由走动" });
     const random = screen.getByRole("switch", { name: "随机动作" });
@@ -352,14 +353,14 @@ describe("B2 拆页后逐页渲染", () => {
     const nav = screen.getByRole("navigation", { name: "主导航" });
     // 导入按钮、伴侣行名字和行尾圆点各是一个按钮
     expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "历史", "Prompt", "截图与录制", "快捷键", "通用", "", "前台应用图标", "",
+      "历史", "Prompt", "截图与录制", "快捷键", "通用", "", "应用图标", "",
     ]);
     expect(within(nav).getByRole("button", { name: "导入伴侣素材…" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();
     expect(document.querySelector(".companion")).toBeNull();
 
     const user = userEvent.setup();
-    await user.click(within(nav).getByRole("button", { name: /^前台应用图标/ }));
+    await user.click(within(nav).getByRole("button", { name: /^应用图标/ }));
     expect(await screen.findByRole("slider", { name: "大小" })).toBeTruthy();
     expect(screen.queryByRole("radiogroup", { name: "布局主题" })).toBeNull();
     expect(screen.queryByRole("radiogroup", { name: "颜色" })).toBeNull();

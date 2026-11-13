@@ -48,7 +48,7 @@ export const backendErrorEnglish: Record<string, string> = {
   "只支持 ZIP、GIF 或 WebM": "Only ZIP, GIF, and WebM files are supported.",
   "这份素材里没有可用动画": "This file has no animations Snapshot can use.",
   "名字不能为空": "Enter a name.",
-  "默认应用图标不可删除": "The Frontmost App Icon can’t be removed.",
+  "默认应用图标不可删除": "The default App Icon can’t be removed.",
   "读不出这份素材的第一帧": "Couldn’t read the first frame of this file.",
   "压缩包内没有这个动画": "That animation isn’t in the archive.",
   "压缩包内没有可预览的形象": "The archive has no pet to preview.",

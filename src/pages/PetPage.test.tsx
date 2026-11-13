@@ -42,7 +42,7 @@ const shelfSettings: Settings = {
   ],
 };
 
-/** 前台应用图标固定在最前；其余后导入的在前，导入时间相同保留原顺序 */
+/** 应用图标固定在最前；其余后导入的在前，导入时间相同保留原顺序 */
 const shelfOrder = ["app-icon", "new", "twin-z", "twin-a", "old", "legacy-z", "legacy-a"];
 
 function petGroup() {
@@ -79,7 +79,7 @@ function deskIds() {
 }
 
 describe("侧栏里伴侣的固定位置", () => {
-  it("导航文字同列，伴侣缩略图靠右，桌面开关位于行尾", async () => {
+  it("导航文字同列，伴侣列表不显示预览，桌面开关位于行尾", async () => {
     await renderPetPage();
 
     const nav = screen.getByRole("navigation", { name: "主导航" });
@@ -93,7 +93,8 @@ describe("侧栏里伴侣的固定位置", () => {
     expect(row.firstElementChild).toBe(main);
     expect(row.lastElementChild?.classList.contains("pet-dot")).toBe(true);
     expect(main.firstElementChild?.classList.contains("nav-label")).toBe(true);
-    expect(main.lastElementChild?.classList.contains("nav-avatar")).toBe(true);
+    expect(main.querySelector(".nav-avatar")).toBeNull();
+    expect(main.textContent).toBe("应用图标");
   });
 
   it("按导入时间由新到旧排列，相同或缺省时间沿用原顺序，不受选中项和最近使用时间影响", async () => {
