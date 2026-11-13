@@ -6,7 +6,7 @@ use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext, NSImage,
     NSRunningApplication, NSWorkspace,
 };
-use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString, NSURL};
+use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
 
 pub fn png_for_pid(pid: u32, size: u32) -> Option<Vec<u8>> {
     unsafe {
@@ -19,14 +19,12 @@ pub fn png_for_pid(pid: u32, size: u32) -> Option<Vec<u8>> {
 /// 进程的稳定应用标识：优先 bundle id，没有就退回 .app 路径。
 /// 应用退出后仍可据此取图标，不像 pid 那样进程一结束就失效。取不到返回 None，历史不显示角标。
 pub fn stable_id_for_pid(pid: u32) -> Option<String> {
-    unsafe {
-        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32)?;
-        if let Some(bundle_id) = app.bundleIdentifier() {
-            return Some(bundle_id.to_string());
-        }
-        let url = app.bundleURL()?;
-        Some(url.path()?.to_string())
+    let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32)?;
+    if let Some(bundle_id) = app.bundleIdentifier() {
+        return Some(bundle_id.to_string());
     }
+    let url = app.bundleURL()?;
+    Some(url.path()?.to_string())
 }
 
 /// 按稳定标识（bundle id 或 .app 路径）取图标 PNG。历史角标用，应用退出后仍有效。
