@@ -207,11 +207,12 @@ html[data-surface="app"] .mw-window-title { min-width: 0; max-width: 220px; over
 
 html[data-surface="app"] .history-scroll { margin: 0; padding: 0; }
 html[data-surface="app"] .gallery { display: block; padding: 2px 16px 24px; }
-html[data-surface="app"] .mw .day { display: block; margin-top: 12px; padding: 0; border-top: 0; }
-html[data-surface="app"] .mw .day-label { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0 0 7px; padding: 6px 0; background: var(--win); }
-html[data-surface="app"] .mw .day-label::after {
-  content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--win); pointer-events: none;
+html[data-surface="app"] .mw .day { --history-day-label-height: 32px; position: relative; display: block; margin-top: 12px; padding: 0; border-top: 0; }
+html[data-surface="app"] .mw .day::before {
+  content: ""; position: absolute; z-index: 1; top: calc(var(--history-day-label-height) - 1px); right: 0; left: 0; height: 2px;
+  background: var(--win); pointer-events: none;
 }
+html[data-surface="app"] .mw .day-label { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0 0 7px; padding: 6px 0; background: var(--win); }
 html[data-surface="app"] .mw .day-title { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; color: var(--text3); }
 html[data-surface="app"] .jgrid { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 html[data-surface="app"] .jrow { display: flex; align-items: flex-start; min-width: 0; }
