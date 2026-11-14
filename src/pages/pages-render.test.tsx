@@ -88,6 +88,37 @@ async function renderApp(handle: IPCHandler = handler) {
 }
 
 describe("B2 拆页后逐页渲染", () => {
+  it.each([false, true])("平台录制 available=%s：仅显示可用选项，并保留其他系统的偏好", async (recording) => {
+    const saved = { ...settings, recordMicrophone: true, recordSystemAudio: true, launchOnBoot: true, includeCursor: true };
+    const restricted: PlatformCapabilities = {
+      ...capabilities,
+      recording: { available: recording },
+      recordingMicrophone: { available: false },
+      autostart: { available: false },
+      includeCursor: { available: false },
+    };
+    const preferences = vi.fn();
+    await renderApp((command, payload) => {
+      if (command === "load_settings") return saved;
+      if (command === "platform_capabilities") return restricted;
+      if (command === "save_preferences") preferences(payload);
+      return handler(command);
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "截图与录制" }));
+    expect(screen.queryByRole("switch", { name: "截图带上鼠标指针" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "同时录麦克风" })).toBeNull();
+    expect(Boolean(screen.queryByRole("heading", { name: "录制" }))).toBe(recording);
+    expect(Boolean(screen.queryByRole("switch", { name: "同时录系统声音" }))).toBe(recording);
+    if (recording) expect(screen.getByRole("switch", { name: "同时录系统声音" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("switch", { name: "截屏时闪一下" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "通用" }));
+    expect(screen.queryByRole("switch", { name: "开机时静默启动" })).toBeNull();
+    expect(screen.getByRole("radiogroup", { name: "界面语言" })).toBeTruthy();
+    expect(preferences).not.toHaveBeenCalled();
+    expect(saved).toMatchObject({ recordMicrophone: true, recordSystemAudio: true, launchOnBoot: true, includeCursor: true });
+  });
+
   it("空状态展示已绑定的截图快捷键，不再放截图或 Prompt 润色按钮", async () => {
     const run = vi.fn((_payload: InvokeArgs | undefined) => Promise.resolve(undefined));
     await renderApp((command, payload) => command === "run_action" ? run(payload) : handler(command));

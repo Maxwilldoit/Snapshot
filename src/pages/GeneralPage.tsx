@@ -25,9 +25,6 @@ function LanguagePanel() {
   const { preference, setLanguagePreference, t } = useI18n();
   const { settings, caps } = useApp();
   const update = usePreferences();
-  const toggles: Array<{ key: "launchOnBoot"; label: string; disabled?: boolean }> = [
-    { key: "launchOnBoot", label: t("开机时静默启动"), disabled: caps ? !caps.autostart.available : false },
-  ];
   return (
     <section className="panel">
       <h2 className="panel-title">{t("通用")}</h2>
@@ -45,18 +42,17 @@ function LanguagePanel() {
             ]}
           />
         </div>
-        {toggles.map((toggle) => (
-          <div className="row" key={toggle.key}>
-            <label className="row-label" htmlFor={`pref-${toggle.key}`}>{toggle.label}</label>
+        {caps?.autostart.available !== false && (
+          <div className="row">
+            <label className="row-label" htmlFor="pref-launchOnBoot">{t("开机时静默启动")}</label>
             <Switch
-              id={`pref-${toggle.key}`}
-              label={toggle.label}
-              value={Boolean(settings[toggle.key])}
-              disabled={toggle.disabled}
-              onChange={(value) => void update({ [toggle.key]: value })}
+              id="pref-launchOnBoot"
+              label={t("开机时静默启动")}
+              value={settings.launchOnBoot}
+              onChange={(value) => void update({ launchOnBoot: value })}
             />
           </div>
-        ))}
+        )}
       </div>
     </section>
   );

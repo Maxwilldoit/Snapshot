@@ -111,11 +111,11 @@ export function RecordingPanel() {
   const { t } = useI18n();
   const { recordingPath, setRecordingPath } = useStoragePaths();
   const { update, pickDir } = useStorageActions();
-  // 平台不支持时默认关着且不可开；已经开着的允许关回去
+  // Hide unavailable inputs without clearing preferences saved on another system.
   const audioToggles = [
     { key: "recordSystemAudio" as const, label: t("同时录系统声音"), available: !caps || caps.recordingSystemAudio.available },
     { key: "recordMicrophone" as const, label: t("同时录麦克风"), available: !caps || caps.recordingMicrophone.available },
-  ];
+  ].filter((toggle) => toggle.available);
 
   async function openRecordingFolder() {
     try {
@@ -124,6 +124,8 @@ export function RecordingPanel() {
       notify(errorText(error), "error");
     }
   }
+
+  if (caps && !caps.recording.available) return null;
 
   return (
     <section className="panel panel-storage">
@@ -154,7 +156,6 @@ export function RecordingPanel() {
               id={`pref-${toggle.key}`}
               label={toggle.label}
               value={settings[toggle.key]}
-              disabled={!toggle.available && !settings[toggle.key]}
               onChange={(value) => void update({ [toggle.key]: value })}
             />
           </div>

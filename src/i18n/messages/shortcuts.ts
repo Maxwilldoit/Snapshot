@@ -9,7 +9,6 @@ export const shortcutsEnglish: Record<string, string> = {
   "快捷键：{name}，当前按键：{keys}": "{name} shortcut: {keys}",
   "未设置": "None",
   "没注册上，这组键已被其他程序占用": "Another app is using this shortcut.",
-  "不可用": "Unavailable",
   "只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个": "{rejection} alone won’t work. Add Control, Shift, or Alt (Option).",
   "暂停全局快捷键": "Pause Shortcuts",
   "启用全局快捷键": "Use global shortcuts",

@@ -671,6 +671,15 @@ pub fn is_minimized(hwnd: isize) -> bool {
     unsafe { IsIconic(hwnd as usize as *mut core::ffi::c_void) != 0 }
 }
 
+/// The capability report and actual entry point must agree on OS support.
+pub(crate) fn probe() -> Result<(), String> {
+    if GraphicsCaptureSession::IsSupported().unwrap_or(false) {
+        Ok(())
+    } else {
+        Err("当前系统不支持窗口录制（需要 Windows 10 1903 或更高）".into())
+    }
+}
+
 /// 开始录制 `hwnd` 指向的窗口。
 pub fn start(
     hwnd: isize,
@@ -679,9 +688,7 @@ pub fn start(
     record_microphone: bool,
     output: &Path,
 ) -> Result<ActiveRecording, String> {
-    if !GraphicsCaptureSession::IsSupported().unwrap_or(false) {
-        return Err("当前系统不支持窗口录制（需要 Windows 10 1903 或更高）".into());
-    }
+    probe()?;
     // Media Foundation 按进程初始化一次即可；MFShutdown 是进程级的，不在停止录制时调用
     static MF_INIT: std::sync::Once = std::sync::Once::new();
     let mut init_error = None;

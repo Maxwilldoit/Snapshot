@@ -69,8 +69,11 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
 - Every control keeps default, hover, visible keyboard focus, and disabled states.
 - Keep accessible labels when removing visible hints. A dash may mean an unbound
   shortcut only inside an obvious, keyboard-operable shortcut control.
-- Keep recoverable errors and permission actions. Disabled functionality needs a
-  discoverable reason, not a silent disappearance.
+- Omit features unavailable in the current platform capability report from the quick
+  menu, settings, and shortcut rows. Keep saved preferences and bindings so returning
+  to a supported system restores them; ignore unsupported recording inputs at runtime.
+  Keep permission recovery and actionable errors for supported features. An active
+  recording always retains its Stop action, even if a later capability probe fails.
 - Remove success notices only when the resulting control or content visibly confirms
   success. Recordings now land in History (mixed with screenshots by time), so stopping
   a recording dismisses the quick menu without a completion toast; keep the busy and
