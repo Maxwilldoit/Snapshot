@@ -65,13 +65,40 @@ async function renderApp(handle: IPCHandler = () => undefined, initial: Settings
   return { user, toggle };
 }
 
-async function recordBinding(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "快捷键：录屏，当前按键：未设置" }));
-  await user.keyboard("{Alt>}{Shift>}3{/Shift}{/Alt}");
-  return screen.findByRole("button", { name: "快捷键：录屏，当前按键：Alt+Shift+3" });
-}
-
 describe("global shortcut editing", () => {
+  it("隐藏当前系统不能用的绑定，编辑其他快捷键仍保留隐藏绑定", async () => {
+    const initial: Settings = {
+      ...base,
+      shortcuts: [
+        ...base.shortcuts,
+        { action: "scrolling", accelerator: "Alt+Shift+S" },
+      ],
+    };
+    const save = vi.fn();
+    const { user } = await renderApp((command, payload) => {
+      if (command === "platform_capabilities") return { os: "linux", displayServer: "Wayland", recording: { available: false }, scrolling: { available: false } };
+      if (command === "save_shortcuts") save(invokeArgs(payload).shortcuts);
+      return undefined;
+    }, initial);
+    expect(screen.queryByRole("button", { name: /快捷键：录屏/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /快捷键：长截图/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /快捷键：窗口截图/ }));
+    await user.keyboard("{Alt>}a{/Alt}");
+    await waitFor(() => expect(save).toHaveBeenCalledWith([
+      { action: "snapshot", accelerator: "Alt+A" },
+      { action: "record", accelerator: null },
+      { action: "scrolling", accelerator: "Alt+Shift+S" },
+    ]));
+  });
+
+  it("Linux X11 长截图能力可用时显示可编辑的快捷键", async () => {
+    await renderApp((command) => command === "platform_capabilities"
+      ? { os: "linux", displayServer: "X11", recording: { available: true }, scrolling: { available: true } }
+      : undefined, { ...base, shortcuts: [...base.shortcuts, { action: "scrolling", accelerator: null }] });
+    expect(screen.getByRole("button", { name: /快捷键：长截图/ })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: /快捷键：录屏/ })).toHaveProperty("disabled", false);
+  });
+
   it("uses the physical key code instead of the Shift-modified character", async () => {
     const save = vi.fn((args: Record<string, unknown>) => structuredClone({
       ...base,
@@ -341,11 +368,15 @@ describe("manual global shortcut pause", () => {
     await user.click(await screen.findByRole("button", { name: /^快捷键/ }));
     const toggle = await screen.findByRole("switch", { name: TOGGLE });
 
-    await recordBinding(user);
+    // The plain preview has no recorder capability. Use its supported capture
+    // binding to verify persistence instead of editing a hidden recording row.
+    await user.click(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：未设置" }));
+    await user.keyboard("{Alt>}{Shift>}3{/Shift}{/Alt}");
+    await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+3" });
     await user.click(toggle);
     await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
     const saved = await loadSettings();
     expect(saved.shortcutsPaused).toBe(true);
-    expect(saved.shortcuts.find((binding) => binding.action === "record")?.accelerator).toBe("Alt+Shift+3");
+    expect(saved.shortcuts.find((binding) => binding.action === "snapshot")?.accelerator).toBe("Alt+Shift+3");
   });
 });

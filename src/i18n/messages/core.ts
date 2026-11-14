@@ -1,10 +1,6 @@
 /** English UI copy keyed by the Chinese source string, so untranslated calls degrade safely. */
 export const coreEnglish: Record<string, string> = {
   "清除搜索": "Clear Search",
-  "录屏在当前环境不可用": "Recording is unavailable in this environment",
-  "仅支持 Linux X11": "Linux X11 only",
-  "需要 X11 会话": "Needs an X11 session",
-  "需要 xdotool": "Needs xdotool",
   "窗口截图": "Window Screenshot",
   "长截图": "Scrolling Screenshot",
   "API Key 已保存": "API Key is saved",
@@ -70,7 +66,6 @@ export const coreEnglish: Record<string, string> = {
   "还没填": "Not set up",
   "去填写": "Set Up…",
   "滚动长截图": "Scrolling Screenshot",
-  "不可用": "Unavailable",
   "音效文件": "Audio Files",
   "自定义音效已导入": "Custom sound added",
   "当前环境不支持选择文件": "Choosing files isn’t supported here.",

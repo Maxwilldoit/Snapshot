@@ -24,10 +24,11 @@ import { readAutoCopy } from "../lib/prefs";
 import { WindowIdentity } from "../components/WindowIdentity";
 import { Keys } from "../components/ui/Keys";
 import type { CapturableWindow, RecordingStatus, Settings, ShortcutAction, PlatformCapabilities } from "../types";
+import { actionAvailable } from "../lib/capabilities";
 
 type View = "menu" | "windows" | "polish";
 type Status = { kind: "busy" | "ok" | "error"; text: string };
-type Item = { id: string; label: ReactNode; hint?: ReactNode; disabled?: boolean; reason?: string; run: () => void };
+type Item = { id: "capture" | "fullscreen" | "scrolling" | "record" | "prompts" | "polish"; label: ReactNode; hint?: ReactNode; run: () => void };
 
 /** 成功类提示停留多久后自动收起 */
 const OK_HIDE_DELAY_MS = 900;
@@ -164,8 +165,8 @@ export function QuickMenuWindow() {
     const observer = new ResizeObserver(apply);
     observer.observe(panel);
     return () => observer.disconnect();
-    // view 变了宽度就变（PANEL_WIDTH），当场重量一次，不等 ResizeObserver
-  }, [opening, view]);
+    // 视图或能力变化会改变行数，当场重量一次，不等 ResizeObserver。
+  }, [opening, view, caps]);
 
   function showStatus(next: Status | null, hideAfter = false) {
     if (hideTimer.current !== null) window.clearTimeout(hideTimer.current);
@@ -374,13 +375,6 @@ export function QuickMenuWindow() {
   }
 
   const items = useMemo<Item[]>(() => {
-    const scrollingReason = caps && !caps.scrolling?.available
-      ? caps.os !== "linux"
-        ? t("仅支持 Linux X11")
-        : caps.displayServer !== "X11"
-          ? t("需要 X11 会话")
-          : t("需要 xdotool")
-      : null;
     const list: Item[] = [
       {
         id: "capture",
@@ -397,9 +391,7 @@ export function QuickMenuWindow() {
       {
         id: "scrolling",
         label: t("长截图"),
-        hint: scrollingReason ? <span className="small quiet">{scrollingReason}</span> : shortcutHint("scrolling"),
-        disabled: Boolean(caps && !caps.scrolling?.available),
-        reason: scrollingReason ?? undefined,
+        hint: shortcutHint("scrolling"),
         run: () => void runAction("scrolling").catch((error) => showStatus({ kind: "error", text: errorText(error) })),
       },
       recording.active
@@ -419,8 +411,6 @@ export function QuickMenuWindow() {
             id: "record",
             label: t("录屏"),
             hint: shortcutHint("record"),
-            disabled: Boolean(caps && !caps.recording.available),
-            reason: t("录屏在当前环境不可用"),
             run: () => void openPicker("record"),
           },
       {
@@ -436,7 +426,10 @@ export function QuickMenuWindow() {
         run: () => void polishClipboardText(),
       },
     ];
-    return list;
+    // An active session always keeps its Stop entry, even if a capability
+    // probe fails after recording has already started.
+    return list.filter((item) => item.id === "capture" ||
+      (item.id === "record" && recording.active) || actionAvailable(item.id, caps));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, caps, recording, conflicts, now, t]);
 
@@ -450,6 +443,9 @@ export function QuickMenuWindow() {
 
   const rowCount = view === "menu" ? items.length : view === "windows" ? visibleWindows.length : 0;
   useEffect(() => setCursor(0), [view]);
+  useEffect(() => {
+    if (view === "menu") setCursor((value) => Math.min(value, items.length - 1));
+  }, [view, items.length]);
 
   // 键盘越过第 5 个窗口时，让当前选中项始终留在 5 行的可视区域内。
   useEffect(() => {
@@ -461,11 +457,7 @@ export function QuickMenuWindow() {
 
   function nextCursor(value: number, direction: number) {
     if (!rowCount) return 0;
-    for (let step = 1; step <= rowCount; step += 1) {
-      const index = (value + direction * step + rowCount) % rowCount;
-      if (view !== "menu" || !items[index]?.disabled) return index;
-    }
-    return value;
+    return (value + direction + rowCount) % rowCount;
   }
 
   function onKeyDown(event: React.KeyboardEvent) {
@@ -501,7 +493,7 @@ export function QuickMenuWindow() {
       // 授权页的按钮保留浏览器默认键盘激活，不能被窗口列表的回车处理吞掉。
       if (event.target instanceof HTMLButtonElement) return;
       event.preventDefault();
-      if (view === "menu" && !items[cursor]?.disabled) items[cursor]?.run();
+      if (view === "menu") items[cursor]?.run();
       else if (visibleWindows[cursor]) void pickWindow(visibleWindows[cursor]);
     } else if (event.key === "Escape") {
       event.preventDefault();
@@ -593,9 +585,7 @@ export function QuickMenuWindow() {
                       role="option"
                       aria-selected={index === cursor}
                       className={`palette-item ${index === cursor ? "is-on" : ""}`}
-                      disabled={item.disabled}
-                      title={item.disabled ? item.reason : undefined}
-                      onMouseMove={() => !item.disabled && setCursor(index)}
+                      onMouseMove={() => setCursor(index)}
                       onClick={item.run}
                     >
                       <span className="palette-label">{item.label}</span>

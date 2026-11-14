@@ -41,45 +41,47 @@ async function renderPalette(handle: (command: string, payload?: InvokeArgs) => 
 }
 
 describe("快捷菜单：截取自身主窗口", () => {
-  it.each([false, true])("长截图按平台能力 enabled=%s 调用既有动作", async (enabled) => {
+  it.each([false, true])("长截图只在平台能力 enabled=%s 时出现并调用既有动作", async (enabled) => {
     const { calls, user } = await renderPalette((command) => {
       if (command === "platform_capabilities") return { os: "linux", displayServer: "X11", recording: { available: true }, scrolling: { available: enabled } };
       return undefined;
     });
+    await screen.findByRole("option", { name: "截图" });
+    if (!enabled) {
+      expect(screen.queryByRole("option", { name: /长截图/ })).toBeNull();
+      expect(calls.some((call) => call.command === "run_action")).toBe(false);
+      return;
+    }
     const option = await screen.findByRole("option", { name: /长截图/ });
-    await waitFor(() => expect(option).toHaveProperty("disabled", !enabled));
-    if (!enabled) expect(option.textContent).toContain("需要 xdotool");
     await user.click(option);
-    expect(calls.filter((call) => call.command === "run_action")).toEqual(enabled
-      ? [expect.objectContaining({ payload: { action: "scrolling", targetId: null } })]
-      : []);
+    expect(calls.filter((call) => call.command === "run_action")).toEqual([
+      expect.objectContaining({ payload: { action: "scrolling", targetId: null } }),
+    ]);
   });
 
   it.each([
-    ["macos", "desktop", "仅支持 Linux X11"],
-    ["linux", "Wayland", "需要 X11 会话"],
-  ] as const)("长截图在 %s 上直接显示不可用原因", async (os, displayServer, reason) => {
-    const { calls, user } = await renderPalette((command) => {
+    ["macos", "AppKit"],
+    ["windows", "Win32"],
+    ["linux", "Wayland"],
+  ] as const)("长截图在 %s / %s 上隐藏", async (os, displayServer) => {
+    const { calls } = await renderPalette((command) => {
       if (command === "platform_capabilities") return { os, displayServer, recording: { available: true }, scrolling: os === "linux" ? { available: false } : undefined };
       return undefined;
     });
-    const option = await screen.findByRole("option", { name: /长截图/ });
-    await waitFor(() => expect(option).toHaveProperty("disabled", true));
-    expect(option.textContent).toContain(reason);
-    await user.click(option);
+    await screen.findByRole("option", { name: "截图" });
+    expect(screen.queryByRole("option", { name: /长截图/ })).toBeNull();
     expect(calls.some((call) => call.command === "run_action")).toBe(false);
   });
 
-  it("键盘跳过不可用的长截图，原因仍可见", async () => {
+  it("键盘按可见行移动，隐藏的长截图不占位置", async () => {
     const { user } = await renderPalette((command) => {
       if (command === "platform_capabilities") return { os: "macos", displayServer: "desktop", recording: { available: true } };
       return undefined;
     });
-    await screen.findByRole("option", { name: /长截图/ });
-    await waitFor(() => expect(screen.getByRole("option", { name: /长截图/ })).toHaveProperty("disabled", true));
+    await screen.findByRole("option", { name: /录屏/ });
     await user.keyboard("{ArrowDown}{ArrowDown}");
     expect(screen.getByRole("option", { name: /录屏/ }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("option", { name: /长截图/ }).textContent).toContain("仅支持 Linux X11");
+    expect(screen.queryByRole("option", { name: /长截图/ })).toBeNull();
   });
 
   it("长截图可用时仍显示已启用的快捷键", async () => {
@@ -92,6 +94,25 @@ describe("快捷菜单：截取自身主窗口", () => {
     await waitFor(() => expect(option).toHaveProperty("disabled", false));
     expect(option.textContent).toContain("Alt");
     expect(option.textContent).toContain("S");
+  });
+
+  it.each([false, true])("录屏不可用时隐藏开始入口，已有录制 active=%s 仍能停止", async (active) => {
+    const { user, calls } = await renderPalette((command) => {
+      if (command === "platform_capabilities") return { os: "linux", displayServer: "Wayland", recording: { available: false } };
+      if (command === "get_recording_status") return { active, target: active ? "Code" : null, startedAt: active ? Date.now() : null };
+      if (command === "toggle_recording") return { active: false, target: null, startedAt: null };
+      return undefined;
+    });
+    await screen.findByRole("option", { name: "Prompt 库" });
+    expect(screen.queryByRole("option", { name: "录屏" })).toBeNull();
+    if (active) {
+      await user.click(await screen.findByRole("option", { name: /停止录制/ }));
+      expect(calls.filter((call) => call.command === "toggle_recording")).toHaveLength(1);
+    } else {
+      expect(screen.queryByRole("option", { name: /停止录制/ })).toBeNull();
+      await user.keyboard("{ArrowDown}{ArrowDown}");
+      expect(screen.getByRole("option", { name: "Prompt 库" }).getAttribute("aria-selected")).toBe("true");
+    }
   });
 
   it.each([
@@ -432,7 +453,9 @@ describe("快捷菜单：窗口大小", () => {
       const menu = this.querySelector(".palette-menu");
       return menu ? menu.querySelectorAll(".palette-item").length * 45 : 194;
     });
-    const { calls } = await renderPalette(() => undefined);
+    const { calls } = await renderPalette((command) => command === "platform_capabilities"
+      ? { os: "linux", displayServer: "X11", recording: { available: true }, scrolling: { available: true } }
+      : undefined);
     await waitFor(() => expect(calls.some((call) => call.command === "resize_quick_menu" && (call.payload as { height: number }).height === 270 + 24 + 40)).toBe(true));
     expect(screen.getAllByRole("option")).toHaveLength(6);
   });
