@@ -14,6 +14,7 @@ mod pet_alpha;
 mod pet_catalog;
 mod pet_key;
 mod pet_layout;
+mod pet_position;
 mod pet_walk;
 mod polish;
 mod prompt_history;
@@ -88,9 +89,8 @@ struct AppState {
     settings: Mutex<settings::Settings>,
     tracker: Arc<Mutex<tracker::TrackerState>>,
     recorder: Mutex<recording::Recorder>,
-    pet_position_revision: AtomicU64,
-    /// 窗口移动很密集（自由走动时每帧一次），只留一个延迟落盘任务。
-    pet_position_persist_pending: AtomicBool,
+    /// 移动事件不拿设置锁；停稳后由唯一后台任务保存最新位置。
+    pet_position_persistence: pet_position::PositionPersistence,
     /// 放大去容纳超出基准画布的动作时，窗口左上角相对平时那个方窗的偏移（物理像素）。
     /// 存位置时减掉它，下次启动仍从方窗的位置摆。
     pet_frame_shift: Mutex<(i32, i32)>,
@@ -381,8 +381,7 @@ pub fn run() {
             settings: Mutex::new(settings),
             tracker: Arc::new(Mutex::new(tracker::TrackerState::default())),
             recorder: Mutex::new(recording::Recorder::default()),
-            pet_position_revision: AtomicU64::new(0),
-            pet_position_persist_pending: AtomicBool::new(false),
+            pet_position_persistence: pet_position::PositionPersistence::default(),
             pet_frame_shift: Mutex::new((0, 0)),
             quick_menu_anchor: Mutex::new(None),
             quick_menu_pending_show: AtomicBool::new(false),
@@ -605,40 +604,42 @@ pub fn run() {
                             return;
                         };
                         let (shift_x, shift_y) = *state.pet_frame_shift.lock();
-                        state.settings.lock().pet_position = Some(settings::PetPosition {
+                        let position = settings::PetPosition {
                             x: position.x.saturating_sub(shift_x),
                             y: position.y.saturating_sub(shift_y),
-                        });
-                        state.pet_position_revision.fetch_add(1, Ordering::SeqCst);
-                        if state
-                            .pet_position_persist_pending
-                            .swap(true, Ordering::SeqCst)
+                        };
+                        if !state
+                            .pet_position_persistence
+                            .record(position, std::time::Instant::now())
                         {
                             return;
                         }
                     }
                     thread::spawn(move || loop {
-                        thread::sleep(Duration::from_millis(350));
                         let Some(state) = app.try_state::<AppState>() else {
                             return;
                         };
-                        let revision = state.pet_position_revision.load(Ordering::SeqCst);
+                        match state
+                            .pet_position_persistence
+                            .next(std::time::Instant::now())
                         {
-                            let settings = state.settings.lock();
-                            let _ = settings::persist_settings(&state.settings_path, &settings);
-                        }
-                        state
-                            .pet_position_persist_pending
-                            .store(false, Ordering::SeqCst);
-                        if state.pet_position_revision.load(Ordering::SeqCst) == revision {
-                            break;
-                        }
-                        // 期间又移动过：如果已经有新任务接手就退出，否则由这个任务继续。
-                        if state
-                            .pet_position_persist_pending
-                            .swap(true, Ordering::SeqCst)
-                        {
-                            break;
+                            pet_position::NextSave::Wait(delay) => thread::sleep(delay),
+                            pet_position::NextSave::Save { position, revision } => {
+                                // 全部设置写入仍由同一把锁串行化，避免覆盖同时修改的偏好。
+                                // 原生 Moved 只碰内存队列，磁盘同步再慢也不会阻塞下一次移动。
+                                {
+                                    let mut settings = state.settings.lock();
+                                    settings.pet_position = Some(position);
+                                    if let Err(error) =
+                                        settings::persist_settings(&state.settings_path, &settings)
+                                    {
+                                        eprintln!("snapshot: could not save pet position: {error}");
+                                    }
+                                }
+                                if state.pet_position_persistence.complete(revision) {
+                                    break;
+                                }
+                            }
                         }
                     });
                 }
