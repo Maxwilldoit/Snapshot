@@ -164,8 +164,8 @@ export function QuickMenuWindow() {
     const observer = new ResizeObserver(apply);
     observer.observe(panel);
     return () => observer.disconnect();
-    // view 变了宽度就变（PANEL_WIDTH），当场重量一次，不等 ResizeObserver
-  }, [opening, view]);
+    // view 变了宽度或平台能力/录制状态改变条目数时，当场重量一次，不等 ResizeObserver
+  }, [opening, view, caps, recording.active]);
 
   function showStatus(next: Status | null, hideAfter = false) {
     if (hideTimer.current !== null) window.clearTimeout(hideTimer.current);
@@ -374,13 +374,9 @@ export function QuickMenuWindow() {
   }
 
   const items = useMemo<Item[]>(() => {
-    const scrollingReason = caps && !caps.scrolling?.available
-      ? caps.os !== "linux"
-        ? t("仅支持 Linux X11")
-        : caps.displayServer !== "X11"
-          ? t("需要 X11 会话")
-          : t("需要 xdotool")
-      : null;
+    const canScroll = Boolean(caps && caps.os === "linux" && caps.displayServer === "X11");
+    const scrollingReason = canScroll && !caps?.scrolling?.available ? t("需要 xdotool") : null;
+    const canRecord = !caps || caps.recording.available;
     const list: Item[] = [
       {
         id: "capture",
@@ -394,16 +390,18 @@ export function QuickMenuWindow() {
         hint: shortcutHint("fullscreen"),
         run: () => void runAction("fullscreen").catch(() => {}),
       },
-      {
-        id: "scrolling",
-        label: t("长截图"),
-        hint: scrollingReason ? <span className="small quiet">{scrollingReason}</span> : shortcutHint("scrolling"),
-        disabled: Boolean(caps && !caps.scrolling?.available),
-        reason: scrollingReason ?? undefined,
-        run: () => void runAction("scrolling").catch((error) => showStatus({ kind: "error", text: errorText(error) })),
-      },
-      recording.active
-        ? {
+      ...(canScroll
+        ? [{
+            id: "scrolling",
+            label: t("长截图"),
+            hint: scrollingReason ? <span className="small quiet">{scrollingReason}</span> : shortcutHint("scrolling"),
+            disabled: Boolean(!caps?.scrolling?.available),
+            reason: scrollingReason ?? undefined,
+            run: () => void runAction("scrolling").catch((error) => showStatus({ kind: "error", text: errorText(error) })),
+          }]
+        : []),
+      ...(recording.active
+        ? [{
             id: "record",
             label: t("停止录制 · {target}", { target: recording.target ?? t("窗口") }),
             // 时长放在右边：窗口名太长时左边会被截掉，时长不能跟着没了
@@ -414,15 +412,15 @@ export function QuickMenuWindow() {
               </>
             ),
             run: () => void stopRecording(),
-          }
-        : {
-            id: "record",
-            label: t("录屏"),
-            hint: shortcutHint("record"),
-            disabled: Boolean(caps && !caps.recording.available),
-            reason: t("录屏在当前环境不可用"),
-            run: () => void openPicker("record"),
-          },
+          }]
+        : canRecord
+          ? [{
+              id: "record",
+              label: t("录屏"),
+              hint: shortcutHint("record"),
+              run: () => void openPicker("record"),
+            }]
+          : []),
       {
         id: "prompts",
         label: t("Prompt 库"),

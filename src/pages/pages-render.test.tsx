@@ -423,6 +423,43 @@ describe("B2 拆页后逐页渲染", () => {
     expect(screen.queryByRole("radiogroup", { name: "颜色" })).toBeNull();
     expect(screen.queryByRole("radiogroup", { name: "动效" })).toBeNull();
   });
+
+  it("当前系统不支持的功能开关不会在设置页和快捷键页出现", async () => {
+    const partialCaps: PlatformCapabilities = {
+      os: "macos",
+      displayServer: "AppKit",
+      recording: { available: true },
+      recordingSystemAudio: { available: true },
+      recordingMicrophone: { available: false },
+      autostart: { available: false },
+      includeCursor: { available: false },
+    };
+    const withScrolling: Settings = {
+      ...settings,
+      shortcuts: [
+        ...settings.shortcuts,
+        { action: "scrolling", accelerator: null },
+      ],
+    };
+    await renderApp((command) => {
+      if (command === "platform_capabilities") return partialCaps;
+      if (command === "load_settings") return withScrolling;
+      return handler(command);
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^截图与录制/ }));
+    expect(await screen.findByRole("switch", { name: "同时录系统声音" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "同时录麦克风" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "截图带上鼠标指针" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^通用/ }));
+    expect(await screen.findByRole("radiogroup", { name: "界面语言" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "开机时静默启动" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^快捷键/ }));
+    expect(await screen.findByRole("button", { name: /快捷键：窗口截图/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /快捷键：长截图/ })).toBeNull();
+  });
 });
 // jsdom 未实现 Element.prototype.scrollTo；App 换页后会调用它回到顶部。
 if (!Element.prototype.scrollTo) {

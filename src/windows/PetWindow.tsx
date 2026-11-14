@@ -96,8 +96,9 @@ async function keepOnScreen(petWindow: Window, content: MediaBounds | null = nul
 
 /** 动作切换只修正垂直位置；横向由拖动和可见范围校准处理，避免透明方窗把角色推离屏幕边缘。 */
 async function nudgeNormalWindow(normalY: number, side: number, factor: number, groundY: number | null, canMove: () => boolean) {
+  if (!(factor > 0) || groundY === null || !canMove()) return { x: 0, y: 0 };
   const monitor = await currentMonitor();
-  if (!monitor || !(factor > 0) || groundY === null || !canMove()) return { x: 0, y: 0 };
+  if (!monitor || !canMove()) return { x: 0, y: 0 };
   const extent = Math.round(side * factor);
   const floor = petFloorY(monitor.workArea, extent, null, factor, groundY);
   const y = floor === null ? normalY : Math.min(floor, Math.max(monitor.workArea.position.y, normalY));
@@ -122,6 +123,7 @@ async function commitPetWindow(
   groundY: number | null,
   canNudge: () => boolean,
   canvas: PetRenderCanvas | null,
+  getLiveNormal?: () => { x: number; y: number } | null,
 ) {
   const atomic = /Macintosh|Mac OS X/.test(navigator.userAgent);
   const reframes =
@@ -129,16 +131,27 @@ async function commitPetWindow(
   if (!place || !reframes) {
     if (atomic) {
       const pos = await petWindow.outerPosition();
-      const offset = await setPetBounds({ x: pos.x - shiftRef.current.x, y: pos.y - shiftRef.current.y,
-        width: side, height: side, shiftX: 0, shiftY: 0, canvas });
+      const live = getLiveNormal?.();
+      const nextX = Math.round(live ? live.x : pos.x - shiftRef.current.x);
+      const nextY = Math.round(live ? live.y : pos.y - shiftRef.current.y);
+      const prevShift = { ...shiftRef.current };
       shiftRef.current = { x: 0, y: 0 };
-      if (groundY !== null && canNudge()) await keepOnScreen(petWindow, null, false, canNudge, groundY);
-      return offset;
+      try {
+        const offset = await setPetBounds({
+          x: nextX, y: nextY, width: side, height: side, shiftX: 0, shiftY: 0, canvas,
+        });
+        if (groundY !== null && canNudge()) await keepOnScreen(petWindow, null, false, canNudge, groundY);
+        return offset;
+      } catch (error) {
+        shiftRef.current = prevShift;
+        throw error;
+      }
     }
     if (shiftRef.current.x !== 0 || shiftRef.current.y !== 0) {
       const pos = await petWindow.outerPosition();
-      const nextX = pos.x - shiftRef.current.x;
-      const nextY = pos.y - shiftRef.current.y;
+      const live = getLiveNormal?.();
+      const nextX = Math.round(live ? live.x : pos.x - shiftRef.current.x);
+      const nextY = Math.round(live ? live.y : pos.y - shiftRef.current.y);
       shiftRef.current = { x: 0, y: 0 };
       await setPetFrameShift(0, 0);
       if (Number.isFinite(nextX) && Number.isFinite(nextY)) {
@@ -158,19 +171,28 @@ async function commitPetWindow(
   }
   const shiftX = Math.round(place.shiftX * factor);
   const shiftY = Math.round(place.shiftY * factor);
-  const normalX = pos.x - shiftRef.current.x;
-  const normalY = pos.y - shiftRef.current.y;
-  const nudge = await nudgeNormalWindow(normalY, side, factor, groundY === null ? null : groundY + place.shiftY, canNudge);
+  const initialLive = getLiveNormal?.();
+  const initialNormalY = initialLive ? initialLive.y : pos.y - shiftRef.current.y;
+  const nudge = await nudgeNormalWindow(initialNormalY, side, factor, groundY === null ? null : groundY + place.shiftY, canNudge);
+  // 异步 IPC 等待期间光标可能已继续移动；若仍在拖动则采用最新目标坐标，避免窗口被旧 outerPosition() 拽回
+  const latestLive = getLiveNormal?.();
+  const normalX = latestLive ? latestLive.x : pos.x - shiftRef.current.x;
+  const normalY = latestLive ? latestLive.y : pos.y - shiftRef.current.y;
   const nextX = Math.round(normalX + nudge.x + shiftX);
   const nextY = Math.round(normalY + nudge.y + shiftY);
   if (atomic) {
-    const offset = await setPetBounds({ x: nextX, y: nextY, width: place.width, height: place.height, shiftX, shiftY, canvas });
+    const prevShift = { ...shiftRef.current };
     shiftRef.current = { x: shiftX, y: shiftY };
-    return offset;
+    try {
+      return await setPetBounds({ x: nextX, y: nextY, width: place.width, height: place.height, shiftX, shiftY, canvas });
+    } catch (error) {
+      shiftRef.current = prevShift;
+      throw error;
+    }
   } else {
     shiftRef.current = { x: shiftX, y: shiftY };
     await setPetFrameShift(shiftX, shiftY);
-    if (nextX !== pos.x || nextY !== pos.y) await petWindow.setPosition(new PhysicalPosition(nextX, nextY));
+    if (latestLive || nextX !== pos.x || nextY !== pos.y) await petWindow.setPosition(new PhysicalPosition(nextX, nextY));
     await petWindow.setSize(new LogicalSize(place.width, place.height));
   }
 }
@@ -267,6 +289,8 @@ export function PetWindow() {
   const windowFrameReady = useRef(false);
   const requestBoundsReport = useRef<() => void>(() => {});
   const reframeDrag = useRef<() => void>(() => {});
+  const dragNormalPosition = useRef<(() => { x: number; y: number } | null) | null>(null);
+  const dragEnvelope = useRef<{ side: number; place: PetPlacement } | null>(null);
   const cancelPointerDrag = useRef<(() => void) | null>(null);
   const fittedAppearance = useRef("");
   const playbackRef = useRef<ReturnType<typeof createPetPlayback> | null>(null);
@@ -574,17 +598,33 @@ export function PetWindow() {
     // request during the hand-off would restart a completed clip at frame zero.
     normalFrame.loop = !playback.matches(normalFrame.key) && normalEntry !== eventEntry;
   }
+  const dragHeldFrame = custom && behavior && dragging && (stateEntry ?? resting)
+    ? [petImageFrame(appearanceId, stateEntry ?? resting, false, behaviorFacing === "right", 0)]
+    : [];
   const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
   const dragFrames = behavior?.drag.map((entry) => petImageFrame(appearanceId, entry, false, behaviorFacing === "right")) ?? [];
   const targetFrame = shownWalk && shownChoice ? petImageFrame(appearanceId, shownChoice.entry, true, shownChoice.flip) : normalFrame;
-  const { frames, displayed, leaving, onReady: onPetImageReady } = usePetImages(targetFrame, [...(normalFrame ? [normalFrame] : []), ...walkFrames, ...dragFrames]);
+  const { frames, displayed, leaving, onReady: onPetImageReady } = usePetImages(
+    targetFrame,
+    [...(normalFrame ? [normalFrame] : []), ...dragHeldFrame, ...walkFrames, ...dragFrames],
+  );
   const displayedRef = useRef<PetImageFrame | null>(null);
   displayedRef.current = displayed;
   const visibleEntry = displayed?.entry ?? null;
   const visibleFlip = displayed?.flip ?? false;
   const screenEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
   const fittedSize = petScale === null ? null : petWindowSize(screenEdge, petScale, custom ? "pet" : "app-icon", baseScale);
-  const visiblePlacement = fittedSize === null ? null : viewportPlacement(fittedSize, layout, displayed, leaving, mediaShapes, squashing);
+  const rawPlacement = fittedSize === null ? null : viewportPlacement(fittedSize, layout, displayed, leaving, mediaShapes, squashing);
+  // 拖动期间只扩大、不收缩包围盒：180ms 叠化结束时不重建原生窗口外框，松手后再收紧
+  if (!dragging || fittedSize === null) {
+    dragEnvelope.current = null;
+  } else if (rawPlacement) {
+    const place = dragEnvelope.current?.side === fittedSize
+      ? coverPetPlacements(dragEnvelope.current.place, rawPlacement)
+      : rawPlacement;
+    dragEnvelope.current = { side: fittedSize, place };
+  }
+  const visiblePlacement = dragging && dragEnvelope.current?.side === fittedSize ? dragEnvelope.current.place : rawPlacement;
   const fittedGround = fittedSize === null ? null : viewportGround(fittedSize, layout, displayed, visiblePlacement);
   // On macOS, media never follows the changing alpha crop in the DOM. AppKit
   // crops/moves a fixed-size WebView instead, in the same native transaction
@@ -767,16 +807,19 @@ export function PetWindow() {
   const frameShift = useRef({ x: 0, y: 0 });
   const viewOffset = useRef({ x: 0, y: 0 });
   const appliedKey = useRef("");
-  const frameModel = useRef({ appearanceId, petScale, baseScale, custom, layout, displayed, leaving, mediaShapes, squashing });
-  frameModel.current = { appearanceId, petScale, baseScale, custom, layout, displayed, leaving, mediaShapes, squashing };
+  const appliedDragPlace = useRef<{ side: number; place: PetPlacement } | null>(null);
+  const frameModel = useRef({ appearanceId, petScale, baseScale, custom, layout, displayed, leaving, mediaShapes, squashing, dragging });
+  frameModel.current = { appearanceId, petScale, baseScale, custom, layout, displayed, leaving, mediaShapes, squashing, dragging };
   const frameApplying = useRef(false);
   const frameAgain = useRef(false);
+  const frameFromNonMove = useRef(false);
 
   useLayoutEffect(() => {
     if (fittedSize === null || petScale === null) return;
     const petWindow = getCurrentWindow();
     let active = true;
-    const apply = async () => {
+    const apply = async (fromMove = false) => {
+      if (!fromMove) frameFromNonMove.current = true;
       if (frameApplying.current) {
         frameAgain.current = true;
         return;
@@ -784,13 +827,26 @@ export function PetWindow() {
       frameApplying.current = true;
       try {
         do {
+          const forceReport = frameFromNonMove.current;
+          frameFromNonMove.current = false;
           frameAgain.current = false;
           const model = frameModel.current;
           if (model.petScale === null) return;
           const shortEdge = Math.min(window.screen.availWidth, window.screen.availHeight);
           const side = petWindowSize(shortEdge, model.petScale, model.custom ? "pet" : "app-icon", model.baseScale);
           if (active) setPetSize(side);
-          const place = viewportPlacement(side, model.layout, model.displayed, model.leaving, model.mediaShapes, model.squashing);
+          const rawPlace = viewportPlacement(side, model.layout, model.displayed, model.leaving, model.mediaShapes, model.squashing);
+          if (!model.dragging) {
+            appliedDragPlace.current = null;
+          } else if (rawPlace) {
+            appliedDragPlace.current = {
+              side,
+              place: appliedDragPlace.current?.side === side
+                ? coverPetPlacements(appliedDragPlace.current.place, rawPlace)
+                : rawPlace,
+            };
+          }
+          const place = model.dragging && appliedDragPlace.current?.side === side ? appliedDragPlace.current.place : rawPlace;
           const groundY = viewportGround(side, model.layout, model.displayed, place);
           const canvas = !hasLaunchpad && model.custom ? petRenderCanvas(side, model.layout) : null;
           const key = windowKey(side, place, canvas);
@@ -803,12 +859,14 @@ export function PetWindow() {
           if (key === appliedKey.current) {
             groundOffset.current = groundY;
             if (place && model.displayed) visibleBounds.current = viewportContent(place, model.displayed, model.mediaShapes);
-            requestBoundsReport.current();
+            if (forceReport) requestBoundsReport.current();
             continue;
           }
           appliedKey.current = key;
           windowFrameReady.current = false;
-          const offset = await commitPetWindow(petWindow, side, place, frameShift, t, groundY, () => !pointerHeld.current, canvas);
+          const offset = await commitPetWindow(
+            petWindow, side, place, frameShift, t, groundY, () => !pointerHeld.current, canvas, () => dragNormalPosition.current?.() ?? null,
+          );
           viewOffset.current = offset ?? { x: 0, y: 0 };
           if (appliedKey.current === key) {
             groundOffset.current = groundY;
@@ -834,7 +892,7 @@ export function PetWindow() {
 
     void apply();
     const movedListener = petWindow.onMoved(() => {
-      void apply();
+      void apply(true);
     });
     const scaleListener = petWindow.onScaleChanged(() => {
       void apply();
@@ -890,6 +948,7 @@ export function PetWindow() {
     const cleanup = () => {
       if (cancelPointerDrag.current === dispose) cancelPointerDrag.current = null;
       if (reframeDrag.current === reframe) reframeDrag.current = () => {};
+      if (dragNormalPosition.current === liveNormalPosition) dragNormalPosition.current = null;
       window.removeEventListener("pointermove", markDrag);
       window.removeEventListener("pointerup", finishPress);
       window.removeEventListener("pointercancel", cancelPress);
@@ -955,6 +1014,12 @@ export function PetWindow() {
       schedulePlace();
     };
     reframeDrag.current = reframe;
+
+    const liveNormalPosition = () => {
+      if (finished || !dragged.current || !geometry) return null;
+      return clampTarget(lastScreenX, lastScreenY);
+    };
+    dragNormalPosition.current = liveNormalPosition;
 
     const startMoving = () => {
       if (dragged.current) return;

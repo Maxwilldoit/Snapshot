@@ -618,19 +618,32 @@ pub fn run() {
                         }
                     }
                     thread::spawn(move || loop {
+                        let observed = {
+                            let Some(state) = app.try_state::<AppState>() else {
+                                return;
+                            };
+                            state.pet_position_revision.load(Ordering::SeqCst)
+                        };
                         thread::sleep(Duration::from_millis(350));
                         let Some(state) = app.try_state::<AppState>() else {
                             return;
                         };
-                        let revision = state.pet_position_revision.load(Ordering::SeqCst);
-                        {
-                            let settings = state.settings.lock();
-                            let _ = settings::persist_settings(&state.settings_path, &settings);
+                        if state.pet_position_revision.load(Ordering::SeqCst) != observed {
+                            continue;
                         }
+                        // 拖动中只更新内存；等位置稳定后再拷贝并解锁写盘，避免 F_FULLFSYNC 阻塞主线程的 Moved 回调。
+                        let snapshot = {
+                            let settings = state.settings.lock();
+                            if state.pet_position_revision.load(Ordering::SeqCst) != observed {
+                                continue;
+                            }
+                            settings.clone()
+                        };
+                        let _ = settings::persist_settings(&state.settings_path, &snapshot);
                         state
                             .pet_position_persist_pending
                             .store(false, Ordering::SeqCst);
-                        if state.pet_position_revision.load(Ordering::SeqCst) == revision {
+                        if state.pet_position_revision.load(Ordering::SeqCst) == observed {
                             break;
                         }
                         // 期间又移动过：如果已经有新任务接手就退出，否则由这个任务继续。

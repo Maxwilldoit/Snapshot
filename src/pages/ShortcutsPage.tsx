@@ -177,7 +177,6 @@ function ShortcutsPanel() {
     const clearing = pendingClear === binding.action;
     const saved = settings.shortcuts.find((item) => item.action === binding.action)?.accelerator ?? null;
     const conflicted = Boolean(binding.accelerator && binding.accelerator === saved && conflicts.includes(binding.accelerator));
-    const unavailable = binding.action === "record" && caps && !caps.recording.available;
     const rejection = rejected?.action === binding.action ? rejected.key : null;
     const locked = saving || shortcutsPaused;
     return (
@@ -185,7 +184,6 @@ function ShortcutsPanel() {
         <span className="shortcut-text">
           <span className="row-label">{labelName}</span>
           {conflicted && <span className="signal small">{t("没注册上，这组键已被其他程序占用")}</span>}
-          {unavailable && !conflicted && <span className="quiet small">{t("不可用")}</span>}
           {rejection && (
             <span className="signal small">
               {t("只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个", { rejection })}
@@ -234,12 +232,18 @@ function ShortcutsPanel() {
     );
   };
 
+  const visibleShortcuts = shortcuts.filter((item) => {
+    if (item.action === "scrolling" && caps && (caps.os !== "linux" || caps.displayServer !== "X11")) return false;
+    if (item.action === "record" && caps && !caps.recording.available) return false;
+    return true;
+  });
+
   const listed = new Set(GROUPS.flatMap((group) => group.actions));
   const groups = GROUPS.map((group, index) => ({
     title: group.title,
     rows: [
-      ...group.actions.flatMap((action) => shortcuts.filter((item) => item.action === action)),
-      ...(index === 0 ? shortcuts.filter((item) => !listed.has(item.action)) : []),
+      ...group.actions.flatMap((action) => visibleShortcuts.filter((item) => item.action === action)),
+      ...(index === 0 ? visibleShortcuts.filter((item) => !listed.has(item.action)) : []),
     ],
   })).filter((group) => group.rows.length > 0);
 

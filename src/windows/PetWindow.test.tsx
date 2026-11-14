@@ -1539,6 +1539,102 @@ describe("桌宠：DSH 动作交互", () => {
     expect(container.querySelectorAll('video[src*="%E7%82%B9%E5%87%BB"]')).toHaveLength(0);
   });
 
+  it("macOS 快速拖动跨过 180ms 叠化且同步尺寸期间不会倒退回旧坐标，也不中途缩窗或重建待机视频", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob(["webm"], { type: "video/webm" }) })));
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(10);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(360);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData: () => ({ data: new Uint8ClampedArray(640 * 360 * 4).fill(255) }),
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    try {
+      let resolveBounds!: () => void;
+      let delayNextBounds = false;
+      const { container, calls, position, sizes } = await renderPet(
+        whale,
+        {},
+        { x: 100, y: 100 },
+        null,
+        {},
+        {
+          userAgent: "Macintosh",
+          commitBounds: () => {
+            if (!delayNextBounds) return Promise.resolve();
+            delayNextBounds = false;
+            return new Promise<void>((resolve) => { resolveBounds = resolve; });
+          },
+        },
+      );
+      await loadPetVideos();
+      const idle = shownVideo(container).media;
+      const setBoundsBeforeDrag = calls.filter((c) => c === "set_pet_bounds").length;
+
+      await startDrag(container, 100, 100);
+      expect(shownVideo(container).media).not.toBe(idle);
+      await dragTo(160, 100, 16);
+      expect(position.x).toBeGreaterThanOrEqual(160);
+      // 越过 180ms 叠化结束点继续快速拖动，待机节点保留且窗口外框不重设
+      await dragTo(220, 100, 180);
+      expect(idle.isConnected).toBe(true);
+      expect(calls.filter((c) => c === "set_pet_bounds").length).toBe(setBoundsBeforeDrag);
+      expect(position.x).toBeGreaterThanOrEqual(220);
+
+      // 即使拖放触发异步尺寸更新，返回期间指针继续前进也不回跳旧位置
+      const sizesCountBeforeDrop = sizes.length;
+      delayNextBounds = true;
+      await endDrag();
+      expect(position.x).toBeGreaterThanOrEqual(220);
+      await act(async () => { resolveBounds?.(); });
+      await elapse(200);
+      expect(position.x).toBeGreaterThanOrEqual(220);
+      expect(sizes.length).toBeGreaterThanOrEqual(sizesCountBeforeDrop);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("macOS 拖动中若异步 setPetBounds 延迟返回，窗口坐标使用最新指针位置而不被旧 outerPosition 拉回", async () => {
+    const idle = { entry: "gifs/idle.gif", width: 100, height: 100, anchorX: 50, anchorY: 90 };
+    const walkRight = { entry: "gifs/walk_right.gif", width: 160, height: 120, anchorX: 50, anchorY: 90 };
+    const layout: PetLayout = { baseWidth: 100, baseHeight: 100, anchorX: 50, anchorY: 90, frames: [idle, walkRight] };
+    let resolveBounds!: () => void;
+    let holdBounds = false;
+    const { container, position } = await renderPet(
+      { ...grok, entry: idle.entry, animations: [idle.entry, walkRight.entry], layout },
+      {},
+      { x: 100, y: 100 },
+      null,
+      {},
+      {
+        userAgent: "Macintosh",
+        commitBounds: () => {
+          if (!holdBounds) return Promise.resolve();
+          holdBounds = false;
+          return new Promise<void>((resolve) => { resolveBounds = resolve; });
+        },
+      },
+    );
+
+    await startDrag(container, 100, 100);
+    holdBounds = true;
+    await dragTo(150, 100, 16);
+    const xAfterMove1 = position.x;
+    // 在 set_pet_bounds 还在飞时鼠标又迅速拖出 120px
+    await dragTo(270, 100, 16);
+    expect(position.x).toBeGreaterThan(xAfterMove1);
+    await act(async () => { resolveBounds?.(); });
+    await elapse(16);
+    expect(position.x).toBeGreaterThanOrEqual(270);
+    await endDrag();
+  });
+
   it("连续点击能重播且避免连抽，上一段迟到的 ended 不会掐断新动作", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { container, delay } = await renderWhale();
