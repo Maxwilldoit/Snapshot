@@ -209,8 +209,8 @@ html[data-surface="app"] .history-body { position: relative; display: flex; flex
 html[data-surface="app"] .history-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0; scrollbar-width: none; }
 html[data-surface="app"] .history-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
-/* Only the continuous position cursor is visible at rest. Direct interaction
-   reveals the content-sized axis; the remaining gutter never opens a date. */
+/* Content-sized ticks and the continuous position cursor stay visible.
+   Only the date and accent focus respond to direct interaction. */
 html[data-surface="app"] .timeline-scrollbar {
   position: relative; flex: 0 0 auto; width: 0; overflow: hidden;
   opacity: 0; pointer-events: none; user-select: none; -webkit-user-select: none; touch-action: none;
@@ -226,9 +226,7 @@ html[data-surface="app"] .timeline-track:focus-visible {
 }
 html[data-surface="app"] .timeline-ticks {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  opacity: 0; transition: opacity 150ms var(--ease-out);
 }
-html[data-surface="app"] .timeline-scrollbar.is-engaged .timeline-ticks { opacity: 1; }
 html[data-surface="app"] .timeline-tick, html[data-surface="app"] .timeline-cursor {
   position: absolute; right: 10px; width: 9px; height: 2px; margin-top: -1px; border-radius: 999px;
   background: color-mix(in srgb, var(--text1) 22%, transparent); pointer-events: none;

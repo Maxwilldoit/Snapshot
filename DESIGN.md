@@ -43,21 +43,23 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
   actions from the window controls. Toolbar search stays collapsed to an icon until
   focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
 - History hides the native scrollbar. A narrow date scrubber occupies a separate 36px
-  right gutter when content overflows. At rest show only one neutral 17px cursor, without
-  dates, a thumb, or a rail. Position it continuously from actual scroll progress, never
-  by rounding to a tick or interpolating calendar gaps. Scale axis travel like a native
+  right gutter when content overflows. Keep neutral 9px ticks and one darker 17px cursor
+  visible, without resting dates, a thumb, or a rail. Position the cursor continuously
+  from actual scroll progress, never by rounding to a tick or interpolating calendar gaps.
+  Scale axis travel like a native
   scrollbar: available travel × overflow / total content height, bounded by overflow.
   A little overflow gets a short axis; long lists approach the available height. Keep
   at least a 44px-tall hit area without stretching that visual travel.
-  Hover, dragging, or keyboard focus fades in neutral 9px ticks at roughly 12px intervals
-  (up to 64), lengthens the selected tick to 24px in `--accent`, and reveals a full
+  Space ticks at roughly 12px intervals (up to 64). Hover, dragging, or keyboard focus
+  lengthens the selected tick to 24px in `--accent` and reveals a full
   localized date; adjacent ticks lengthen gently. Resolve dates from the complete filtered
   index and cached content offsets. Click and drag use the same continuous mapping as
   scrolling, so even a long final day remains traversable. The cursor and hover can coexist;
-  hover wins when they overlap. Mouse leave or blur fades the ticks and date while retaining
-  the live cursor. Ordinary scrolling never reveals the ticks or date. Animate tick width,
-  color and visibility with the existing fade timing; cursor movement follows native scroll
-  frames directly, including subpixel positions. Use ↑↓/←→ for adjacent reachable days,
+  hover wins when they overlap. Mouse leave or blur fades the date and restores neutral
+  tick widths and colors; the ticks and live cursor remain visible. Ordinary scrolling
+  never reveals a date. Animate tick width and color with the existing fade timing;
+  cursor movement follows native scroll frames directly, including subpixel positions.
+  Use ↑↓/←→ for adjacent reachable days,
   PgUp/PgDn and Home/End. The empty gutter below a short axis is not an interaction target.
   Keep the bubble inside the viewport and hide the scrubber when content does not overflow.
   Reuse `--pop`, `--t-fade` and the existing easing; honor system reduced motion.

@@ -82,8 +82,8 @@ afterEach(() => {
   offsets = new Map(stops.map((stop, index) => [stop.key, index * 600]));
 });
 
-describe("minimal hover date scrubber", () => {
-  it("keeps one continuous cursor independent of the bounded, interaction-only ticks", () => {
+describe("content date scrubber", () => {
+  it("keeps one continuous cursor independent of the bounded, permanent ticks", () => {
     const { scroll } = setup();
     expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor(SPAN / 12) + 1);
     expect(root().textContent).toBe("");
@@ -98,7 +98,7 @@ describe("minimal hover date scrubber", () => {
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
-  it("previews the real date at the content position without scrolling and restores the quiet cursor on leave", () => {
+  it("previews the real date without scrolling and restores neutral ticks on leave", () => {
     const { hover, scroller } = setup();
     hover(0.64);
     expect(bubble().textContent).toBe("2026年7月26日");
