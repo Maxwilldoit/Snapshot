@@ -230,7 +230,8 @@ html[data-surface="app"] .timeline-ticks {
 html[data-surface="app"] .timeline-tick {
   position: absolute; right: 10px; width: 9px; height: 2px; margin-top: -1px; border-radius: 999px;
   background: color-mix(in srgb, var(--text1) 22%, transparent); pointer-events: none;
-  transition: width var(--t-fade) var(--ease-out), background-color var(--t-fade) var(--ease-out);
+  /* One animated wave position drives these values; per-tick transitions lag
+     behind scroll samples and crossfade distant peaks instead of moving them. */
 }
 html[data-surface="app"] .timeline-scrollbar.is-dragging .timeline-track { cursor: grabbing; }
 html[data-surface="app"] .timeline-label {
