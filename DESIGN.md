@@ -42,14 +42,17 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
   state, a tooltip and an accessible label on every one. A clear gap separates page
   actions from the window controls. Toolbar search stays collapsed to an icon until
   focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
-- History hides the native scrollbar. When content overflows, a permanent timeline ruler
-  occupies the right gutter: date ticks follow each day's real content offset, month/year
-  labels identify longer histories, and an accent cursor marks the scroll position. Keep
-  year labels fully visible in both languages. A date pill names the day under the sticky
-  header or previews a hovered tick; only this pill fades 1.2 s after interaction stops.
-  Drag the cursor or any tick, click the track or a tick, or use the cursor's keys
-  (↑↓, PgUp/PgDn, Home/End, ←→ for the previous/next day). With nothing to scroll the
-  ruler is absent. Reuse `--accent`, `--pop`, and the motion tokens; no new palette.
+- History hides the native scrollbar. A narrow date scrubber occupies a separate 36px
+  right gutter when content overflows. At rest show only neutral 9px/15px round ticks,
+  without labels, a thumb, or a rail. Sample the complete filtered date range at roughly
+  12px intervals, up to 64 ticks. Newest is at the top; gaps resolve to real recorded days.
+  Hover, dragging, or keyboard focus extends the selected tick to 24px in `--accent` and
+  reveals a full localized date beside it; adjacent ticks lengthen gently. Ordinary list
+  scrolling updates a neutral position marker without opening the date bubble. Mouse
+  leave restores quiet ticks unless a drag or keyboard focus is still active. Click or
+  drag anywhere in the gutter, or use ↑↓/←→ for adjacent days, PgUp/PgDn and Home/End.
+  Keep the bubble inside the viewport and hide the scrubber for empty or short lists.
+  Reuse `--pop`, `--t-fade` and the existing easing; honor system reduced motion.
 - Hierarchy comes from position, type, and whitespace. Avoid decorative cards,
   gradients, slogans, sequence numbers, and permanent metadata counters.
 - An empty collection shows a title and an actionable primary button. A shortcut

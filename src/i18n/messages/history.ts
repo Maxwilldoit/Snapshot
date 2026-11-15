@@ -22,7 +22,6 @@ export const historyEnglish: Record<string, string> = {
   "没有含「{query}」的历史记录。": "No results for “{query}”.",
   "历史操作": "History Actions",
   "历史时间线": "History timeline",
-  "跳到 {date}": "Jump to {date}",
   "{date}，{percent}%": "{date}, {percent}%",
   "多选": "Select Multiple",
   "取消选择": "Deselect",

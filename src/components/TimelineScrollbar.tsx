@@ -1,546 +1,308 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
-import { useI18n, type Language } from "../lib/i18n";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { useI18n } from "../lib/i18n";
+import { nearestTimelineDate, sampleTimeline, timelineDateRatio, timelineScrollPosition, type TimelineStop } from "../lib/timelineScrubber";
 
-/** 滚动停止后多久淡出悬浮日期气泡；刻度尺本身常驻页面右缘，悬停、聚焦、拖动期间气泡不淡出。 */
-const HIDE_DELAY = 1200;
-/** 刻度线在轨道上下内缩留白，保证首尾文字不贴边裁切。 */
-const RULER_PAD = 14;
-/** 刻度文字之间最少保留的垂直间距（px），避免密集时文字叠在一起。 */
-const MIN_LABEL_GAP = 22;
-/** 悬浮日期气泡离轨道上下边至少留这么多。 */
-const LABEL_EDGE = 22;
-/** 背景细刻度线间距（px），让整条侧栏读起来像连续刻度尺。 */
-const GRADUATION_STEP = 10;
-/** 区分「点击刻度跳转」与「按住刻度开始拖拽」的垂直位移阈值（px）。 */
-const DRAG_THRESHOLD = 3;
-/** 轨道相对滚动区上下各留的空白，与 CSS 的 .timeline-track top / bottom 一致。 */
-const TRACK_INSET_TOP = 8;
-const TRACK_INSET_BOTTOM = 12;
+const PAD = 14;
+const INSET_TOP = 8;
+const INSET_BOTTOM = 12;
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-export type TimelineStop = { key: string; label: string; timestamp?: number };
+type Geometry = { max: number; height: number; top: number; left: number; offsets: number[] };
+type Selection = { index: number; ratio: number };
+type PointerSample = { y: number; navigate: boolean };
 
-type Geometry = {
-  maxScroll: number;
-  trackHeight: number;
-  /** 每个日期分组在滚动内容里的顶边位置 */
-  offsets: number[];
-};
-
-type PointerSession =
-  | {
-      mode: "pending-stop";
-      pointerId: number;
-      startY: number;
-      trackTop: number;
-      trackHeight: number;
-      maxScroll: number;
-      stopIndex: number;
-    }
-  | {
-      mode: "scrub";
-      pointerId: number;
-      trackTop: number;
-      trackHeight: number;
-      maxScroll: number;
-    };
-
-type RulerNode = {
-  index: number;
-  periodKey: string;
-  rulerLabel: string;
-  isMajor: boolean;
-  isYearBoundary: boolean;
-  showLabel: boolean;
-};
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-function rulerSpan(trackHeight: number) {
-  return Math.max(0, trackHeight - RULER_PAD * 2);
-}
-
-/** 滚动位置 → 刻度尺轨道 Y（含上下内缩 RULER_PAD）。 */
-function scrollToY(scroll: number, maxScroll: number, trackHeight: number) {
-  const pad = Math.min(RULER_PAD, trackHeight / 2);
-  const span = Math.max(0, trackHeight - pad * 2);
-  return maxScroll > 0 ? pad + (clamp(scroll, 0, maxScroll) / maxScroll) * span : pad;
-}
-
-/** 刻度尺轨道 Y → 滚动位置。 */
-function yToScroll(y: number, trackHeight: number, maxScroll: number) {
-  const pad = Math.min(RULER_PAD, trackHeight / 2);
-  const span = Math.max(0, trackHeight - pad * 2);
-  return span > 0 ? (clamp(y - pad, 0, span) / span) * maxScroll : 0;
-}
-
-/** 当前日期 = 最后一个顶边已经滚过视口顶边的分组（与吸顶的日期条一致）。 */
-function activeIndex(offsets: number[], top: number) {
-  let current = 0;
-  for (let index = 1; index < offsets.length; index++) {
-    if (offsets[index] > top + 1) break;
-    current = index;
-  }
-  return current;
-}
-
-function formatMonthLabel(date: Date, includeYear: boolean, language: Language) {
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  if (language === "en") {
-    return date.toLocaleDateString("en-US", includeYear ? { month: "short", year: "numeric" } : { month: "short" });
-  }
-  return includeYear ? `${year}年${month}月` : `${month}月`;
-}
-
-function formatCompactDayLabel(date: Date, stopLabel: string, language: Language) {
-  if (stopLabel === "今天" || stopLabel === "昨天" || stopLabel === "Today" || stopLabel === "Yesterday") {
-    return stopLabel;
-  }
-  if (language === "en") return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-}
-
-/**
- * 把每日分组整理成侧边刻度尺节点：
- * - 跨月 / 跨年时以「年份/月份」作为主节点，方便直接跳到对应年月；
- * - 都在同一个月内时以简洁日期作主节点，避免只剩单个孤立刻度；
- * - 传入节点未带时间戳（如精简单测）时退回原始标签。
- */
-function buildRulerNodes(
-  stops: TimelineStop[],
-  offsets: number[],
-  maxScroll: number,
-  trackHeight: number,
-  language: Language,
-): RulerNode[] {
-  if (stops.length === 0) return [];
-  const hasTimestamps = stops.every((stop) => typeof stop.timestamp === "number");
-  let base: Omit<RulerNode, "showLabel">[];
-
-  if (!hasTimestamps) {
-    base = stops.map((stop, index) => ({
-      index,
-      periodKey: stop.key,
-      rulerLabel: stop.label,
-      isMajor: true,
-      isYearBoundary: index === 0,
-    }));
-  } else {
-    const periods = stops.map((stop) => {
-      const date = new Date(stop.timestamp!);
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
-      return { date, year, monthKey: `${year}-${String(month).padStart(2, "0")}` };
-    });
-    const distinctMonths = new Set(periods.map((item) => item.monthKey));
-    if (distinctMonths.size > 1) {
-      let prevMonthKey: string | null = null;
-      let prevMajorYear: number | null = null;
-      base = stops.map((stop, index) => {
-        const { date, year, monthKey } = periods[index];
-        const isFirstOfMonth = monthKey !== prevMonthKey;
-        const isYearBoundary = isFirstOfMonth && (prevMajorYear === null || prevMajorYear !== year);
-        if (isFirstOfMonth) {
-          prevMonthKey = monthKey;
-          prevMajorYear = year;
-        }
-        return {
-          index,
-          periodKey: monthKey,
-          rulerLabel: isFirstOfMonth ? formatMonthLabel(date, isYearBoundary, language) : stop.label,
-          isMajor: isFirstOfMonth,
-          isYearBoundary,
-        };
-      });
-    } else {
-      base = stops.map((stop, index) => ({
-        index,
-        periodKey: stop.key,
-        rulerLabel: formatCompactDayLabel(periods[index].date, stop.label, language),
-        isMajor: true,
-        isYearBoundary: index === 0,
-      }));
-    }
-  }
-
-  // 防碰撞：优先保留年份节点与首节点，再依次放入不重叠的月/日节点文字；其余节点仍保留刻度线可点可拖。
-  const ys = base.map((node) => scrollToY(offsets[node.index] ?? 0, maxScroll, trackHeight));
-  const placedYs: number[] = [];
-  const shown = new Set<number>();
-
-  const tryPlace = (index: number) => {
-    const y = ys[index];
-    if (placedYs.some((other) => Math.abs(other - y) < MIN_LABEL_GAP)) return;
-    placedYs.push(y);
-    shown.add(index);
-  };
-
-  base.forEach((node) => {
-    if (node.isMajor && node.isYearBoundary) tryPlace(node.index);
-  });
-  base.forEach((node) => {
-    if (node.isMajor && !node.isYearBoundary) tryPlace(node.index);
-  });
-
-  return base.map((node) => ({ ...node, showLabel: shown.has(node.index) }));
-}
-
-/** 生成背景等距细刻度 Y 坐标，避开真实数据刻度以免视觉重叠。 */
-function buildGraduationMarks(trackHeight: number, stopYs: number[]): number[] {
-  const pad = Math.min(RULER_PAD, trackHeight / 2);
-  const span = rulerSpan(trackHeight);
-  if (span <= 0) return [];
-  const marks: number[] = [];
-  for (let y = pad; y <= trackHeight - pad + 0.5; y += GRADUATION_STEP) {
-    if (stopYs.some((stopY) => Math.abs(stopY - y) < 4)) continue;
-    marks.push(Math.round(y));
-  }
-  return marks;
-}
-
-/**
- * 历史页的侧边刻度尺 / 时间轴滚动条。
- * 常驻显示在内容右缘：沿着页面边缘排布时间刻度与年份/月份节点，滚动时高亮当前对应节点，
- * 点击任意刻度节点、拖曳游标或在刻度尺上直接滑动都能快速跳转到对应年份/月份或日期。
- * 不拥有滚动状态，只读写滚动容器的 scrollTop，触控板 / 滚轮 / 键盘原生滚动照常工作。
- */
-export function TimelineScrollbar({
-  scrollRef,
-  stops,
-}: {
+/** Date navigation owns only its small UI. The complete date index comes from the
+ * page; this unvirtualized list's offsets are measured once per layout change. */
+export function TimelineScrollbar({ scrollRef, stops }: {
   scrollRef: RefObject<HTMLElement | null>;
   stops: TimelineStop[];
 }) {
   const { t, language } = useI18n();
-  const trackRef = useRef<HTMLDivElement>(null);
-  const thumbRef = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
-  const sessionRef = useRef<PointerSession | null>(null);
-  const suppressClickRef = useRef(false);
-  const hideTimer = useRef<number | null>(null);
-  const frame = useRef<number | null>(null);
+  const labelRef = useRef<HTMLDivElement>(null);
   const geometryRef = useRef<Geometry | null>(null);
-  const offsetsRef = useRef<number[]>([]);
+  const pointerId = useRef<number | null>(null);
+  const pending = useRef<PointerSample | null>(null);
+  const pointerFrame = useRef<number | null>(null);
+  const scrollFrame = useRef<number | null>(null);
   const [geometry, setGeometry] = useState<Geometry | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [popVisible, setPopVisible] = useState(false);
+  const [current, setCurrent] = useState<Selection>({ index: 0, ratio: 0 });
+  const [preview, setPreview] = useState<Selection | null>(null);
   const [hovering, setHovering] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [hoverStop, setHoverStop] = useState<number | null>(null);
+  const [labelSize, setLabelSize] = useState({ width: 180, height: 24 });
 
-  const clearHideTimer = useCallback(() => {
-    if (hideTimer.current !== null) window.clearTimeout(hideTimer.current);
-    hideTimer.current = null;
-  }, []);
+  const syncPosition = useCallback(() => {
+    const scroller = scrollRef.current;
+    const layout = geometryRef.current;
+    if (!scroller || !layout) return;
+    const next = timelineScrollPosition(stops, layout.offsets, scroller.scrollTop, layout.max);
+    setCurrent((old) => old.index === next.index && old.ratio === next.ratio ? old : next);
+  }, [scrollRef, stops]);
 
-  const scheduleHide = useCallback(() => {
-    clearHideTimer();
-    hideTimer.current = window.setTimeout(() => setPopVisible(false), HIDE_DELAY);
-  }, [clearHideTimer]);
-
-  const revealPopover = useCallback(() => {
-    setPopVisible(true);
-    scheduleHide();
-  }, [scheduleHide]);
-
-  /** 量一次：分组顶边、可滚动距离、轨道高度。分组位置随排版变化，由 ResizeObserver 触发重测。 */
   const measure = useCallback(() => {
     const scroller = scrollRef.current;
     const root = rootRef.current;
     if (!scroller || !root) return;
     const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
-    const nodes = scroller.querySelectorAll<HTMLElement>("[data-day-key]");
-    const offsets = stops.map((stop) => {
-      const node = [...nodes].find((item) => item.dataset.dayKey === stop.key);
-      return node ? Math.max(0, node.getBoundingClientRect().top - base) : 0;
-    });
-    offsetsRef.current = offsets;
-    const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    const trackHeight = Math.max(0, root.clientHeight - TRACK_INSET_TOP - TRACK_INSET_BOTTOM);
-    const next = { maxScroll, trackHeight, offsets };
-    const previous = geometryRef.current;
-    if (
-      previous && previous.maxScroll === maxScroll && previous.trackHeight === trackHeight
-      && previous.offsets.length === offsets.length
-      && previous.offsets.every((value, index) => Math.abs(value - offsets[index]) < 0.5)
-    ) return;
-    geometryRef.current = next;
-    setGeometry(next);
-  }, [scrollRef, stops]);
-
-  /** 滚动位置变了：只更新位置，几何沿用最近一次测量。 */
-  const syncPosition = useCallback(() => {
-    const scroller = scrollRef.current;
-    if (scroller) setScrollTop(scroller.scrollTop);
-  }, [scrollRef]);
+    // One DOM pass and one map lookup per day, instead of a nested search.
+    const positions = new Map<string, number>();
+    for (const node of scroller.querySelectorAll<HTMLElement>("[data-day-key]")) {
+      positions.set(node.dataset.dayKey!, Math.max(0, node.getBoundingClientRect().top - base));
+    }
+    const box = root.getBoundingClientRect();
+    const next = {
+      max: Math.max(0, scroller.scrollHeight - scroller.clientHeight),
+      height: Math.max(0, root.clientHeight - INSET_TOP - INSET_BOTTOM),
+      top: box.top + INSET_TOP,
+      left: box.left,
+      offsets: stops.map((stop) => positions.get(stop.key) ?? 0),
+    };
+    const old = geometryRef.current;
+    if (!old || old.max !== next.max || old.height !== next.height || old.top !== next.top || old.left !== next.left
+      || old.offsets.length !== next.offsets.length || old.offsets.some((value, index) => Math.abs(value - next.offsets[index]) > 0.5)) {
+      geometryRef.current = next;
+      setGeometry(next);
+    }
+    syncPosition();
+  }, [scrollRef, stops, syncPosition]);
 
   useLayoutEffect(() => {
     measure();
-    syncPosition();
-  }, [measure, syncPosition]);
-
-  useLayoutEffect(() => {
+    let frame: number | null = null;
+    const schedule = () => {
+      if (frame === null) frame = window.requestAnimationFrame(() => { frame = null; measure(); });
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     const scroller = scrollRef.current;
-    if (!scroller || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => { measure(); syncPosition(); });
-    observer.observe(scroller);
-    if (scroller.firstElementChild) observer.observe(scroller.firstElementChild);
-    return () => observer.disconnect();
-  }, [measure, syncPosition, scrollRef]);
+    if (scroller) {
+      observer?.observe(scroller);
+      if (scroller.firstElementChild) observer?.observe(scroller.firstElementChild);
+    }
+    if (rootRef.current) observer?.observe(rootRef.current);
+    window.addEventListener("resize", schedule);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", schedule);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, [measure, scrollRef]);
 
   useEffect(() => {
     const scroller = scrollRef.current;
-    if (!scroller) return;
     const onScroll = () => {
-      if (frame.current !== null) return;
-      frame.current = window.requestAnimationFrame(() => {
-        frame.current = null;
-        syncPosition();
-        revealPopover();
+      if (scrollFrame.current === null) scrollFrame.current = window.requestAnimationFrame(() => {
+        scrollFrame.current = null;
+        syncPosition(); // Ordinary scrolling never opens the bubble.
       });
     };
-    scroller.addEventListener("scroll", onScroll, { passive: true });
+    scroller?.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      scroller.removeEventListener("scroll", onScroll);
-      if (frame.current !== null) window.cancelAnimationFrame(frame.current);
-      frame.current = null;
-      clearHideTimer();
+      scroller?.removeEventListener("scroll", onScroll);
+      if (scrollFrame.current !== null) window.cancelAnimationFrame(scrollFrame.current);
+      scrollFrame.current = null;
     };
-  }, [scrollRef, syncPosition, revealPopover, clearHideTimer]);
+  }, [scrollRef, syncPosition]);
 
-  useEffect(() => {
-    if (hovering || focused || dragging) {
-      clearHideTimer();
-      setPopVisible(true);
-    } else scheduleHide();
-  }, [hovering, focused, dragging, clearHideTimer, scheduleHide]);
-
-  const scrollTo = useCallback((top: number) => {
+  const navigate = useCallback((selection: Selection) => {
     const scroller = scrollRef.current;
-    if (!scroller) return;
-    scroller.scrollTop = top;
-    // jsdom 没有布局，赋值 scrollTop 不派发 scroll；主动同步一次。
+    const layout = geometryRef.current;
+    if (!scroller || !layout) return;
+    // A single long day still permits browsing within that day's records.
+    scroller.scrollTop = stops.length === 1 ? selection.ratio * layout.max
+      : selection.ratio === 0 ? 0 : selection.ratio === 1 ? layout.max
+        : Math.min(layout.offsets[selection.index] ?? 0, layout.max);
     syncPosition();
-    revealPopover();
-  }, [scrollRef, syncPosition, revealPopover]);
+  }, [scrollRef, stops.length, syncPosition]);
 
-  // 拖动期间指针可能滑出刻度尺（去够日期气泡那一侧），用 window 级监听保证拖拽不断。
+  const selectPointer = useCallback(({ y, navigate: shouldNavigate }: PointerSample) => {
+    let layout = geometryRef.current;
+    const root = rootRef.current;
+    if (!layout || !root || !stops.length) return;
+    // The page's entrance transition can move the hit area without a resize.
+    // Read only this small anchor once per frame; the date list stays cached.
+    const box = root.getBoundingClientRect();
+    if (layout.top !== box.top + INSET_TOP || layout.left !== box.left) {
+      layout = { ...layout, top: box.top + INSET_TOP, left: box.left };
+      geometryRef.current = layout;
+      setGeometry(layout);
+    }
+    const pad = Math.min(PAD, layout.height / 2);
+    const span = layout.height - pad * 2;
+    const ratio = span > 0 ? clamp((y - layout.top - pad) / span, 0, 1) : 0;
+    const selection = { ratio, index: nearestTimelineDate(stops, ratio) };
+    setPreview(selection);
+    if (shouldNavigate) navigate(selection);
+  }, [stops, navigate]);
+
+  const queuePointer = useCallback((sample: PointerSample) => {
+    pending.current = sample;
+    if (pointerFrame.current === null) pointerFrame.current = window.requestAnimationFrame(() => {
+      pointerFrame.current = null;
+      if (pending.current) selectPointer(pending.current);
+      pending.current = null;
+    });
+  }, [selectPointer]);
+
   useEffect(() => {
+    const cancelFrame = () => {
+      if (pointerFrame.current !== null) window.cancelAnimationFrame(pointerFrame.current);
+      pointerFrame.current = null;
+      pending.current = null;
+    };
+    const cancel = () => {
+      cancelFrame();
+      pointerId.current = null;
+      setDragging(false);
+      setHovering(false);
+      setFocused(false);
+      setPreview(null);
+    };
     const move = (event: globalThis.PointerEvent) => {
-      const session = sessionRef.current;
-      const scroller = scrollRef.current;
-      if (!session || !scroller || session.pointerId !== event.pointerId) return;
-      if (session.mode === "pending-stop") {
-        if (Math.abs(event.clientY - session.startY) <= DRAG_THRESHOLD) return;
-        sessionRef.current = {
-          mode: "scrub",
-          pointerId: session.pointerId,
-          trackTop: session.trackTop,
-          trackHeight: session.trackHeight,
-          maxScroll: session.maxScroll,
-        };
-        suppressClickRef.current = true;
-        thumbRef.current?.focus({ preventScroll: true });
-        setDragging(true);
-      }
-      const top = trackRef.current?.getBoundingClientRect().top ?? session.trackTop;
-      const nextScroll = yToScroll(event.clientY - top, session.trackHeight, session.maxScroll);
-      scroller.scrollTop = nextScroll;
-      syncPosition();
-      revealPopover();
+      if (pointerId.current === event.pointerId) queuePointer({ y: event.clientY, navigate: true });
     };
     const finish = (event: globalThis.PointerEvent) => {
-      const session = sessionRef.current;
-      if (!session || session.pointerId !== event.pointerId) return;
-      if (session.mode === "scrub") {
-        // 如果是在刻度按钮上起拖，松手后屏蔽随后派发的 click，防止跳回起点刻度。
-        window.setTimeout(() => { suppressClickRef.current = false; }, 0);
-      }
-      sessionRef.current = null;
+      if (pointerId.current !== event.pointerId) return;
+      // Commit the final sample even when up arrives before the next frame.
+      cancelFrame();
+      selectPointer({ y: event.clientY, navigate: true });
+      pointerId.current = null;
       setDragging(false);
     };
+    const pointerCancel = (event: globalThis.PointerEvent) => {
+      if (pointerId.current === event.pointerId) cancel();
+    };
+    cancel(); // A changed date index cancels any gesture using the old index.
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", finish);
+    window.addEventListener("pointercancel", pointerCancel);
+    window.addEventListener("blur", cancel);
     return () => {
+      cancelFrame();
+      pointerId.current = null;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("pointercancel", pointerCancel);
+      window.removeEventListener("blur", cancel);
     };
-  }, [scrollRef, syncPosition, revealPopover]);
+  }, [queuePointer, selectPointer]);
 
-  const active = activeIndex(geometry?.offsets ?? offsetsRef.current, scrollTop);
-  const overflow = (geometry?.maxScroll ?? 0) > 0;
-  const ready = geometry !== null && overflow && stops.length > 0;
-  const popoverShown = ready && (popVisible || hovering || focused || dragging);
+  const ready = !!geometry && geometry.max > 0 && geometry.height > PAD * 2 && stops.length > 0;
+  const engaged = ready && (hovering || dragging || focused);
+  const selected = (hovering || dragging) && preview ? preview : current;
+  const index = Math.min(selected.index, Math.max(0, stops.length - 1));
+  const formatter = useMemo(() => new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", {
+    year: "numeric", month: language === "en" ? "short" : "long", day: "numeric",
+  }), [language]);
+  const date = stops[index] ? formatter.format(stops[index].timestamp) : "";
+  const currentDate = stops[current.index] ? formatter.format(stops[current.index].timestamp) : "";
+  const pad = Math.min(PAD, (geometry?.height ?? 0) / 2);
+  const span = Math.max(0, (geometry?.height ?? 0) - pad * 2);
+  const ticks = useMemo(() => sampleTimeline(stops, span), [stops, span]);
+  const activeTick = Math.round((engaged ? selected.ratio : current.ratio) * (ticks.length - 1));
 
-  const cursorY = geometry ? scrollToY(scrollTop, geometry.maxScroll, geometry.trackHeight) : 0;
-  const stopTop = useCallback((index: number) => (
-    geometry ? scrollToY(geometry.offsets[index] ?? 0, geometry.maxScroll, geometry.trackHeight) : 0
-  ), [geometry]);
+  useLayoutEffect(() => {
+    if (!ready || !labelRef.current) return;
+    const { width, height } = labelRef.current.getBoundingClientRect();
+    setLabelSize((old) => old.width === width && old.height === height ? old : { width, height });
+  }, [date, ready]);
 
-  const rulerNodes = useMemo(
-    () => (geometry ? buildRulerNodes(stops, geometry.offsets, geometry.maxScroll, geometry.trackHeight, language) : []),
-    [stops, geometry, language],
-  );
-  const stopYs = useMemo(() => rulerNodes.map((node) => stopTop(node.index)), [rulerNodes, stopTop]);
-  const graduations = useMemo(
-    () => (geometry ? buildGraduationMarks(geometry.trackHeight, stopYs) : []),
-    [geometry, stopYs],
-  );
-  const activePeriodKey = rulerNodes[active]?.periodKey;
-
-  function startScrub(event: PointerEvent<HTMLElement>, immediateScroll?: number) {
-    if (!geometry || !overflow || event.button !== 0) return;
-    const trackBox = trackRef.current?.getBoundingClientRect();
-    if (!trackBox) return;
-    event.preventDefault();
-    suppressClickRef.current = false;
-    thumbRef.current?.focus({ preventScroll: true });
-    if (typeof immediateScroll === "number") scrollTo(immediateScroll);
-    sessionRef.current = {
-      mode: "scrub",
-      pointerId: event.pointerId,
-      trackTop: trackBox.top,
-      trackHeight: geometry.trackHeight,
-      maxScroll: geometry.maxScroll,
-    };
+  function pointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (!ready || event.button !== 0 || pointerId.current !== null) return;
+    event.preventDefault(); // Mouse navigation must not leave a sticky keyboard focus.
+    setFocused(false);
+    pointerId.current = event.pointerId;
     setDragging(true);
+    setHovering(true);
+    selectPointer({ y: event.clientY, navigate: true });
   }
 
-  function onThumbPointerDown(event: PointerEvent<HTMLDivElement>) {
-    event.stopPropagation();
-    startScrub(event);
-  }
-
-  function onTrackPointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (!geometry || !overflow || event.button !== 0) return;
-    if ((event.target as HTMLElement).closest("[data-stop], [role=slider]")) return;
-    const box = event.currentTarget.getBoundingClientRect();
-    startScrub(event, yToScroll(event.clientY - box.top, geometry.trackHeight, geometry.maxScroll));
-  }
-
-  function onStopPointerDown(index: number, event: PointerEvent<HTMLButtonElement>) {
-    if (!geometry || !overflow || event.button !== 0) return;
-    const trackBox = trackRef.current?.getBoundingClientRect();
-    if (!trackBox) return;
-    suppressClickRef.current = false;
-    sessionRef.current = {
-      mode: "pending-stop",
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      trackTop: trackBox.top,
-      trackHeight: geometry.trackHeight,
-      maxScroll: geometry.maxScroll,
-      stopIndex: index,
-    };
-  }
-
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (!geometry || !overflow) return;
-    const scroller = scrollRef.current;
-    const view = scroller?.clientHeight || 400;
-    const step = Math.max(40, view * 0.25);
-    const page = Math.max(step, view - 40);
-    const top = scroller?.scrollTop ?? scrollTop;
+  function keyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!ready || !geometry) return;
     let next: number;
     switch (event.key) {
-      case "ArrowDown": next = top + step; break;
-      case "ArrowUp": next = top - step; break;
-      case "PageDown": next = top + page; break;
-      case "PageUp": next = top - page; break;
+      case "ArrowDown": case "ArrowRight": next = Math.min(stops.length - 1, current.index + 1); break;
+      case "ArrowUp": case "ArrowLeft": next = Math.max(0, current.index - 1); break;
       case "Home": next = 0; break;
-      case "End": next = geometry.maxScroll; break;
-      case "ArrowRight": next = geometry.offsets[Math.min(active + 1, geometry.offsets.length - 1)] ?? top; break;
-      case "ArrowLeft": next = geometry.offsets[Math.max(active - 1, 0)] ?? top; break;
+      case "End": next = stops.length - 1; break;
+      case "PageDown": case "PageUp": {
+        const scroller = scrollRef.current;
+        if (scroller) scroller.scrollTop = clamp(scroller.scrollTop + (event.key === "PageDown" ? 1 : -1) * scroller.clientHeight, 0, geometry.max);
+        syncPosition();
+        event.preventDefault();
+        setFocused(true);
+        return;
+      }
       default: return;
     }
     event.preventDefault();
-    scrollTo(clamp(next, 0, geometry.maxScroll));
+    setFocused(true);
+    setHovering(false);
+    setPreview(null);
+    const ratio = event.key === "End" ? 1 : event.key === "Home" ? 0
+      : stops.length === 1 ? clamp(current.ratio + (event.key === "ArrowDown" || event.key === "ArrowRight" ? 0.1 : -0.1), 0, 1)
+        : timelineDateRatio(stops, stops[next].timestamp);
+    navigate({ index: next, ratio });
   }
-
-  const percent = geometry && geometry.maxScroll > 0 ? Math.round((clamp(scrollTop, 0, geometry.maxScroll) / geometry.maxScroll) * 100) : 0;
-  const label = stops[active]?.label ?? "";
-  const preview = hoverStop !== null && hoverStop !== active ? stops[hoverStop] : undefined;
-  const labelTop = geometry ? clamp(
-    TRACK_INSET_TOP + (preview ? stopTop(hoverStop!) : cursorY),
-    LABEL_EDGE,
-    Math.max(LABEL_EDGE, geometry.trackHeight + TRACK_INSET_TOP - LABEL_EDGE),
-  ) : 0;
 
   return (
     <div
       ref={rootRef}
-      className={`timeline-scrollbar ${ready ? "is-visible is-interactive" : ""} ${popoverShown ? "is-popover" : ""} ${dragging ? "is-dragging" : ""}`}
-      onPointerEnter={() => setHovering(true)}
-      onPointerLeave={() => { setHovering(false); setHoverStop(null); }}
+      className={`timeline-scrollbar ${ready ? "is-interactive" : ""} ${engaged ? "is-engaged" : ""} ${dragging ? "is-dragging" : ""}`}
       aria-hidden={!ready}
+      onPointerEnter={(event) => { setHovering(true); queuePointer({ y: event.clientY, navigate: false }); }}
+      onPointerMove={(event) => { if (pointerId.current === null) queuePointer({ y: event.clientY, navigate: false }); }}
+      onPointerLeave={() => {
+        setHovering(false);
+        if (pointerId.current === null) {
+          if (pointerFrame.current !== null) window.cancelAnimationFrame(pointerFrame.current);
+          pointerFrame.current = null;
+          pending.current = null;
+          setPreview(null);
+        }
+      }}
     >
-      {ready && geometry && (
-        <>
-          <div className="timeline-track" ref={trackRef} onPointerDown={onTrackPointerDown}>
-            <div className="timeline-rail" aria-hidden="true" />
-            {graduations.map((y) => (
-              <span key={y} className="timeline-graduation" style={{ top: y }} aria-hidden="true" />
-            ))}
-            {rulerNodes.map((node) => {
-              const stop = stops[node.index];
-              const top = stopYs[node.index];
-              const isStopActive = node.index === active;
-              const isPeriodActive = node.periodKey === activePeriodKey && (node.isMajor || isStopActive);
-              return (
-                <button
-                  key={stop.key}
-                  type="button"
-                  tabIndex={-1}
-                  className={`timeline-stop ${node.isMajor ? "is-major" : ""} ${node.showLabel ? "has-label" : ""} ${isStopActive ? "is-active-stop" : ""} ${isPeriodActive ? "is-active" : ""}`}
-                  style={{ top }}
-                  data-stop={stop.key}
-                  aria-label={t("跳到 {date}", { date: stop.label })}
-                  title={stop.label}
-                  onPointerEnter={() => setHoverStop(node.index)}
-                  onPointerLeave={() => setHoverStop(null)}
-                  onPointerDown={(event) => onStopPointerDown(node.index, event)}
-                  onClick={() => {
-                    if (suppressClickRef.current) {
-                      suppressClickRef.current = false;
-                      return;
-                    }
-                    scrollTo(Math.min(geometry.offsets[node.index] ?? 0, geometry.maxScroll));
-                  }}
-                >
-                  {node.showLabel && <span className="timeline-stop-text">{node.rulerLabel}</span>}
-                  <span className="timeline-stop-tick" aria-hidden="true" />
-                </button>
-              );
-            })}
-            <div
-              ref={thumbRef}
-              role="slider"
-              tabIndex={0}
-              className="timeline-thumb"
-              aria-label={t("历史时间线")}
-              aria-orientation="vertical"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={percent}
-              aria-valuetext={t("{date}，{percent}%", { date: label, percent })}
-              style={{ top: cursorY }}
-              onPointerDown={onThumbPointerDown}
-              onKeyDown={onKeyDown}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-            />
-          </div>
-          <div
-            className={`timeline-label ${popoverShown ? "is-shown" : ""} ${preview ? "is-preview" : ""}`}
-            style={{ top: labelTop }}
+      <div
+        className="timeline-track"
+        role="slider"
+        tabIndex={ready ? 0 : -1}
+        aria-label={t("历史时间线")}
+        aria-orientation="vertical"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(current.ratio * 100)}
+        aria-valuetext={t("{date}，{percent}%", { date: currentDate, percent: Math.round(current.ratio * 100) })}
+        aria-describedby={engaged ? tooltipId : undefined}
+        onPointerDown={pointerDown}
+        onKeyDown={keyDown}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      >
+        {ready && ticks.map((tick, tickIndex) => {
+          const distance = Math.abs(tickIndex - activeTick);
+          return <span
+            key={tickIndex}
             aria-hidden="true"
-          >
-            {preview ? preview.label : label}
-          </div>
-        </>
+            className={`timeline-tick ${tick.major ? "is-major" : ""} ${distance === 0 ? "is-current" : ""} ${engaged && distance <= 2 ? `is-near-${distance}` : ""}`}
+            style={{ top: Math.round(pad + tick.ratio * span) }}
+          />;
+        })}
+      </div>
+      {ready && geometry && createPortal(
+        <div
+          ref={labelRef}
+          id={tooltipId}
+          role="tooltip"
+          aria-hidden={!engaged}
+          className={`timeline-label ${engaged ? "is-shown" : ""}`}
+          style={{
+            left: clamp(geometry.left - labelSize.width - 6, 8, Math.max(8, window.innerWidth - labelSize.width - 8)),
+            top: clamp(geometry.top + pad + selected.ratio * span, 8 + labelSize.height / 2, Math.max(8 + labelSize.height / 2, window.innerHeight - 8 - labelSize.height / 2)),
+          }}
+        >{date}</div>, document.body,
       )}
     </div>
   );
