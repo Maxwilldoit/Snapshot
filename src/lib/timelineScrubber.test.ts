@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sampleTimeline, timelineAdjacentOffset, timelineScrollPosition, timelineTrackSpan, type TimelineStop } from "./timelineScrubber";
+import { sampleTimeline, timelineAdjacentOffset, timelineScrollPosition, timelineTickFocus, timelineTrackSpan, type TimelineStop } from "./timelineScrubber";
 
 const stops: TimelineStop[] = [
   { key: "new", timestamp: new Date(2026, 7, 15).getTime() },
@@ -26,6 +26,23 @@ describe("content-based date navigation", () => {
     expect(sampleTimeline(240)).toHaveLength(21);
     expect(sampleTimeline(480)).toHaveLength(41);
     expect(sampleTimeline(4000)).toHaveLength(64);
+  });
+
+  it("uses the same restrained focus profile at every scroll and hover position", () => {
+    expect([0, 1, 2, 3, 20].map((distance) => timelineTickFocus(distance).width)).toEqual([24, 17, 14, 9, 9]);
+    expect(timelineTickFocus(0).accent).toBe(1);
+    expect(timelineTickFocus(1).accent).toBe(0.5);
+    expect(timelineTickFocus(3).accent).toBe(0);
+    expect(timelineTickFocus(-1.5)).toEqual(timelineTickFocus(1.5));
+  });
+
+  it("interpolates the wave continuously between ticks and across profile boundaries", () => {
+    const widths = Array.from({ length: 61 }, (_, index) => timelineTickFocus(index / 20).width);
+    expect(widths.every((width, index) => index === 0 || width <= widths[index - 1])).toBe(true);
+    for (const boundary of [1, 2, 3]) {
+      expect(Math.abs(timelineTickFocus(boundary - 0.001).width - timelineTickFocus(boundary + 0.001).width)).toBeLessThan(0.02);
+    }
+    expect(timelineTickFocus(0.5).width).toBe(20.5);
   });
 
   it("maps dates through cached content offsets while position follows scroll progress", () => {

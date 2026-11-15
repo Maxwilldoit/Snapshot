@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../lib/i18n";
-import { sampleTimeline, timelineAdjacentOffset, timelineScrollPosition, timelineTrackSpan, type TimelineStop } from "../lib/timelineScrubber";
+import { sampleTimeline, timelineAdjacentOffset, timelineScrollPosition, timelineTickFocus, timelineTrackSpan, type TimelineStop } from "../lib/timelineScrubber";
 
 const PAD = 14;
 const INSET_TOP = 8;
@@ -205,8 +205,8 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   const pad = Math.min(PAD, (geometry?.height ?? 0) / 2);
   const span = geometry?.span ?? 0;
   const ticks = useMemo(() => sampleTimeline(span), [span]);
-  const interactionTick = engaged ? Math.round(selected.ratio * (ticks.length - 1)) : -1;
-  const covered = engaged && Math.abs(current.ratio - (ticks[interactionTick] ?? selected.ratio)) * span < 3;
+  const spacing = ticks.length > 1 ? span / (ticks.length - 1) : 12;
+  const covered = Math.abs(current.ratio - selected.ratio) * span < 3;
 
   useLayoutEffect(() => {
     if (!ready || !labelRef.current) return;
@@ -289,18 +289,29 @@ export function TimelineScrollbar({ scrollRef, stops }: {
         onBlur={() => setFocused(false)}
       >
         {ready && <span aria-hidden="true" className="timeline-ticks">{ticks.map((ratio, tickIndex) => {
-          const distance = Math.abs(tickIndex - interactionTick);
+          const distance = Math.abs(ratio - selected.ratio) * span;
+          const focus = timelineTickFocus(distance / spacing);
           return <span
             key={tickIndex}
             aria-hidden="true"
-            className={`timeline-tick ${engaged && distance <= 2 ? `is-near-${distance}` : ""}`}
-            style={{ top: pad + ratio * span }}
+            className="timeline-tick"
+            style={{
+              top: pad + ratio * span,
+              width: focus.width,
+              background: `color-mix(in srgb, var(--accent) ${focus.accent * 100}%, color-mix(in srgb, var(--text1) 22%, transparent))`,
+              opacity: clamp((distance - 2) / 3, 0, 1),
+            }}
           />;
         })}</span>}
         {ready && <span
           aria-hidden="true"
           className={`timeline-cursor ${covered ? "is-covered" : ""}`}
           style={{ transform: `translateY(${pad + current.ratio * span}px)` }}
+        />}
+        {ready && <span
+          aria-hidden="true"
+          className="timeline-focus"
+          style={{ transform: `translateY(${pad + selected.ratio * span}px)` }}
         />}
       </div>
       {ready && geometry && createPortal(

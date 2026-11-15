@@ -19,6 +19,14 @@ export function sampleTimeline(height: number): number[] {
   return Array.from({ length: count }, (_, index) => count === 1 ? 0.5 : index / (count - 1));
 }
 
+/** The same continuous wave follows either real scroll progress or a pointer.
+ * Distance is measured in tick intervals: 24px -> 17px -> 14px -> 9px. */
+export function timelineTickFocus(distance: number) {
+  const d = Math.abs(distance);
+  const width = d <= 1 ? 24 - 7 * d : d <= 2 ? 20 - 3 * d : d < 3 ? 24 - 5 * d : 9;
+  return { width, accent: Math.max(0, 1 - d / 2) };
+}
+
 /** Cached layout only: native scrolling never walks the date DOM. */
 export function timelineScrollPosition(stops: TimelineStop[], offsets: number[], top: number, max: number) {
   if (!stops.length || max <= 0) return { index: 0, ratio: 0 };
