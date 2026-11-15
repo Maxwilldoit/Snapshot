@@ -134,7 +134,7 @@ export function HistoryPage() {
   }, [items, query]);
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
   const timelineStops = useMemo(
-    () => groups.map((group) => ({ key: group.key, label: group.label, timestamp: group.items[0]?.createdAt })),
+    () => groups.map((group) => ({ key: group.key, timestamp: Number(group.key) })),
     [groups],
   );
 

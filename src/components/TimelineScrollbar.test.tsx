@@ -1,263 +1,239 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useRef, type RefObject } from "react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TimelineScrollbar, type TimelineStop } from "./TimelineScrollbar";
+import { TimelineScrollbar } from "./TimelineScrollbar";
+import type { TimelineStop } from "../lib/timelineScrubber";
+import { I18nProvider } from "../lib/i18n";
 
-/** 轨道高 360，上下内缩 14 → 刻度有效跨度 332（Y: 14..346 对应 scrollTop: 0..2000）。 */
 const VIEW = 400;
 const CONTENT = 2400;
 const MAX = CONTENT - VIEW;
 const TRACK = 360;
-const RULER_PAD = 14;
-const SPAN = TRACK - RULER_PAD * 2;
+const PAD = 14;
 const TRACK_TOP = 8;
-
+const SPAN = TRACK - PAD * 2;
 const stops: TimelineStop[] = [
-  { key: "d0", label: "今天", timestamp: new Date(2026, 10, 14, 12, 0).getTime() },
-  { key: "d1", label: "昨天", timestamp: new Date(2026, 10, 13, 12, 0).getTime() },
-  { key: "d2", label: "10 月 20 日", timestamp: new Date(2026, 9, 20, 12, 0).getTime() },
-  { key: "d3", label: "2025 年 12 月 3 日", timestamp: new Date(2025, 11, 3, 12, 0).getTime() },
+  { key: "d0", timestamp: new Date(2026, 7, 15).getTime() },
+  { key: "d1", timestamp: new Date(2026, 7, 5).getTime() },
+  { key: "d2", timestamp: new Date(2026, 6, 26).getTime() },
+  { key: "d3", timestamp: new Date(2026, 6, 16).getTime() },
 ];
-let offsets = [0, 600, 1200, 1800];
-let resized: (() => void) | undefined;
 let contentHeight = CONTENT;
+let rootHeight = TRACK + TRACK_TOP + 12;
+let rootLeft = 264;
+let rootTop = 0;
+let offsets = new Map(stops.map((stop, index) => [stop.key, index * 600]));
+let resize: (() => void) | undefined;
+const frame = () => act(() => { vi.advanceTimersByTime(20); });
+const root = () => document.querySelector<HTMLElement>(".timeline-scrollbar")!;
+const slider = () => screen.getByRole("slider", { name: "历史时间线" });
+const bubble = () => screen.getByRole("tooltip", { hidden: true });
+const yAt = (ratio: number) => rootTop + TRACK_TOP + PAD + ratio * (rootHeight - TRACK_TOP - 12 - PAD * 2);
 
-function layout(scrollRef: RefObject<HTMLElement | null>, activeStops: TimelineStop[]) {
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
-    if (this === scrollRef.current) return VIEW;
-    if (this.classList.contains("timeline-scrollbar")) return TRACK + TRACK_TOP + 12;
-    return 0;
-  });
-  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
-    return this === scrollRef.current ? contentHeight : 0;
-  });
-  // jsdom 不实现 scrollTop 赋值：存到元素上，浏览器里由原生滚动派发事件。
-  vi.spyOn(HTMLElement.prototype, "scrollTop", "get").mockImplementation(function (this: HTMLElement) {
-    return Number(this.dataset.testScrollTop ?? 0);
-  });
-  vi.spyOn(HTMLElement.prototype, "scrollTop", "set").mockImplementation(function (this: HTMLElement, value: number) {
-    this.dataset.testScrollTop = String(Math.max(0, Math.min(contentHeight - VIEW, value)));
-  });
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-    if (this === scrollRef.current) return new DOMRect(0, 0, 300, VIEW);
-    if (this.classList.contains("timeline-track")) return new DOMRect(222, TRACK_TOP, 78, TRACK);
-    const key = this.dataset.dayKey;
-    if (key) {
-      const offset = offsets[activeStops.findIndex((stop) => stop.key === key)] ?? 0;
-      const scrollerTop = Number(scrollRef.current?.dataset.testScrollTop ?? 0);
-      return new DOMRect(0, -scrollerTop + offset, 300, 100);
-    }
-    return new DOMRect();
-  });
-  return { get: () => scrollRef.current?.scrollTop ?? 0 };
-}
-
-function Harness({ groups, empty = false }: { groups: TimelineStop[]; empty?: boolean }) {
+function Harness({ groups }: { groups: TimelineStop[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  return (
-    <div>
-      <div className="history-scroll" ref={scrollRef}>
-        <div>
-          {empty ? "没有匹配的截图" : groups.map((stop) => <section key={stop.key} className="day" data-day-key={stop.key}>{stop.label}</section>)}
-        </div>
-      </div>
-      <TimelineScrollbar scrollRef={scrollRef} stops={groups} />
-    </div>
-  );
+  return <div>
+    <div className="history-scroll" ref={scrollRef}><div>{groups.map((stop) => <section key={stop.key} data-day-key={stop.key} />)}</div></div>
+    <TimelineScrollbar scrollRef={scrollRef} stops={groups} />
+  </div>;
 }
 
-function setup(customStops: TimelineStop[] = stops) {
+function setup(groups = stops, language = "zh") {
+  vi.useFakeTimers();
+  localStorage.setItem("snapshot-language", language);
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => window.setTimeout(() => callback(0), 16));
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => window.clearTimeout(id));
   vi.stubGlobal("ResizeObserver", class {
-    constructor(callback: () => void) { resized = callback; }
+    constructor(callback: () => void) { resize = callback; }
     observe() {}
     disconnect() {}
   });
-  const scrollRef = { current: null as HTMLElement | null };
-  const position = layout(scrollRef, customStops);
-  const view = render(<Harness groups={customStops} />);
-  scrollRef.current = document.querySelector<HTMLElement>(".history-scroll");
-  act(() => resized?.());
-  const scroller = scrollRef.current!;
-  const scroll = (to: number) => {
-    scroller.scrollTop = to;
-    fireEvent.scroll(scroller);
-  };
-  return { scroller, position, scroll, view };
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains("history-scroll") ? VIEW : this.classList.contains("timeline-scrollbar") ? rootHeight : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains("history-scroll") ? contentHeight : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "scrollTop", "get").mockImplementation(function (this: HTMLElement) { return Number(this.dataset.testTop ?? 0); });
+  vi.spyOn(HTMLElement.prototype, "scrollTop", "set").mockImplementation(function (this: HTMLElement, value: number) { this.dataset.testTop = String(Math.max(0, Math.min(contentHeight - VIEW, value))); });
+  const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this.classList.contains("history-scroll")) return new DOMRect(0, 0, rootLeft, VIEW);
+    if (this.classList.contains("timeline-scrollbar")) return new DOMRect(rootLeft, rootTop, 36, rootHeight);
+    if (this.classList.contains("timeline-label")) return new DOMRect(0, 0, 150, 24);
+    if (this.dataset.dayKey) return new DOMRect(0, (offsets.get(this.dataset.dayKey) ?? 0) - Number(document.querySelector<HTMLElement>(".history-scroll")?.dataset.testTop ?? 0), 264, 100);
+    return new DOMRect();
+  });
+  const view = render(<I18nProvider><Harness groups={groups} /></I18nProvider>);
+  frame();
+  const scroller = document.querySelector<HTMLElement>(".history-scroll")!;
+  const scroll = (top: number) => { scroller.scrollTop = top; fireEvent.scroll(scroller); frame(); };
+  const hover = (ratio: number) => { fireEvent.pointerOver(root(), { clientY: yAt(ratio), relatedTarget: document.body }); fireEvent.pointerMove(root(), { clientY: yAt(ratio) }); frame(); };
+  return { view, scroller, scroll, hover, bounds };
 }
-
-const root = () => document.querySelector<HTMLElement>(".timeline-scrollbar")!;
-const thumb = () => screen.getByRole("slider", { name: "历史时间线" });
-const label = () => document.querySelector<HTMLElement>(".timeline-label")!;
-const tick = (name: string) => screen.getByRole("button", { name: `跳到 ${name}` });
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.useRealTimers();
   contentHeight = CONTENT;
-  offsets = [0, 600, 1200, 1800];
+  rootHeight = TRACK + TRACK_TOP + 12;
+  rootLeft = 264;
+  rootTop = 0;
+  offsets = new Map(stops.map((stop, index) => [stop.key, index * 600]));
 });
 
-describe("历史侧边刻度尺时间轴滚动条", () => {
-  it("可滚动时常驻展示年月刻度与细刻度线，滚动页面时高亮对应时间节点", async () => {
+describe("minimal hover date scrubber", () => {
+  it("starts with only bounded ticks, and normal scrolling updates position without opening a date", () => {
     const { scroll } = setup();
-    // 刻度尺本身始终可见，不需要先滚或悬停才出现
-    expect(root().classList.contains("is-visible")).toBe(true);
-    expect(root().classList.contains("is-interactive")).toBe(true);
-    expect(root().getAttribute("aria-hidden")).toBe("false");
-    expect(document.querySelectorAll(".timeline-graduation").length).toBeGreaterThan(10);
-
-    // 跨月/跨年时以年月作为主节点展示，同月后续天保留为小刻度
-    expect(tick("今天").querySelector(".timeline-stop-text")?.textContent).toBe("2026年11月");
-    expect(tick("昨天").querySelector(".timeline-stop-text")).toBeNull();
-    expect(tick("10 月 20 日").querySelector(".timeline-stop-text")?.textContent).toBe("10月");
-    expect(tick("2025 年 12 月 3 日").querySelector(".timeline-stop-text")?.textContent).toBe("2025年12月");
-
-    // 滚到 2026 年 11 月的第二天：对应月份节点保持高亮，游标位置沿刻度尺推进
+    expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor(SPAN / 12) + 1);
+    expect(root().textContent).toBe("");
+    expect(root().classList.contains("is-engaged")).toBe(false);
+    expect(bubble().getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector(".timeline-thumb, .timeline-rail, .timeline-stop-text")).toBeNull();
     scroll(700);
-    await waitFor(() => expect(label().textContent).toBe("昨天"));
-    expect(tick("今天").classList.contains("is-active")).toBe(true);
-    expect(tick("昨天").classList.contains("is-active-stop")).toBe(true);
-    expect(thumb().getAttribute("aria-valuenow")).toBe("35");
-    expect(thumb().style.top).toBe(`${RULER_PAD + (700 / MAX) * SPAN}px`);
-
-    // 滚到 2025 年 12 月：2025年12月 节点高亮
-    scroll(1800);
-    await waitFor(() => expect(label().textContent).toBe("2025 年 12 月 3 日"));
-    expect(tick("2025 年 12 月 3 日").classList.contains("is-active")).toBe(true);
-    expect(tick("今天").classList.contains("is-active")).toBe(false);
+    expect(slider().getAttribute("aria-valuetext")).toContain("2026年8月5日");
+    expect(Number(slider().getAttribute("aria-valuenow"))).toBeGreaterThan(33);
+    expect(document.querySelectorAll(".timeline-tick.is-current")).toHaveLength(1);
+    expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
-  it("悬浮日期气泡停下 1.2 秒后淡出，但侧边刻度尺保持常驻可见", () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"] });
-    const { scroll } = setup();
-    expect(root().classList.contains("is-visible")).toBe(true);
-    expect(label().classList.contains("is-shown")).toBe(false);
+  it("previews the nearest real date on hover without scrolling, and restores quiet ticks on leave", () => {
+    const { hover, scroller } = setup();
+    hover(0.64);
+    expect(bubble().textContent).toBe("2026年7月26日");
+    expect(bubble().classList.contains("is-shown")).toBe(true);
+    expect(document.querySelectorAll(".timeline-tick.is-near-0")).toHaveLength(1);
+    expect(scroller.scrollTop).toBe(0);
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+    expect(document.querySelector(".is-near-0, .is-near-1, .is-near-2")).toBeNull();
+    fireEvent.pointerOver(root(), { clientY: yAt(0), relatedTarget: document.body });
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+  });
 
-    scroll(1200);
-    act(() => { vi.advanceTimersByTime(20); });
-    expect(label().textContent).toBe("10 月 20 日");
-    expect(label().classList.contains("is-shown")).toBe(true);
-
-    act(() => { vi.advanceTimersByTime(1300); });
-    expect(label().classList.contains("is-shown")).toBe(false);
-    // 刻度尺依然可见且可直接点击/悬浮
-    expect(root().classList.contains("is-visible")).toBe(true);
-
-    fireEvent.pointerOver(root(), { relatedTarget: document.body });
-    expect(label().classList.contains("is-shown")).toBe(true);
+  it("clicks actual dates, drags beyond the hit area and commits the final pointer position", () => {
+    const { scroller } = setup();
+    fireEvent.pointerDown(slider(), { button: 0, pointerId: 7, clientY: yAt(0.64) });
+    expect(scroller.scrollTop).toBe(1200);
+    fireEvent.pointerUp(window, { pointerId: 7, clientY: yAt(0.64) });
+    expect(scroller.scrollTop).toBe(1200);
+    fireEvent.pointerDown(slider(), { button: 0, pointerId: 8, clientY: yAt(0) });
+    fireEvent.pointerMove(window, { pointerId: 99, clientY: yAt(1) }); frame();
+    expect(scroller.scrollTop).toBe(0);
     fireEvent.pointerOut(root(), { relatedTarget: document.body });
-    act(() => { vi.advanceTimersByTime(1300); });
-    expect(label().classList.contains("is-shown")).toBe(false);
+    fireEvent.pointerMove(window, { pointerId: 8, clientX: 10, clientY: yAt(1) + 100 }); frame();
+    expect(scroller.scrollTop).toBe(MAX);
+    expect(bubble().classList.contains("is-shown")).toBe(true);
+    fireEvent.pointerUp(window, { pointerId: 8, clientY: yAt(1 / 3) });
+    expect(scroller.scrollTop).toBe(600);
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+    fireEvent.pointerMove(window, { pointerId: 8, clientY: yAt(1) }); frame();
+    expect(scroller.scrollTop).toBe(600);
   });
 
-  it("点击刻度直接跳转到对应年份/月份，悬停时预览该日期", () => {
-    const { scroll, position } = setup();
-    scroll(0);
-    fireEvent.pointerOver(tick("2025 年 12 月 3 日"));
-    expect(label().textContent).toBe("2025 年 12 月 3 日");
-    expect(label().classList.contains("is-preview")).toBe(true);
-
-    fireEvent.click(tick("2025 年 12 月 3 日"));
-    expect(position.get()).toBe(1800);
-    expect(tick("2025 年 12 月 3 日").classList.contains("is-active")).toBe(true);
-
-    fireEvent.pointerOut(tick("2025 年 12 月 3 日"));
-    expect(label().classList.contains("is-preview")).toBe(false);
-  });
-
-  it("按住任意刻度直接拖拽即可连续滑动年份/月份，松手不会回跳到起点刻度", () => {
-    const { scroll, position } = setup();
-    scroll(0);
-    const firstTick = tick("今天");
-    fireEvent.pointerDown(firstTick, { button: 0, pointerId: 9, clientY: TRACK_TOP + RULER_PAD });
-    // 未达拖动阈值时不进入拖动
-    expect(root().classList.contains("is-dragging")).toBe(false);
-    // 往下拖动到刻度尺底端：进入拖拽并直接滚到最底端
-    fireEvent.pointerMove(window, { pointerId: 9, clientY: TRACK_TOP + RULER_PAD + SPAN });
+  it("ignores secondary presses and cancels gestures on pointer cancellation or window blur", () => {
+    const { scroller } = setup();
+    fireEvent.pointerDown(slider(), { button: 2, pointerId: 2, clientY: yAt(1) });
+    expect(scroller.scrollTop).toBe(0);
+    fireEvent.pointerDown(slider(), { button: 0, pointerId: 3, clientY: yAt(0) });
+    fireEvent.pointerCancel(window, { pointerId: 9 });
     expect(root().classList.contains("is-dragging")).toBe(true);
-    expect(position.get()).toBe(MAX);
-    expect(label().textContent).toBe("2025 年 12 月 3 日");
-
-    // 拖到中点后松手，并模拟浏览器紧随其后派发的 click：位置应停在中点，不能跳回 d0
-    fireEvent.pointerMove(window, { pointerId: 9, clientY: TRACK_TOP + RULER_PAD + SPAN / 2 });
-    expect(position.get()).toBe(MAX / 2);
-    fireEvent.pointerUp(window, { pointerId: 9 });
-    fireEvent.click(firstTick);
-    expect(position.get()).toBe(MAX / 2);
-  });
-
-  it("拖动游标或按住空白刻度尺滑出轨道也不中断，松手后停止跟随", () => {
-    const { scroll, position } = setup();
-    scroll(0);
-    fireEvent.pointerDown(thumb(), { button: 0, pointerId: 1, clientY: TRACK_TOP + RULER_PAD });
-    expect(document.activeElement).toBe(thumb());
-    expect(root().classList.contains("is-dragging")).toBe(true);
-    fireEvent.pointerMove(window, { pointerId: 1, clientX: 100, clientY: TRACK_TOP + RULER_PAD + SPAN });
-    expect(position.get()).toBe(MAX);
-    fireEvent.pointerUp(window, { pointerId: 1 });
+    fireEvent.pointerCancel(window, { pointerId: 3 });
     expect(root().classList.contains("is-dragging")).toBe(false);
-    fireEvent.pointerMove(window, { pointerId: 1, clientY: TRACK_TOP + RULER_PAD });
-    expect(position.get()).toBe(MAX);
+    fireEvent.pointerDown(slider(), { button: 0, pointerId: 4, clientY: yAt(0) });
+    fireEvent.pointerMove(window, { pointerId: 4, clientY: yAt(1) });
+    fireEvent.blur(window); frame();
+    expect(scroller.scrollTop).toBe(0);
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+  });
 
-    // 点空白刻度尺也支持直接落位并继续拖拽
-    const track = document.querySelector<HTMLElement>(".timeline-track")!;
-    fireEvent.pointerDown(track, { button: 0, pointerId: 2, clientY: TRACK_TOP + RULER_PAD + SPAN / 2 });
-    expect(position.get()).toBe(MAX / 2);
-    fireEvent.pointerMove(window, { pointerId: 2, clientY: TRACK_TOP + RULER_PAD + SPAN + 20 });
-    expect(position.get()).toBe(MAX);
-    fireEvent.pointerCancel(window, { pointerId: 2 });
+  it("supports focus, adjacent dates, Home/End, and page keys without a visible thumb", () => {
+    const { scroller } = setup();
+    act(() => slider().focus());
+    expect(bubble().classList.contains("is-shown")).toBe(true);
+    fireEvent.keyDown(slider(), { key: "ArrowDown" });
+    expect(scroller.scrollTop).toBe(600);
+    fireEvent.keyDown(slider(), { key: "ArrowRight" });
+    expect(scroller.scrollTop).toBe(1200);
+    fireEvent.keyDown(slider(), { key: "ArrowLeft" });
+    expect(scroller.scrollTop).toBe(600);
+    fireEvent.keyDown(slider(), { key: "End" });
+    expect(scroller.scrollTop).toBe(MAX);
+    fireEvent.keyDown(slider(), { key: "Home" });
+    expect(scroller.scrollTop).toBe(0);
+    fireEvent.keyDown(slider(), { key: "PageDown" });
+    expect(scroller.scrollTop).toBe(VIEW);
+    fireEvent.keyDown(slider(), { key: "PageUp" });
+    expect(scroller.scrollTop).toBe(0);
+    act(() => slider().blur());
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+  });
+
+  it("filters the full date index, cancels old drags, resizes ticks and disappears for empty/short lists", () => {
+    const { view, scroller } = setup();
+    fireEvent.pointerDown(slider(), { button: 0, pointerId: 4, clientY: yAt(0) });
+    offsets = new Map([["d0", 0], ["d3", 600]]);
+    view.rerender(<I18nProvider><Harness groups={[stops[0], stops[3]]} /></I18nProvider>);
+    fireEvent.pointerMove(window, { pointerId: 4, clientY: yAt(1) }); frame();
+    expect(scroller.scrollTop).toBe(0);
     expect(root().classList.contains("is-dragging")).toBe(false);
-  });
-
-  it("同月多天分组时展示简洁日刻度并防重叠；无时间戳数据也正常工作", () => {
-    const sameMonthStops: TimelineStop[] = [
-      { key: "a", label: "今天", timestamp: new Date(2026, 10, 14, 12, 0).getTime() },
-      { key: "b", label: "昨天", timestamp: new Date(2026, 10, 13, 12, 0).getTime() },
-      { key: "c", label: "11 月 10 日", timestamp: new Date(2026, 10, 10, 12, 0).getTime() },
-      { key: "d", label: "11 月 5 日", timestamp: new Date(2026, 10, 5, 12, 0).getTime() },
-    ];
-    setup(sameMonthStops);
-    expect(tick("今天").querySelector(".timeline-stop-text")?.textContent).toBe("今天");
-    expect(tick("昨天").querySelector(".timeline-stop-text")?.textContent).toBe("昨天");
-    expect(tick("11 月 10 日").querySelector(".timeline-stop-text")?.textContent).toBe("11/10");
-    expect(tick("11 月 5 日").querySelector(".timeline-stop-text")?.textContent).toBe("11/5");
-  });
-
-  it("键盘：Home / End 到两端，左右键换刻度节点，上下键按视口四分之一滚动", () => {
-    const { position } = setup();
-    thumb().focus();
-    fireEvent.keyDown(thumb(), { key: "End" });
-    expect(position.get()).toBe(MAX);
-    expect(label().textContent).toBe("2025 年 12 月 3 日");
-    fireEvent.keyDown(thumb(), { key: "ArrowLeft" });
-    expect(position.get()).toBe(1200);
-    fireEvent.keyDown(thumb(), { key: "ArrowRight" });
-    expect(position.get()).toBe(1800);
-    fireEvent.keyDown(thumb(), { key: "Home" });
-    expect(position.get()).toBe(0);
-    fireEvent.keyDown(thumb(), { key: "ArrowDown" });
-    expect(position.get()).toBe(VIEW * 0.25);
-    fireEvent.keyDown(thumb(), { key: "ArrowUp" });
-    expect(position.get()).toBe(0);
-    fireEvent.keyDown(thumb(), { key: "PageDown" });
-    expect(position.get()).toBe(VIEW - 40);
-  });
-
-  it("筛选后分组变化重新测量；没有可滚内容时立即收起", () => {
-    const { scroll, view } = setup();
-    scroll(1200);
-    const fewer = stops.slice(0, 2);
-    offsets = [0, 600];
-    view.rerender(<Harness groups={fewer} />);
-    act(() => resized?.());
-    expect(screen.queryByRole("button", { name: "跳到 10 月 20 日" })).toBeNull();
-    expect(tick("昨天").style.top).toBe(`${RULER_PAD + (600 / MAX) * SPAN}px`);
-
-    contentHeight = VIEW;
-    view.rerender(<Harness groups={[]} empty />);
-    act(() => resized?.());
-    expect(root().classList.contains("is-visible")).toBe(false);
-    expect(root().classList.contains("is-interactive")).toBe(false);
+    rootHeight = 260; act(() => resize?.()); frame();
+    expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor((260 - 20 - PAD * 2) / 12) + 1);
+    contentHeight = VIEW; act(() => resize?.()); frame();
     expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
+    contentHeight = CONTENT;
+    view.rerender(<I18nProvider><Harness groups={[]} /></I18nProvider>);
+    expect(screen.queryByRole("slider")).toBeNull();
+    view.rerender(<I18nProvider><Harness groups={stops} /></I18nProvider>);
+    expect(screen.getByRole("slider")).toBeTruthy();
+  });
+
+  it("allows proportional scrolling through a single long day", () => {
+    const { scroller } = setup(stops.slice(0, 1));
+    fireEvent.pointerDown(slider(), { button: 0, pointerId: 1, clientY: yAt(0.5) });
+    expect(scroller.scrollTop).toBe(MAX / 2);
+    fireEvent.pointerUp(window, { pointerId: 1, clientY: yAt(0.5) });
+    expect(bubble().textContent).toBe("2026年8月15日");
+    fireEvent.keyDown(slider(), { key: "ArrowDown" });
+    expect(scroller.scrollTop).toBeCloseTo(MAX * 0.6);
+  });
+
+  it("coalesces high-frequency pointer input and does not remeasure the list", () => {
+    const { hover, bounds } = setup();
+    hover(0);
+    bounds.mockClear();
+    for (let index = 0; index < 100; index++) fireEvent.pointerMove(root(), { clientY: yAt(index / 100) });
+    frame();
+    expect(bubble().textContent).toBe("2026年7月16日");
+    expect(bounds.mock.contexts.filter((node) => (node as HTMLElement).hasAttribute("data-day-key"))).toHaveLength(0);
+  });
+
+  it("tracks an entrance transform without a resize or remeasuring date sections", () => {
+    const { hover, bounds } = setup();
+    rootTop = 200;
+    bounds.mockClear();
+    hover(1 / 3);
+    expect(bubble().textContent).toBe("2026年8月5日");
+    expect(bounds.mock.contexts.filter((node) => (node as HTMLElement).hasAttribute("data-day-key"))).toHaveLength(0);
+  });
+
+  it("keeps the portal bubble inside viewport edges and formats English dates", () => {
+    rootTop = -20;
+    rootLeft = 5;
+    const { hover } = setup(stops, "en");
+    hover(0);
+    expect(bubble().textContent).toBe("Aug 15, 2026");
+    expect(Number.parseFloat(bubble().style.left)).toBeGreaterThanOrEqual(8);
+    expect(Number.parseFloat(bubble().style.top)).toBeGreaterThanOrEqual(20);
+    hover(1);
+    expect(Number.parseFloat(bubble().style.top)).toBeLessThan(window.innerHeight - 12);
+  });
+
+  it("cancels queued work and removes listeners when unmounted", () => {
+    const { view } = setup();
+    fireEvent.pointerDown(slider(), { button: 0, pointerId: 1, clientY: yAt(0) });
+    fireEvent.pointerMove(window, { pointerId: 1, clientY: yAt(1) });
+    view.unmount(); frame();
+    expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
   });
 });
