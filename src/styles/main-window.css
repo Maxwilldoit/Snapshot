@@ -217,7 +217,7 @@ html[data-surface="app"] .timeline-scrollbar {
   transition: opacity var(--t-fade) var(--ease-out);
 }
 html[data-surface="app"] .timeline-scrollbar.is-interactive {
-  width: 78px; overflow: visible; opacity: 1; pointer-events: auto;
+  width: 100px; overflow: visible; opacity: 1; pointer-events: auto;
 }
 html[data-surface="app"] .timeline-track { position: absolute; top: 8px; right: 0; bottom: 12px; left: 0; cursor: pointer; }
 html[data-surface="app"] .timeline-rail {
@@ -245,7 +245,7 @@ html[data-surface="app"] .timeline-stop.is-major .timeline-stop-tick {
   width: 11px; height: 2px; background: color-mix(in srgb, var(--text1) 46%, transparent);
 }
 html[data-surface="app"] .timeline-stop-text {
-  margin-right: 25px; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin-right: 25px; max-width: 75px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; line-height: 14px; font-weight: 500; font-variant-numeric: tabular-nums;
   color: var(--text3); transition: color var(--t-press) var(--ease-out), transform var(--t-press) var(--ease-out);
 }
