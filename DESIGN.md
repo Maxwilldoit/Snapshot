@@ -44,22 +44,22 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
   focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
 - History hides the native scrollbar. A narrow date scrubber occupies a separate 36px
   right gutter when content overflows. Its live wave always follows actual scroll
-  progress: a continuous 24px `--accent` mark with nearby ticks gradually narrowing
-  through 17/14px to neutral 9px. Interpolate the profile between tick positions;
-  neither the mark nor the wave should snap to a tick or depend on calendar gaps.
+  progress: the ticks themselves form a 22–24px `--accent` crest, gradually narrowing
+  through 17/14px to neutral 9px. Interpolate the profile between tick positions without
+  adding a separate pointer, center line, or position mark, or hiding central ticks.
+  The wave must not snap to a tick or depend on calendar gaps.
   Scale axis travel like a native scrollbar: available travel × overflow / total
   content height, bounded by overflow. A little overflow gets a short axis; long lists
   approach the available height. Keep at least a 44px-tall hit area without stretching
   that visual travel, and sample ticks at roughly 12px intervals (up to 64).
   Hover or dragging previews another position with the same wave and reveals a full
-  localized date. A separate neutral 17px mark retains the actual position while the
-  preview is elsewhere; suppress coincident marks and ticks near the wave's center.
+  localized date. Keep this a single wave, including while previewing another position.
   Mouse leave returns the wave to actual scroll progress and hides the date. Keyboard
   focus reveals the date at the scrolling wave; ordinary scrolling never opens a date.
   Resolve dates from the complete filtered index and cached content offsets. Click and
   drag share the continuous scroll mapping, including within a long final day. Use
-  ↑↓/←→ for adjacent reachable days, PgUp/PgDn and Home/End. Move the focus mark on native
-  scroll frames, including subpixel positions; ease neighboring widths and colors with
+  ↑↓/←→ for adjacent reachable days, PgUp/PgDn and Home/End. Recalculate the wave on native
+  scroll frames, including subpixel progress; ease tick widths and colors with
   the existing fade timing. The empty gutter below a short axis is not an interaction
   target. Keep the bubble inside the viewport and hide the scrubber when content does
   not overflow. Reuse `--pop`, `--t-fade` and the existing easing; honor reduced motion.

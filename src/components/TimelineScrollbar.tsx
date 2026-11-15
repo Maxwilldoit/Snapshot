@@ -206,7 +206,6 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   const span = geometry?.span ?? 0;
   const ticks = useMemo(() => sampleTimeline(span), [span]);
   const spacing = ticks.length > 1 ? span / (ticks.length - 1) : 12;
-  const covered = Math.abs(current.ratio - selected.ratio) * span < 3;
 
   useLayoutEffect(() => {
     if (!ready || !labelRef.current) return;
@@ -299,20 +298,9 @@ export function TimelineScrollbar({ scrollRef, stops }: {
               top: pad + ratio * span,
               width: focus.width,
               background: `color-mix(in srgb, var(--accent) ${focus.accent * 100}%, color-mix(in srgb, var(--text1) 22%, transparent))`,
-              opacity: clamp((distance - 2) / 3, 0, 1),
             }}
           />;
         })}</span>}
-        {ready && <span
-          aria-hidden="true"
-          className={`timeline-cursor ${covered ? "is-covered" : ""}`}
-          style={{ transform: `translateY(${pad + current.ratio * span}px)` }}
-        />}
-        {ready && <span
-          aria-hidden="true"
-          className="timeline-focus"
-          style={{ transform: `translateY(${pad + selected.ratio * span}px)` }}
-        />}
       </div>
       {ready && geometry && createPortal(
         <div

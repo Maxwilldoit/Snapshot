@@ -23,7 +23,8 @@ export function sampleTimeline(height: number): number[] {
  * Distance is measured in tick intervals: 24px -> 17px -> 14px -> 9px. */
 export function timelineTickFocus(distance: number) {
   const d = Math.abs(distance);
-  const width = d <= 1 ? 24 - 7 * d : d <= 2 ? 20 - 3 * d : d < 3 ? 24 - 5 * d : 9;
+  // Between ticks, the two nearest lines still form a 22–24px crest.
+  const width = d <= 0.5 ? 24 - 4 * d : d <= 1 ? 27 - 10 * d : d <= 2 ? 20 - 3 * d : d < 3 ? 24 - 5 * d : 9;
   return { width, accent: Math.max(0, 1 - d / 2) };
 }
 

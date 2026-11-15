@@ -227,18 +227,10 @@ html[data-surface="app"] .timeline-track:focus-visible {
 html[data-surface="app"] .timeline-ticks {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
 }
-html[data-surface="app"] .timeline-tick, html[data-surface="app"] .timeline-cursor, html[data-surface="app"] .timeline-focus {
+html[data-surface="app"] .timeline-tick {
   position: absolute; right: 10px; width: 9px; height: 2px; margin-top: -1px; border-radius: 999px;
   background: color-mix(in srgb, var(--text1) 22%, transparent); pointer-events: none;
-  transition: width var(--t-fade) var(--ease-out), background-color var(--t-fade) var(--ease-out), opacity 150ms var(--ease-out);
-}
-html[data-surface="app"] .timeline-cursor {
-  top: 0; width: 17px; background: color-mix(in srgb, var(--text1) 42%, transparent);
-  transition: opacity 150ms var(--ease-out);
-}
-html[data-surface="app"] .timeline-cursor.is-covered { opacity: 0; }
-html[data-surface="app"] .timeline-focus {
-  top: 0; z-index: 2; width: 24px; background: var(--accent); transition: none;
+  transition: width var(--t-fade) var(--ease-out), background-color var(--t-fade) var(--ease-out);
 }
 html[data-surface="app"] .timeline-scrollbar.is-dragging .timeline-track { cursor: grabbing; }
 html[data-surface="app"] .timeline-label {
@@ -254,9 +246,9 @@ html[data-surface="app"] .timeline-label.is-shown { opacity: 1; }
 html[data-surface="app"][data-theme="dark"] .timeline-label {
   box-shadow: 0 0 0 0.5px var(--sep), 0 2px 8px rgba(0, 0, 0, 0.22);
 }
-html[data-surface="app"][data-motion="reduced"] :is(.timeline-tick, .timeline-ticks, .timeline-cursor, .timeline-label) { transition: none; }
+html[data-surface="app"][data-motion="reduced"] :is(.timeline-tick, .timeline-label) { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  html[data-surface="app"] :is(.timeline-tick, .timeline-ticks, .timeline-cursor, .timeline-label) { transition: none; }
+  html[data-surface="app"] :is(.timeline-tick, .timeline-label) { transition: none; }
 }
 html[data-surface="app"] .gallery { display: block; padding: 2px 10px 24px 16px; }
 html[data-surface="app"] .mw .day { --history-day-label-height: 32px; position: relative; display: block; margin-top: 12px; padding: 0; border-top: 0; }

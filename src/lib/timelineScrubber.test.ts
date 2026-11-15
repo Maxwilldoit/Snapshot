@@ -39,10 +39,10 @@ describe("content-based date navigation", () => {
   it("interpolates the wave continuously between ticks and across profile boundaries", () => {
     const widths = Array.from({ length: 61 }, (_, index) => timelineTickFocus(index / 20).width);
     expect(widths.every((width, index) => index === 0 || width <= widths[index - 1])).toBe(true);
-    for (const boundary of [1, 2, 3]) {
+    for (const boundary of [0.5, 1, 2, 3]) {
       expect(Math.abs(timelineTickFocus(boundary - 0.001).width - timelineTickFocus(boundary + 0.001).width)).toBeLessThan(0.02);
     }
-    expect(timelineTickFocus(0.5).width).toBe(20.5);
+    expect(timelineTickFocus(0.5).width).toBe(22);
   });
 
   it("maps dates through cached content offsets while position follows scroll progress", () => {
