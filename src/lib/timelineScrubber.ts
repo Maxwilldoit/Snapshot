@@ -1,7 +1,7 @@
 /** Complete, newest-first date index. Dates are local day starts, not sample data. */
 export type TimelineStop = { key: string; timestamp: number };
 
-type TimelineTick = { ratio: number; index: number; major: boolean };
+type TimelineTick = { ratio: number; index: number };
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -31,7 +31,7 @@ export function sampleTimeline(stops: TimelineStop[], height: number): TimelineT
   const count = Math.min(64, Math.max(2, Math.floor(height / 12) + 1));
   return Array.from({ length: count }, (_, index) => {
     const ratio = index / (count - 1);
-    return { ratio, index: nearestTimelineDate(stops, ratio), major: index % 4 === 0 || index === count - 1 };
+    return { ratio, index: nearestTimelineDate(stops, ratio) };
   });
 }
 
