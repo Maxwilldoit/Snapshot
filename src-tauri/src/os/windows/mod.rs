@@ -122,12 +122,13 @@ pub(crate) fn open_folder(path: &Path) -> Result<(), String> {
 }
 
 pub(crate) fn capabilities() -> PlatformCapabilities {
+    let recording = CapabilityStatus::probe(recorder::probe());
     PlatformCapabilities {
         os: "windows".into(),
         display_server: "Win32".into(),
-        recording: CapabilityStatus::yes(),
-        recording_system_audio: CapabilityStatus::yes(),
-        recording_microphone: CapabilityStatus::yes(),
+        recording,
+        recording_system_audio: recording,
+        recording_microphone: recording,
         autostart: CapabilityStatus::yes(),
         scrolling: None,
         include_cursor: CapabilityStatus::yes(),

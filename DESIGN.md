@@ -42,14 +42,14 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
   state, a tooltip and an accessible label on every one. A clear gap separates page
   actions from the window controls. Toolbar search stays collapsed to an icon until
   focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
-- History hides the native scrollbar. While scrolling, a timeline scrollbar fades in over
-  the right gutter: date ticks sit at each day's real content offset, an accent thumb
-  covers the visible share, and a date pill beside it names the day under the sticky
-  header (a hovered tick previews its day instead). Drag the thumb, click the track or a
-  tick, or use the thumb's keys (↑↓, PgUp/PgDn, Home/End, ←→ for the previous/next day).
-  It fades out 1.2 s after scrolling stops, stays while hovered, focused, or dragged, and
-  returns when the pointer comes back to the right edge. With nothing to scroll it is
-  absent. Reuse `--accent`, `--pop`, and the motion tokens; no new palette.
+- History hides the native scrollbar. When content overflows, a permanent timeline ruler
+  occupies the right gutter: date ticks follow each day's real content offset, month/year
+  labels identify longer histories, and an accent cursor marks the scroll position. Keep
+  year labels fully visible in both languages. A date pill names the day under the sticky
+  header or previews a hovered tick; only this pill fades 1.2 s after interaction stops.
+  Drag the cursor or any tick, click the track or a tick, or use the cursor's keys
+  (↑↓, PgUp/PgDn, Home/End, ←→ for the previous/next day). With nothing to scroll the
+  ruler is absent. Reuse `--accent`, `--pop`, and the motion tokens; no new palette.
 - Hierarchy comes from position, type, and whitespace. Avoid decorative cards,
   gradients, slogans, sequence numbers, and permanent metadata counters.
 - An empty collection shows a title and an actionable primary button. A shortcut
@@ -69,8 +69,11 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
 - Every control keeps default, hover, visible keyboard focus, and disabled states.
 - Keep accessible labels when removing visible hints. A dash may mean an unbound
   shortcut only inside an obvious, keyboard-operable shortcut control.
-- Keep recoverable errors and permission actions. Disabled functionality needs a
-  discoverable reason, not a silent disappearance.
+- Omit features unavailable in the current platform capability report from the quick
+  menu, settings, and shortcut rows. Keep saved preferences and bindings so returning
+  to a supported system restores them; ignore unsupported recording inputs at runtime.
+  Keep permission recovery and actionable errors for supported features. An active
+  recording always retains its Stop action, even if a later capability probe fails.
 - Remove success notices only when the resulting control or content visibly confirms
   success. Recordings now land in History (mixed with screenshots by time), so stopping
   a recording dismisses the quick menu without a completion toast; keep the busy and

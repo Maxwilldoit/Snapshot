@@ -7,6 +7,7 @@ import { errorText, useApp } from "../app/context";
 import { Toolbar } from "../app/Shell";
 import { useI18n } from "../lib/i18n";
 import type { ShortcutAction, ShortcutBinding } from "../types";
+import { actionAvailable } from "../lib/capabilities";
 
 const ACTION_LABELS: Record<ShortcutAction, { name: string }> = {
   snapshot: { name: "窗口截图" },
@@ -177,7 +178,6 @@ function ShortcutsPanel() {
     const clearing = pendingClear === binding.action;
     const saved = settings.shortcuts.find((item) => item.action === binding.action)?.accelerator ?? null;
     const conflicted = Boolean(binding.accelerator && binding.accelerator === saved && conflicts.includes(binding.accelerator));
-    const unavailable = binding.action === "record" && caps && !caps.recording.available;
     const rejection = rejected?.action === binding.action ? rejected.key : null;
     const locked = saving || shortcutsPaused;
     return (
@@ -185,7 +185,6 @@ function ShortcutsPanel() {
         <span className="shortcut-text">
           <span className="row-label">{labelName}</span>
           {conflicted && <span className="signal small">{t("没注册上，这组键已被其他程序占用")}</span>}
-          {unavailable && !conflicted && <span className="quiet small">{t("不可用")}</span>}
           {rejection && (
             <span className="signal small">
               {t("只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个", { rejection })}
@@ -240,7 +239,7 @@ function ShortcutsPanel() {
     rows: [
       ...group.actions.flatMap((action) => shortcuts.filter((item) => item.action === action)),
       ...(index === 0 ? shortcuts.filter((item) => !listed.has(item.action)) : []),
-    ],
+    ].filter((binding) => actionAvailable(binding.action, caps)),
   })).filter((group) => group.rows.length > 0);
 
   return (

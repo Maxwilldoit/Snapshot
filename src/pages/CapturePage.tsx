@@ -81,10 +81,10 @@ function BehaviorPanel() {
     previewHintSound(value === "soft" ? "soft" : "crisp", value === "custom" ? customPath : null, 80);
   }
 
-  const toggles: Array<{ key: keyof Settings; label: string; disabled?: boolean }> = [
-    { key: "flashOnCapture", label: t("截屏时闪一下") },
-    { key: "includeCursor", label: t("截图带上鼠标指针"), disabled: caps ? !caps.includeCursor.available : false },
-  ];
+  const toggles = [
+    { key: "flashOnCapture" as const, label: t("截屏时闪一下"), available: true },
+    { key: "includeCursor" as const, label: t("截图带上鼠标指针"), available: caps?.includeCursor.available !== false },
+  ].filter((toggle) => toggle.available);
 
   return (
     <section className="panel">
@@ -118,7 +118,6 @@ function BehaviorPanel() {
               id={`pref-${toggle.key}`}
               label={toggle.label}
               value={Boolean(settings[toggle.key])}
-              disabled={toggle.disabled}
               onChange={(value) => void update({ [toggle.key]: value } as Partial<Settings>)}
             />
           </div>

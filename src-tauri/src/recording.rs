@@ -10,6 +10,19 @@ pub(crate) struct RecordOptions {
     pub(crate) microphone: bool,
 }
 
+impl RecordOptions {
+    /// A preference from another OS stays saved, but hidden, unsupported inputs
+    /// must not be sent to this recorder (for example a macOS 15 microphone
+    /// preference opened on macOS 14).
+    fn supported(settings: &settings::Settings, caps: &capabilities::PlatformCapabilities) -> Self {
+        Self {
+            include_cursor: settings.include_cursor && caps.include_cursor.available,
+            system_audio: settings.record_system_audio && caps.recording_system_audio.available,
+            microphone: settings.record_microphone && caps.recording_microphone.available,
+        }
+    }
+}
+
 struct Active {
     session: os::Recording,
     target: String,
@@ -279,11 +292,7 @@ pub(crate) fn toggle_recording(
     });
     recorder.last_message = None;
 
-    let options = RecordOptions {
-        include_cursor: settings.include_cursor,
-        system_audio: settings.record_system_audio,
-        microphone: settings.record_microphone,
-    };
+    let options = RecordOptions::supported(&settings, &os::capabilities());
     let (session, message) = os::start_recording(target.id, &options, &output)?;
     // 录的是哪个窗口就记哪个应用的稳定标识（开录时取一次）；取不到就没有角标，不影响录制
     let app_id = os::app_stable_id(target.pid);
@@ -550,6 +559,43 @@ pub(crate) fn read_range(
 #[cfg(test)]
 mod tests {
     use super::{format_duration, now_millis};
+
+    #[test]
+    fn hidden_recording_inputs_do_not_leak_preferences_from_another_platform() {
+        use crate::capabilities::{CapabilityStatus, PlatformCapabilities};
+
+        let settings = crate::settings::Settings {
+            include_cursor: true,
+            record_system_audio: true,
+            record_microphone: true,
+            ..Default::default()
+        };
+        let mut caps = PlatformCapabilities {
+            os: "test".into(),
+            display_server: "test".into(),
+            recording: CapabilityStatus::yes(),
+            recording_system_audio: CapabilityStatus::yes(),
+            recording_microphone: CapabilityStatus::no(),
+            autostart: CapabilityStatus::yes(),
+            scrolling: None,
+            include_cursor: CapabilityStatus::no(),
+        };
+        let options = super::RecordOptions::supported(&settings, &caps);
+        assert!(options.system_audio);
+        assert!(!options.microphone);
+        assert!(!options.include_cursor);
+        // Restoring support reuses the preference; no hidden settings reset.
+        caps.recording_microphone = CapabilityStatus::yes();
+        caps.include_cursor = CapabilityStatus::yes();
+        caps.recording_system_audio = CapabilityStatus::no();
+        let options = super::RecordOptions::supported(&settings, &caps);
+        assert!(options.microphone);
+        assert!(options.include_cursor);
+        assert!(!options.system_audio);
+        assert!(
+            settings.record_microphone && settings.record_system_audio && settings.include_cursor
+        );
+    }
 
     #[test]
     fn durations_read_like_a_clock() {

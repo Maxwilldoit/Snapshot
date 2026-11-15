@@ -251,28 +251,18 @@ const demoClipboard = demo
   ? { label: "Visual Studio Code 截图", snapshotId: "snap-0", armedAt: Date.now() - 18_000, clearAt: Date.now() + 42_000 }
   : null;
 
-const unavailable = { available: false };
-const capabilities: PlatformCapabilities = demo
-  ? {
-      // `?demo&os=macos` 看 macOS 的窗口按钮（侧栏左上角的红黄绿）
-      os: params.get("os") ?? "windows",
-      displayServer: "desktop",
-      recording: { available: true },
-      recordingSystemAudio: { available: true },
-      recordingMicrophone: { available: true },
-      autostart: { available: true },
-      includeCursor: { available: true },
-    }
-  : {
-      os: "preview",
-      displayServer: "n/a",
-      recording: unavailable,
-      recordingSystemAudio: unavailable,
-      recordingMicrophone: unavailable,
-      autostart: unavailable,
-      scrolling: unavailable,
-      includeCursor: unavailable,
-    };
+const previewOs = params.get("os") ?? "windows";
+const capabilities: PlatformCapabilities = {
+  // `?os=macos` / `?demo&os=macos` 可预览不同平台的界面差异
+  os: previewOs,
+  displayServer: previewOs === "linux" ? "X11" : "desktop",
+  recording: { available: true },
+  recordingSystemAudio: { available: true },
+  recordingMicrophone: { available: true },
+  autostart: { available: true },
+  ...(previewOs === "linux" ? { scrolling: { available: true } } : {}),
+  includeCursor: { available: true },
+};
 
 const idleRecording = { active: false, target: null, startedAt: null };
 const noFileManager = "预览模式下不会打开文件管理器";
