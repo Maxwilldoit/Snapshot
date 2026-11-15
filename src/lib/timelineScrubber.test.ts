@@ -1,54 +1,77 @@
 import { describe, expect, it } from "vitest";
-import { nearestTimelineDate, sampleTimeline, timelineDateRatio, timelineScrollPosition, type TimelineStop } from "./timelineScrubber";
+import { sampleTimeline, timelineAdjacentOffset, timelineScrollPosition, timelineTrackSpan, type TimelineStop } from "./timelineScrubber";
 
 const stops: TimelineStop[] = [
   { key: "new", timestamp: new Date(2026, 7, 15).getTime() },
   { key: "middle", timestamp: new Date(2026, 7, 5).getTime() },
-  { key: "old", timestamp: new Date(2026, 6, 16).getTime() },
+  { key: "old", timestamp: new Date(2020, 6, 16).getTime() },
 ];
 
-describe("date navigation index", () => {
-  it("samples the real time range and resolves gaps to the closest existing date", () => {
-    expect(nearestTimelineDate(stops, 0)).toBe(0);
-    expect(nearestTimelineDate(stops, 1)).toBe(2);
-    expect(nearestTimelineDate(stops, 0.5)).toBe(1);
-    expect(nearestTimelineDate(stops, 2 / 3)).toBe(1); // equal distances prefer newer
-    expect(nearestTimelineDate(stops, 0.8)).toBe(2);
-    expect(timelineDateRatio(stops, stops[1].timestamp)).toBeCloseTo(1 / 3);
-    const ticks = sampleTimeline(stops, 360);
-    expect(ticks[0]).toMatchObject({ ratio: 0, index: 0 });
-    expect(ticks.at(-1)).toMatchObject({ ratio: 1, index: 2 });
-    expect(ticks.every((tick) => stops[tick.index])).toBe(true);
+describe("content-based date navigation", () => {
+  it("scales axis travel to overflow without amplifying short-list movement", () => {
+    expect(timelineTrackSpan(480, 500, 0)).toBe(0);
+    expect(timelineTrackSpan(480, 500, 20)).toBeCloseTo(18.46, 2);
+    expect(timelineTrackSpan(480, 500, 500)).toBe(240);
+    expect(timelineTrackSpan(480, 500, 4500)).toBe(432);
+    expect(timelineTrackSpan(480, 500, 1_000_000)).toBeLessThan(480);
+    expect(timelineTrackSpan(480, 0, 100)).toBe(0);
+    expect(timelineTrackSpan(0, 500, 100)).toBe(0);
+    expect(timelineTrackSpan(1000, 100, 20)).toBe(20);
   });
 
-  it("adapts to available height and stays bounded across 50,000 real dates", () => {
-    const long = Array.from({ length: 50_000 }, (_, index) => ({ key: String(index), timestamp: Date.UTC(2026, 7, 15) - index * 86_400_000 }));
-    expect(sampleTimeline(long, 240)).toHaveLength(21);
-    expect(sampleTimeline(long, 480)).toHaveLength(41);
-    expect(sampleTimeline(long, 4000)).toHaveLength(64);
-    const ticks = sampleTimeline(long, 480);
-    expect(ticks.map((tick) => tick.index)).toEqual([...ticks.map((tick) => tick.index)].sort((a, b) => a - b));
-    expect(ticks.at(-1)?.index).toBe(49_999);
-    expect(nearestTimelineDate(long, 0.5)).toBe(24_999);
+  it("bounds decorative ticks by the actual axis length", () => {
+    expect(sampleTimeline(0)).toEqual([]);
+    expect(sampleTimeline(1)).toEqual([0.5]);
+    expect(sampleTimeline(24)).toEqual([0, 0.5, 1]);
+    expect(sampleTimeline(240)).toHaveLength(21);
+    expect(sampleTimeline(480)).toHaveLength(41);
+    expect(sampleTimeline(4000)).toHaveLength(64);
   });
 
-  it("uses cached content offsets for scroll synchronization, including both ends", () => {
+  it("maps dates through cached content offsets while position follows scroll progress", () => {
     const offsets = [12, 800, 1700];
     expect(timelineScrollPosition(stops, offsets, 0, 2000)).toEqual({ index: 0, ratio: 0 });
-    expect(timelineScrollPosition(stops, offsets, 800, 2000)).toEqual({ index: 1, ratio: 1 / 3 });
-    expect(timelineScrollPosition(stops, offsets, 1250, 2000)).toEqual({ index: 1, ratio: 2 / 3 });
+    expect(timelineScrollPosition(stops, offsets, 800, 2000)).toEqual({ index: 1, ratio: 0.4 });
+    expect(timelineScrollPosition(stops, offsets, 1250, 2000)).toEqual({ index: 1, ratio: 0.625 });
+    expect(timelineScrollPosition(stops, offsets, 1850, 2000)).toEqual({ index: 2, ratio: 0.925 });
+    expect(timelineScrollPosition(stops, offsets, 1999.9, 2000).ratio).toBeCloseTo(0.99995);
     expect(timelineScrollPosition(stops, offsets, 2000, 2000)).toEqual({ index: 2, ratio: 1 });
   });
 
-  it("supports empty, short, single-day and out-of-range positions", () => {
-    expect(sampleTimeline([], 360)).toEqual([]);
-    expect(sampleTimeline(stops, 0)).toEqual([]);
-    expect(sampleTimeline(stops, 1)).toHaveLength(2);
-    expect(nearestTimelineDate([], 0.5)).toBe(0);
-    expect(nearestTimelineDate(stops, -1)).toBe(0);
-    expect(nearestTimelineDate(stops, 3)).toBe(2);
+  it("keeps sparse years, long final days and unreachable final headings continuous", () => {
+    const offsets = [0, 40, 80];
+    const positions = Array.from({ length: 101 }, (_, top) => timelineScrollPosition(stops, offsets, top, 100));
+    expect(positions.every((position, index) => position.ratio === index / 100)).toBe(true);
+    const nearEnd = timelineScrollPosition(stops, [0, 80, 120], 99.9, 100);
+    expect(nearEnd.index).toBe(1);
+    expect(nearEnd.ratio).toBeCloseTo(0.999);
+    expect(timelineScrollPosition(stops, [0, 80, 120], 100, 100)).toEqual({ index: 2, ratio: 1 });
+  });
+
+  it("can leave the bottom by keyboard when several dates clamp to the same limit", () => {
+    const offsets = [12, 60, 120, 180];
+    expect(timelineAdjacentOffset(offsets, 0, 100, 1)).toBe(12);
+    expect(timelineAdjacentOffset(offsets, 60, 100, 1)).toBe(100);
+    expect(timelineAdjacentOffset(offsets, 100, 100, -1)).toBe(60);
+    expect(timelineAdjacentOffset(offsets, 60, 100, -1)).toBe(12);
+    expect(timelineAdjacentOffset(offsets, 12, 100, -1)).toBe(0);
+    expect(timelineAdjacentOffset([0, 50, 50, 150], 50, 100, 1)).toBe(100);
+    expect(timelineAdjacentOffset([0, 50, 50, 150], 50, 100, -1)).toBe(0);
+  });
+
+  it("searches the entire date index even with 50,000 dates and only 64 ticks", () => {
+    const long = Array.from({ length: 50_000 }, (_, index) => ({ key: String(index), timestamp: Date.UTC(2026, 7, 15) - index * 86_400_000 }));
+    const offsets = long.map((_, index) => index * 100);
+    expect(sampleTimeline(4000)).toHaveLength(64);
+    expect(timelineScrollPosition(long, offsets, 2_499_950, 5_000_000).index).toBe(24_999);
+    expect(timelineAdjacentOffset(offsets, 2_499_950, 5_000_000, 1)).toBe(2_500_000);
+  });
+
+  it("supports empty, single-day and out-of-range positions", () => {
+    expect(timelineScrollPosition([], [], 500, 1000)).toEqual({ index: 0, ratio: 0 });
     expect(timelineScrollPosition(stops, [0, 10, 20], 0, 0)).toEqual({ index: 0, ratio: 0 });
     expect(timelineScrollPosition(stops.slice(0, 1), [0], 500, 1000)).toEqual({ index: 0, ratio: 0.5 });
-    expect(sampleTimeline(stops.slice(0, 1), 240).every((tick) => tick.index === 0)).toBe(true);
+    expect(timelineScrollPosition(stops, [0, 10, 20], -50, 100)).toEqual({ index: 0, ratio: 0 });
+    expect(timelineScrollPosition(stops, [0, 10, 20], 150, 100)).toEqual({ index: 2, ratio: 1 });
   });
 });

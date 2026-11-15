@@ -209,28 +209,38 @@ html[data-surface="app"] .history-body { position: relative; display: flex; flex
 html[data-surface="app"] .history-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0; scrollbar-width: none; }
 html[data-surface="app"] .history-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
-/* Quiet date scrubber. Only direct hover, dragging, or keyboard focus reveals a date. */
+/* Only the continuous position cursor is visible at rest. Direct interaction
+   reveals the content-sized axis; the remaining gutter never opens a date. */
 html[data-surface="app"] .timeline-scrollbar {
   position: relative; flex: 0 0 auto; width: 0; overflow: hidden;
   opacity: 0; pointer-events: none; user-select: none; -webkit-user-select: none; touch-action: none;
 }
 html[data-surface="app"] .timeline-scrollbar.is-interactive {
-  width: 36px; overflow: visible; opacity: 1; pointer-events: auto;
+  width: 36px; overflow: visible; opacity: 1;
 }
 html[data-surface="app"] .timeline-track {
-  position: absolute; inset: 8px 0 12px; cursor: pointer; border-radius: 6px; outline: none;
+  position: absolute; top: 8px; right: 0; left: 0; cursor: pointer; border-radius: 6px; outline: none; pointer-events: auto;
 }
 html[data-surface="app"] .timeline-track:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -2px;
 }
-html[data-surface="app"] .timeline-tick {
+html[data-surface="app"] .timeline-ticks {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  opacity: 0; transition: opacity 150ms var(--ease-out);
+}
+html[data-surface="app"] .timeline-scrollbar.is-engaged .timeline-ticks { opacity: 1; }
+html[data-surface="app"] .timeline-tick, html[data-surface="app"] .timeline-cursor {
   position: absolute; right: 10px; width: 9px; height: 2px; margin-top: -1px; border-radius: 999px;
   background: color-mix(in srgb, var(--text1) 22%, transparent); pointer-events: none;
   transition: width var(--t-fade) var(--ease-out), background-color var(--t-fade) var(--ease-out);
 }
-html[data-surface="app"] .timeline-tick.is-current { width: 17px; background: color-mix(in srgb, var(--text1) 42%, transparent); }
-html[data-surface="app"] .timeline-tick.is-near-2:not(.is-current) { width: 14px; }
-html[data-surface="app"] .timeline-tick.is-near-1:not(.is-current) { width: 17px; background: color-mix(in srgb, var(--accent) 42%, var(--text3)); }
+html[data-surface="app"] .timeline-cursor {
+  top: 0; width: 17px; background: color-mix(in srgb, var(--text1) 42%, transparent);
+  transition: opacity 150ms var(--ease-out);
+}
+html[data-surface="app"] .timeline-cursor.is-covered { opacity: 0; }
+html[data-surface="app"] .timeline-tick.is-near-2 { width: 14px; }
+html[data-surface="app"] .timeline-tick.is-near-1 { width: 17px; background: color-mix(in srgb, var(--accent) 42%, var(--text3)); }
 html[data-surface="app"] .timeline-tick.is-near-0 { width: 24px; background: var(--accent); }
 html[data-surface="app"] .timeline-scrollbar.is-dragging .timeline-track { cursor: grabbing; }
 html[data-surface="app"] .timeline-label {
@@ -246,10 +256,9 @@ html[data-surface="app"] .timeline-label.is-shown { opacity: 1; }
 html[data-surface="app"][data-theme="dark"] .timeline-label {
   box-shadow: 0 0 0 0.5px var(--sep), 0 2px 8px rgba(0, 0, 0, 0.22);
 }
-[data-motion="reduced"] .timeline-tick { transition: none; }
+html[data-surface="app"][data-motion="reduced"] :is(.timeline-tick, .timeline-ticks, .timeline-cursor, .timeline-label) { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  html[data-surface="app"] .timeline-tick { transition: none; }
-  html[data-surface="app"] .timeline-label { transition: none; }
+  html[data-surface="app"] :is(.timeline-tick, .timeline-ticks, .timeline-cursor, .timeline-label) { transition: none; }
 }
 html[data-surface="app"] .gallery { display: block; padding: 2px 10px 24px 16px; }
 html[data-surface="app"] .mw .day { --history-day-label-height: 32px; position: relative; display: block; margin-top: 12px; padding: 0; border-top: 0; }
