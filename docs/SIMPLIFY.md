@@ -241,6 +241,8 @@
 
 验证：Node 22 下 `npm run check` 全量通过（620 个前端测试、154 个 Rust 测试通过 / 1 忽略；脚本测试、i18n、构建、Knip、fmt、Clippy 均通过），契约快照逐字一致。组件回归覆盖悬停与当前位置独立、悬停期间滚动同步、离开后保留当前标记、同刻度视觉优先级和键盘切回鼠标；中英文浏览器预览分别以 960×580 浅色、820×520 深色验证 9/17/24px 三档、两个位置同时显示、过滤恢复与 reduced-motion。采样到宽度过渡的中间值，确认不是瞬时切换；页面无脚本错误。证据在 `/tmp/snapshot-position-qa/`。
 
+部署与原生验收：`130595e` 已合入并推送 `main`（合并提交 `20bd1e1`），该提交的 GitHub Actions `43690804140` 全部通过，包括前端、四个 Rust runner 与安全检查。基于此提交构建的 Apple Development 签名包已替换 `/Applications/snapshot.app` 并重启，`codesign --verify --deep --strict`、旧包 designated requirement 和可执行文件 SHA256 对比均通过。macOS WKWebView 实测：初始中性灰当前位置常驻；正常滚动从 0% 到 2% 时标记同步且不弹气泡；点击中部日期后悬停日期与 100% 当前位置同时显示；移开到标题后气泡和强调色消失，当前位置仍保留。最终列表恢复到顶部。旧 App 和五个与历史版本逐字一致、已不被引用的未跟踪旧源码保存在 `Snapshot Backups/20261115-153817-before-persistent-timeline-position/`，安装及归档记录见其中 `install-state.json`。
+
 ## 暂缓事项与原因
 
 - **截图策略迁移**：真实枚举是 clipboard / annotate / saveas。仅保存必须进历史，关闭历史的旧用户也要保持原行为。本轮保留选项与开关，不新增隐藏标志。未来需先列出 3×2 配置行为表，并验证保存失败及迁移幂等。
