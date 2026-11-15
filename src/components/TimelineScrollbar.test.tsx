@@ -24,7 +24,9 @@ let rootLeft = 264;
 let rootTop = 0;
 let offsets = new Map(stops.map((stop, index) => [stop.key, index * 600]));
 let resize: (() => void) | undefined;
-const frame = () => act(() => { vi.advanceTimersByTime(20); });
+const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
+const frame = () => advance(20);
+const settle = () => advance(120);
 const root = () => document.querySelector<HTMLElement>(".timeline-scrollbar")!;
 const slider = () => screen.getByRole("slider", { name: "历史时间线" });
 const bubble = () => screen.getByRole("tooltip", { hidden: true });
@@ -43,7 +45,7 @@ function Harness({ groups }: { groups: TimelineStop[] }) {
 function setup(groups = stops, language = "zh") {
   vi.useFakeTimers();
   localStorage.setItem("snapshot-language", language);
-  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => window.setTimeout(() => callback(0), 16));
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => window.setTimeout(() => callback(performance.now()), 16));
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => window.clearTimeout(id));
   vi.stubGlobal("ResizeObserver", class {
     constructor(callback: () => void) { resize = callback; }
@@ -68,9 +70,10 @@ function setup(groups = stops, language = "zh") {
   const view = render(<I18nProvider><Harness groups={groups} /></I18nProvider>);
   frame();
   const scroller = document.querySelector<HTMLElement>(".history-scroll")!;
-  const scroll = (top: number) => { scroller.scrollTop = top; fireEvent.scroll(scroller); frame(); };
-  const hover = (ratio: number) => { fireEvent.pointerOver(root(), { clientY: yAt(ratio), relatedTarget: document.body }); fireEvent.pointerMove(root(), { clientY: yAt(ratio) }); frame(); };
-  return { view, scroller, scroll, hover, bounds };
+  const scrollNow = (top: number) => { scroller.scrollTop = top; fireEvent.scroll(scroller); };
+  const scroll = (top: number) => { scrollNow(top); settle(); };
+  const hover = (ratio: number) => { fireEvent.pointerOver(root(), { clientY: yAt(ratio), relatedTarget: document.body }); fireEvent.pointerMove(root(), { clientY: yAt(ratio) }); frame(); settle(); };
+  return { view, scroller, scroll, scrollNow, hover, bounds };
 }
 
 afterEach(() => {
@@ -80,6 +83,7 @@ afterEach(() => {
   rootLeft = 264;
   rootTop = 0;
   offsets = new Map(stops.map((stop, index) => [stop.key, index * 600]));
+  delete document.documentElement.dataset.motion;
 });
 
 describe("content date scrubber", () => {
@@ -109,11 +113,11 @@ describe("content date scrubber", () => {
     expect(bubble().classList.contains("is-shown")).toBe(true);
     expect(peak()).toBe(Math.round(0.64 * (initialWidths.length - 1)));
     expect(scroller.scrollTop).toBe(0);
-    fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); settle();
     expect(bubble().classList.contains("is-shown")).toBe(false);
     expect(tickWidths()).toEqual(initialWidths);
     fireEvent.pointerOver(root(), { clientY: yAt(0), relatedTarget: document.body });
-    fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); settle();
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
@@ -125,7 +129,7 @@ describe("content date scrubber", () => {
     expect(slider().getAttribute("aria-valuenow")).toBe("35");
     expect(tickWidths()).toEqual(hovered);
     expect(bubble().textContent).toBe("2026年7月26日");
-    fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); settle();
     expect(tickWidths()).not.toEqual(hovered);
     expect(peak()).toBe(Math.round(0.35 * (hovered.length - 1)));
     expect(bubble().classList.contains("is-shown")).toBe(false);
@@ -235,6 +239,7 @@ describe("content date scrubber", () => {
     expect(screen.queryByRole("slider")).toBeNull();
     view.rerender(<I18nProvider><Harness groups={stops} /></I18nProvider>);
     expect(screen.getByRole("slider")).toBeTruthy();
+    expect(tickWidths()[0]).toBe(24);
   });
 
   it("allows proportional scrolling through a single long day", () => {
@@ -292,6 +297,7 @@ describe("content date scrubber", () => {
   it("keeps dragging and the tick wave continuous within the same date", () => {
     const { scroller } = setup();
     fireEvent.pointerDown(slider(), { button: 0, pointerId: 1, clientY: yAt(0.62) });
+    settle();
     const before = tickWidths();
     const date = bubble().textContent;
     fireEvent.pointerMove(window, { pointerId: 1, clientY: yAt(0.63) }); frame();
@@ -352,5 +358,109 @@ describe("content date scrubber", () => {
     fireEvent.pointerMove(window, { pointerId: 1, clientY: yAt(1) });
     view.unmount(); frame();
     expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
+  });
+
+  it("paints small native scroll samples immediately without an extra frame or list measurements", () => {
+    const { scrollNow, bounds } = setup();
+    bounds.mockClear();
+    const before = tickWidths();
+    scrollNow(10);
+    const first = tickWidths();
+    expect(first).not.toEqual(before);
+    scrollNow(20);
+    expect(tickWidths()).not.toEqual(first);
+    expect(slider().getAttribute("aria-valuenow")).toBe("1");
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+    expect(bounds).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("moves a large scroll jump through intermediate ticks while retaining a single full wave", () => {
+    const { scrollNow, bounds } = setup();
+    bounds.mockClear();
+    scrollNow(MAX);
+    expect(slider().getAttribute("aria-valuenow")).toBe("100");
+    const visited: number[] = [];
+    for (let index = 0; index < 7; index++) {
+      frame();
+      visited.push(peak());
+      expect(Math.max(...tickWidths())).toBeGreaterThanOrEqual(22);
+    }
+    expect(new Set(visited).size).toBeGreaterThan(3);
+    expect(visited[0]).toBeGreaterThan(0);
+    expect(visited[0]).toBeLessThan(tickWidths().length - 1);
+    expect(visited.every((value, index) => index === 0 || value >= visited[index - 1])).toBe(true);
+    expect(tickWidths().at(-1)).toBe(24);
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+    expect(bounds).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not restart the deadline during a burst or keep chasing after scrolling stops", () => {
+    const { scrollNow } = setup();
+    scrollNow(MAX * 0.7);
+    frame();
+    scrollNow(MAX * 0.8);
+    frame();
+    scrollNow(MAX * 0.9);
+    frame();
+    scrollNow(MAX);
+    advance(45);
+    expect(tickWidths().at(-1)).toBe(24);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("interrupts a moving wave on scroll reversal and resets it when layout changes", () => {
+    const { scrollNow } = setup();
+    scrollNow(MAX);
+    frame();
+    const forward = peak();
+    scrollNow(0);
+    frame();
+    expect(peak()).toBeLessThan(forward);
+    settle();
+    expect(tickWidths()[0]).toBe(24);
+    scrollNow(MAX);
+    rootHeight = 260;
+    act(() => resize?.()); frame();
+    expect(tickWidths().at(-1)).toBe(24);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("updates immediately with reduced motion and cancels animation if the system preference changes", () => {
+    let reduced = false;
+    let change: (() => void) | undefined;
+    vi.stubGlobal("matchMedia", () => ({
+      get matches() { return reduced; },
+      addEventListener: (_: string, listener: () => void) => { change = listener; },
+      removeEventListener: vi.fn(),
+    }));
+    const { scrollNow } = setup();
+    scrollNow(MAX);
+    frame();
+    expect(peak()).toBeLessThan(tickWidths().length - 1);
+    reduced = true;
+    act(() => change?.());
+    expect(tickWidths().at(-1)).toBe(24);
+    expect(vi.getTimerCount()).toBe(0);
+    scrollNow(0);
+    expect(tickWidths()[0]).toBe(24);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("respects the application motion setting and cancels wave frames on unmount", async () => {
+    const { scrollNow, view } = setup();
+    scrollNow(MAX);
+    expect(vi.getTimerCount()).toBe(1);
+    await act(async () => { document.documentElement.dataset.motion = "reduced"; });
+    expect(tickWidths().at(-1)).toBe(24);
+    scrollNow(0);
+    expect(tickWidths()[0]).toBe(24);
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => { delete document.documentElement.dataset.motion; });
+    scrollNow(MAX);
+    expect(vi.getTimerCount()).toBe(1);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

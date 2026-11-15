@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useTimelineWave } from "../hooks/useTimelineWave";
 import { useI18n } from "../lib/i18n";
-import { sampleTimeline, timelineAdjacentOffset, timelineScrollPosition, timelineTickFocus, timelineTrackSpan, type TimelineStop } from "../lib/timelineScrubber";
+import { sampleTimeline, timelineAdjacentOffset, timelineScrollPosition, timelineTrackSpan, type TimelineStop } from "../lib/timelineScrubber";
 
 const PAD = 14;
 const INSET_TOP = 8;
@@ -23,10 +24,10 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   const rootRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
   const geometryRef = useRef<Geometry | null>(null);
+  const scrollWave = useRef<((ratio: number) => void) | null>(null);
   const pointerId = useRef<number | null>(null);
   const pending = useRef<PointerSample | null>(null);
   const pointerFrame = useRef<number | null>(null);
-  const scrollFrame = useRef<number | null>(null);
   const [geometry, setGeometry] = useState<Geometry | null>(null);
   const [current, setCurrent] = useState<Selection>({ index: 0, ratio: 0 });
   const [preview, setPreview] = useState<Selection | null>(null);
@@ -40,6 +41,8 @@ export function TimelineScrollbar({ scrollRef, stops }: {
     const layout = geometryRef.current;
     if (!scroller || !layout) return;
     const next = timelineScrollPosition(stops, layout.offsets, scroller.scrollTop, layout.max);
+    // Paint live scroll samples without waiting for React's next commit.
+    scrollWave.current?.(next.ratio);
     setCurrent((old) => old.index === next.index && old.ratio === next.ratio ? old : next);
   }, [scrollRef, stops]);
 
@@ -98,17 +101,12 @@ export function TimelineScrollbar({ scrollRef, stops }: {
 
   useEffect(() => {
     const scroller = scrollRef.current;
-    const onScroll = () => {
-      if (scrollFrame.current === null) scrollFrame.current = window.requestAnimationFrame(() => {
-        scrollFrame.current = null;
-        syncPosition(); // Ordinary scrolling never opens the bubble.
-      });
-    };
+    // Native scroll events already arrive with the rendering cycle. Deferring
+    // their position to another frame makes the wave trail the content.
+    const onScroll = () => syncPosition(); // Never opens the bubble.
     scroller?.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       scroller?.removeEventListener("scroll", onScroll);
-      if (scrollFrame.current !== null) window.cancelAnimationFrame(scrollFrame.current);
-      scrollFrame.current = null;
     };
   }, [scrollRef, syncPosition]);
 
@@ -205,13 +203,17 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   const pad = Math.min(PAD, (geometry?.height ?? 0) / 2);
   const span = geometry?.span ?? 0;
   const ticks = useMemo(() => sampleTimeline(span), [span]);
-  const spacing = ticks.length > 1 ? span / (ticks.length - 1) : 12;
+  const wave = useTimelineWave(selected.ratio, span, ticks);
+  useLayoutEffect(() => {
+    scrollWave.current = (hovering || dragging) && preview ? null : wave.follow;
+    return () => { scrollWave.current = null; };
+  }, [hovering, dragging, preview, wave.follow]);
 
   useLayoutEffect(() => {
-    if (!ready || !labelRef.current) return;
+    if (!ready || !engaged || !labelRef.current) return;
     const { width, height } = labelRef.current.getBoundingClientRect();
     setLabelSize((old) => old.width === width && old.height === height ? old : { width, height });
-  }, [date, ready]);
+  }, [date, ready, engaged]);
 
   function pointerDown(event: PointerEvent<HTMLDivElement>) {
     if (!ready || event.button !== 0 || pointerId.current !== null) return;
@@ -287,20 +289,14 @@ export function TimelineScrollbar({ scrollRef, stops }: {
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
       >
-        {ready && <span aria-hidden="true" className="timeline-ticks">{ticks.map((ratio, tickIndex) => {
-          const distance = Math.abs(ratio - selected.ratio) * span;
-          const focus = timelineTickFocus(distance / spacing);
-          return <span
+        {ready && <span ref={wave.ref} aria-hidden="true" className="timeline-ticks">{ticks.map((ratio, tickIndex) => (
+          <span
             key={tickIndex}
             aria-hidden="true"
             className="timeline-tick"
-            style={{
-              top: pad + ratio * span,
-              width: focus.width,
-              background: `color-mix(in srgb, var(--accent) ${focus.accent * 100}%, color-mix(in srgb, var(--text1) 22%, transparent))`,
-            }}
-          />;
-        })}</span>}
+            style={{ top: pad + ratio * span }}
+          />
+        ))}</span>}
       </div>
       {ready && geometry && createPortal(
         <div
