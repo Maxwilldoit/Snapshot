@@ -166,7 +166,7 @@ export function QuickMenuWindow() {
     observer.observe(panel);
     return () => observer.disconnect();
     // 视图或能力变化会改变行数，当场重量一次，不等 ResizeObserver。
-  }, [opening, view, caps]);
+  }, [opening, view, caps, recording.active]);
 
   function showStatus(next: Status | null, hideAfter = false) {
     if (hideTimer.current !== null) window.clearTimeout(hideTimer.current);
