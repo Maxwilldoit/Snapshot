@@ -43,26 +43,26 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
   actions from the window controls. Toolbar search stays collapsed to an icon until
   focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
 - History hides the native scrollbar. A narrow date scrubber occupies a separate 36px
-  right gutter when content overflows. Keep neutral 9px ticks and one darker 17px cursor
-  visible, without resting dates, a thumb, or a rail. Position the cursor continuously
-  from actual scroll progress, never by rounding to a tick or interpolating calendar gaps.
-  Scale axis travel like a native
-  scrollbar: available travel × overflow / total content height, bounded by overflow.
-  A little overflow gets a short axis; long lists approach the available height. Keep
-  at least a 44px-tall hit area without stretching that visual travel.
-  Space ticks at roughly 12px intervals (up to 64). Hover, dragging, or keyboard focus
-  lengthens the selected tick to 24px in `--accent` and reveals a full
-  localized date; adjacent ticks lengthen gently. Resolve dates from the complete filtered
-  index and cached content offsets. Click and drag use the same continuous mapping as
-  scrolling, so even a long final day remains traversable. The cursor and hover can coexist;
-  hover wins when they overlap. Mouse leave or blur fades the date and restores neutral
-  tick widths and colors; the ticks and live cursor remain visible. Ordinary scrolling
-  never reveals a date. Animate tick width and color with the existing fade timing;
-  cursor movement follows native scroll frames directly, including subpixel positions.
-  Use ↑↓/←→ for adjacent reachable days,
-  PgUp/PgDn and Home/End. The empty gutter below a short axis is not an interaction target.
-  Keep the bubble inside the viewport and hide the scrubber when content does not overflow.
-  Reuse `--pop`, `--t-fade` and the existing easing; honor system reduced motion.
+  right gutter when content overflows. Its live wave always follows actual scroll
+  progress: a continuous 24px `--accent` mark with nearby ticks gradually narrowing
+  through 17/14px to neutral 9px. Interpolate the profile between tick positions;
+  neither the mark nor the wave should snap to a tick or depend on calendar gaps.
+  Scale axis travel like a native scrollbar: available travel × overflow / total
+  content height, bounded by overflow. A little overflow gets a short axis; long lists
+  approach the available height. Keep at least a 44px-tall hit area without stretching
+  that visual travel, and sample ticks at roughly 12px intervals (up to 64).
+  Hover or dragging previews another position with the same wave and reveals a full
+  localized date. A separate neutral 17px mark retains the actual position while the
+  preview is elsewhere; suppress coincident marks and ticks near the wave's center.
+  Mouse leave returns the wave to actual scroll progress and hides the date. Keyboard
+  focus reveals the date at the scrolling wave; ordinary scrolling never opens a date.
+  Resolve dates from the complete filtered index and cached content offsets. Click and
+  drag share the continuous scroll mapping, including within a long final day. Use
+  ↑↓/←→ for adjacent reachable days, PgUp/PgDn and Home/End. Move the focus mark on native
+  scroll frames, including subpixel positions; ease neighboring widths and colors with
+  the existing fade timing. The empty gutter below a short axis is not an interaction
+  target. Keep the bubble inside the viewport and hide the scrubber when content does
+  not overflow. Reuse `--pop`, `--t-fade` and the existing easing; honor reduced motion.
 - Hierarchy comes from position, type, and whitespace. Avoid decorative cards,
   gradients, slogans, sequence numbers, and permanent metadata counters.
 - An empty collection shows a title and an actionable primary button. A shortcut

@@ -31,6 +31,8 @@ const bubble = () => screen.getByRole("tooltip", { hidden: true });
 const yAt = (ratio: number) => rootTop + TRACK_TOP + PAD + ratio * (rootHeight - TRACK_TOP - 12 - PAD * 2) * (contentHeight - VIEW) / contentHeight;
 const cursor = () => document.querySelector<HTMLElement>(".timeline-cursor")!;
 const cursorY = () => Number(cursor().style.transform.match(/translateY\((.+)px\)/)?.[1]);
+const focusY = () => Number(document.querySelector<HTMLElement>(".timeline-focus")!.style.transform.match(/translateY\((.+)px\)/)?.[1]);
+const tickWidths = () => [...document.querySelectorAll<HTMLElement>(".timeline-tick")].map((tick) => Number.parseFloat(tick.style.width));
 
 function Harness({ groups }: { groups: TimelineStop[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -83,31 +85,35 @@ afterEach(() => {
 });
 
 describe("content date scrubber", () => {
-  it("keeps one continuous cursor independent of the bounded, permanent ticks", () => {
+  it("starts with a live wave and follows normal scrolling without opening a date", () => {
     const { scroll } = setup();
     expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor(SPAN / 12) + 1);
     expect(root().textContent).toBe("");
     expect(root().classList.contains("is-engaged")).toBe(false);
     expect(bubble().getAttribute("aria-hidden")).toBe("true");
     expect(document.querySelector(".timeline-thumb, .timeline-rail, .timeline-stop-text")).toBeNull();
+    const initialWidths = tickWidths();
+    expect(focusY()).toBe(PAD);
     scroll(700);
     expect(slider().getAttribute("aria-valuetext")).toContain("2026年8月5日");
     expect(Number(slider().getAttribute("aria-valuenow"))).toBeGreaterThan(33);
     expect(document.querySelectorAll(".timeline-cursor")).toHaveLength(1);
     expect(cursorY()).toBeCloseTo(PAD + 700 / MAX * SPAN);
+    expect(focusY()).toBe(cursorY());
+    expect(tickWidths()).not.toEqual(initialWidths);
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
-  it("previews the real date without scrolling and restores neutral ticks on leave", () => {
+  it("previews the real date without scrolling and restores the scrolling wave on leave", () => {
     const { hover, scroller } = setup();
     hover(0.64);
     expect(bubble().textContent).toBe("2026年7月26日");
     expect(bubble().classList.contains("is-shown")).toBe(true);
-    expect(document.querySelectorAll(".timeline-tick.is-near-0")).toHaveLength(1);
+    expect(focusY()).toBeCloseTo(PAD + SPAN * 0.64);
     expect(scroller.scrollTop).toBe(0);
     fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
     expect(bubble().classList.contains("is-shown")).toBe(false);
-    expect(document.querySelector(".is-near-0, .is-near-1, .is-near-2")).toBeNull();
+    expect(focusY()).toBe(cursorY());
     fireEvent.pointerOver(root(), { clientY: yAt(0), relatedTarget: document.body });
     fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
     expect(bubble().classList.contains("is-shown")).toBe(false);
@@ -117,33 +123,36 @@ describe("content date scrubber", () => {
     const { hover, scroll } = setup();
     const initial = cursor();
     hover(0.64);
-    const hovered = document.querySelector<HTMLElement>(".timeline-tick.is-near-0")!;
+    const hovered = focusY();
     expect(cursor()).toBe(initial);
     expect(cursorY()).toBe(PAD);
     scroll(700);
     const expected = PAD + 700 / MAX * SPAN;
     expect(cursorY()).toBeCloseTo(expected);
-    expect(document.querySelector(".timeline-tick.is-near-0")).toBe(hovered);
+    expect(focusY()).toBe(hovered);
+    expect(cursor().classList.contains("is-covered")).toBe(false);
     expect(bubble().textContent).toBe("2026年7月26日");
     fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
     expect(cursorY()).toBeCloseTo(expected);
-    expect(document.querySelector(".is-near-0")).toBeNull();
+    expect(focusY()).toBe(cursorY());
     expect(bubble().classList.contains("is-shown")).toBe(false);
     scroll(MAX);
     expect(cursorY()).toBeCloseTo(PAD + SPAN);
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
-  it("lets hover take priority where it overlaps the cursor and restores the cursor on leave", () => {
+  it("uses the same wave for hovering at the current position and after leaving", () => {
     const { hover } = setup();
     const current = cursor();
     hover(0);
     expect(current.classList.contains("is-covered")).toBe(true);
-    expect(document.querySelector(".timeline-tick.is-near-0")).toBeTruthy();
+    expect(focusY()).toBe(cursorY());
+    const hoveredWidths = tickWidths();
     fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
     expect(cursor()).toBe(current);
-    expect(current.classList.contains("is-covered")).toBe(false);
-    expect(document.querySelector(".timeline-tick.is-near-0")).toBeNull();
+    expect(current.classList.contains("is-covered")).toBe(true);
+    expect(focusY()).toBe(cursorY());
+    expect(tickWidths()).toEqual(hoveredWidths);
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
@@ -277,6 +286,19 @@ describe("content date scrubber", () => {
     const end = cursorY();
     expect(middle - before).toBeGreaterThan(0);
     expect(end - middle).toBeCloseTo(middle - before);
+  });
+
+  it("changes the wave within a single tick during normal scrolling without reading date layout", () => {
+    const { scroll, bounds } = setup();
+    scroll(700);
+    const before = focusY();
+    const widths = tickWidths();
+    bounds.mockClear();
+    scroll(701);
+    expect(focusY() - before).toBeCloseTo(SPAN / MAX);
+    expect(tickWidths()).not.toEqual(widths);
+    expect(bounds.mock.contexts.filter((node) => (node as HTMLElement).hasAttribute("data-day-key"))).toHaveLength(0);
+    expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
   it("keeps pointer and cursor movement continuous within the same date", () => {

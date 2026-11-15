@@ -209,8 +209,8 @@ html[data-surface="app"] .history-body { position: relative; display: flex; flex
 html[data-surface="app"] .history-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0; scrollbar-width: none; }
 html[data-surface="app"] .history-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
-/* Content-sized ticks and the continuous position cursor stay visible.
-   Only the date and accent focus respond to direct interaction. */
+/* The wave always follows live scroll progress; direct interaction previews
+   another position with the same wave and reveals its date. */
 html[data-surface="app"] .timeline-scrollbar {
   position: relative; flex: 0 0 auto; width: 0; overflow: hidden;
   opacity: 0; pointer-events: none; user-select: none; -webkit-user-select: none; touch-action: none;
@@ -227,19 +227,19 @@ html[data-surface="app"] .timeline-track:focus-visible {
 html[data-surface="app"] .timeline-ticks {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
 }
-html[data-surface="app"] .timeline-tick, html[data-surface="app"] .timeline-cursor {
+html[data-surface="app"] .timeline-tick, html[data-surface="app"] .timeline-cursor, html[data-surface="app"] .timeline-focus {
   position: absolute; right: 10px; width: 9px; height: 2px; margin-top: -1px; border-radius: 999px;
   background: color-mix(in srgb, var(--text1) 22%, transparent); pointer-events: none;
-  transition: width var(--t-fade) var(--ease-out), background-color var(--t-fade) var(--ease-out);
+  transition: width var(--t-fade) var(--ease-out), background-color var(--t-fade) var(--ease-out), opacity 150ms var(--ease-out);
 }
 html[data-surface="app"] .timeline-cursor {
   top: 0; width: 17px; background: color-mix(in srgb, var(--text1) 42%, transparent);
   transition: opacity 150ms var(--ease-out);
 }
 html[data-surface="app"] .timeline-cursor.is-covered { opacity: 0; }
-html[data-surface="app"] .timeline-tick.is-near-2 { width: 14px; }
-html[data-surface="app"] .timeline-tick.is-near-1 { width: 17px; background: color-mix(in srgb, var(--accent) 42%, var(--text3)); }
-html[data-surface="app"] .timeline-tick.is-near-0 { width: 24px; background: var(--accent); }
+html[data-surface="app"] .timeline-focus {
+  top: 0; z-index: 2; width: 24px; background: var(--accent); transition: none;
+}
 html[data-surface="app"] .timeline-scrollbar.is-dragging .timeline-track { cursor: grabbing; }
 html[data-surface="app"] .timeline-label {
   position: fixed; z-index: 90; transform: translateY(-50%); box-sizing: border-box;
