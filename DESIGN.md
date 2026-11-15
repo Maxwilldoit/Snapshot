@@ -1,114 +1,121 @@
-# Snapshot interface
+# Snapshot 界面设计规范
 
-## Purpose
+本文定义当前界面的视觉与交互规则。修改时复用现有组件和变量；具体数值以对应源码为准。
+工程流程见 [AGENTS.md](AGENTS.md)，演进与验证记录见 [docs/SIMPLIFY.md](docs/SIMPLIFY.md)。
 
-Make capture, copy/annotation, and retrieval easy to see and complete. Recording,
-prompts, and companion controls appear in their relevant context. Use the current
-desktop visual language; this work does not introduce a new theme or UI framework.
+## 设计基线
 
-## Existing tokens
+- 主流程是「截图 → 复制或标注 → 在历史中找回」。录屏、Prompt 和桌面伴侣按各自使用场景组织入口。
+- 层级来自位置、字重、灰度和留白。分组有实际用途时才使用容器，避免装饰卡片、强渐变、口号、序号和常驻统计。
+- 同一行为与设置保持一个状态来源；不同场景可以保留入口。简化呈现时保留任务所需的状态、信息和恢复办法。
 
-`src/styles/variables.css` defines shared tokens. `src/styles/main-window.css`
-defines the native app surface and aliases those shared tokens to its palette.
-Main, Prompt library, and Pet Gallery use that surface; transparent windows retain
-their existing palette. Native app tokens are `--win`, `--pane`, `--group`,
-`--text1` through `--text4`, `--accent`, `--sep`, `--fill`, `--btn`, and `--red`.
-Reuse these mappings rather than introducing a third palette. Shared tokens:
+## 视觉基础
 
-- Surfaces: `--paper`, `--paper-raised`, `--paper-sunk`.
-- Text: `--ink`, `--ink-2`, `--ink-3`, `--ink-4`; `--ink-fill` for filled controls.
-- Borders: `--rule`, `--rule-soft`, `--rule-strong`.
-- Destructive/error/recording state: `--signal`, `--signal-soft`.
-- Fonts: `--font-sans`, `--font-mono`.
-- Type sizes: `--text` (13px), `--text-small` (12px), `--text-lead` (15px).
-- Existing spacing: 4/8/12/16/20/24/32px. Reuse adjacent component spacing.
-- Motion: `--t-press`, `--t-fade`, `--t-open`, `--t-exit`, and existing easing variables.
+### 样式来源
 
-The app follows system light/dark colors. Preserve token-driven dark colors and
-existing reduced-motion handling. Reuse current Lucide icons and button styles.
+| 来源 | 职责 |
+| --- | --- |
+| `src/styles/variables.css` | 共享颜色、字体、字号、动效时长与缓动 |
+| `src/styles/main-window.css` | 主窗口、Prompt 库与素材库的应用表面；标注窗口共用其中的颜色映射 |
+| `src/styles/app.css` | 通用窗口结构、基础组件和页面过渡 |
+| `src/lib/motion.ts` | JavaScript 动画、共享元素过渡和动效工具 |
 
-## Layout and components
+主窗口使用 `--win`、`--pane`、`--group` 等表面色，`--text1` 至 `--text4` 表示文字层级，
+`--accent` 表示强调，`--sep`、`--fill`、`--btn`、`--pop` 分别服务分隔、填充、按钮和浮层，
+`--red` 表示删除、错误或录制状态。共享组件通过以下别名接入同一套颜色：
 
-- Sidebar contains navigation only; capture and recording are reached through the pet
-  quick menu and global shortcuts. Page headers contain the page title and local actions.
-- Each pet row has a deselectable toggle dot left of the name: pressing it shows that pet
-  on the desktop, pressing the selected one hides the desktop pet entirely (the app keeps
-  running). The rest of the row opens the detail page. The dot is an `aria-pressed` toggle
-  button, not a standard radio, because it can be deselected.
-- Pages use the existing `mw-page`, `mw-toolbar`, `mw-scroll`, `panel`, `row`, `btn`,
-  `tb-btn`, `input`, and dialog patterns. Independent windows may reuse these visual
-  primitives without importing main-window context or navigation.
-- Toolbar actions are uniform icon buttons: no background until hover or an expanded
-  state, a tooltip and an accessible label on every one. A clear gap separates page
-  actions from the window controls. Toolbar search stays collapsed to an icon until
-  focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
-- History hides the native scrollbar. A narrow date scrubber occupies a separate 36px
-  right gutter when content overflows. Its live wave always follows actual scroll
-  progress: the ticks themselves form a 22–24px `--accent` crest, gradually narrowing
-  through 17/14px to neutral 9px. Interpolate the profile between tick positions without
-  adding a separate pointer, center line, or position mark, or hiding central ticks.
-  The wave must not snap to a tick or depend on calendar gaps.
-  Scale axis travel like a native scrollbar: available travel × overflow / total
-  content height, bounded by overflow. A little overflow gets a short axis; long lists
-  approach the available height. Keep at least a 44px-tall hit area without stretching
-  that visual travel, and sample ticks at roughly 12px intervals (up to 64).
-  Hover or dragging previews another position with the same wave and reveals a full
-  localized date. Keep this a single wave, including while previewing another position.
-  Mouse leave returns the wave to actual scroll progress and hides the date. Keyboard
-  focus reveals the date at the scrolling wave; ordinary scrolling never opens a date.
-  Resolve dates from the complete filtered index and cached content offsets. Click and
-  drag share the continuous scroll mapping, including within a long final day. Use
-  ↑↓/←→ for adjacent reachable days, PgUp/PgDn and Home/End. Recalculate the wave on native
-  scroll frames, including subpixel progress; ease tick widths and colors with
-  the existing fade timing. The empty gutter below a short axis is not an interaction
-  target. Keep the bubble inside the viewport and hide the scrubber when content does
-  not overflow. Reuse `--pop`, `--t-fade` and the existing easing; honor reduced motion.
-- Hierarchy comes from position, type, and whitespace. Avoid decorative cards,
-  gradients, slogans, sequence numbers, and permanent metadata counters.
-- An empty collection shows a title and an actionable primary button. A shortcut
-  accompanies the action only when it is bound and enabled.
-- Prompt model/rule controls belong with Prompt history; general preferences hold
-  app-wide settings. Recording audio choices belong at the recording entry point.
-- The sidebar entry is Prompt. History, the saved-prompt library, and the polish
-  model/rule settings are sections of that one page, switched by toolbar toggles
-  like the settings section. The quick menu and existing global library shortcut
-  open the page with the library section shown. Keep one New action in each state
-  and leave it unbound; search and save retain their keyboard commands. Page
-  navigation preserves unfinished drafts without letting hidden editors handle keys.
+- 表面：`--paper`、`--paper-raised`、`--paper-sunk`。
+- 文字与实心控件：`--ink`、`--ink-2`、`--ink-3`、`--ink-4`、`--ink-fill`。
+- 边界与异常状态：`--rule`、`--rule-soft`、`--rule-strong`、`--signal`、`--signal-soft`。
 
-## Interaction and text
+透明桌宠、快捷菜单与启动台沿用各自窗口样式。所有 WebView 跟随系统明暗主题；新增样式复用所在表面的变量，避免另建调色板。
 
-- Button labels describe actions. State labels explain the current result.
-- Every control keeps default, hover, visible keyboard focus, and disabled states.
-- Keep accessible labels when removing visible hints. A dash may mean an unbound
-  shortcut only inside an obvious, keyboard-operable shortcut control.
-- Omit features unavailable in the current platform capability report from the quick
-  menu, settings, and shortcut rows. Keep saved preferences and bindings so returning
-  to a supported system restores them; ignore unsupported recording inputs at runtime.
-  Keep permission recovery and actionable errors for supported features. An active
-  recording always retains its Stop action, even if a later capability probe fails.
-- Remove success notices only when the resulting control or content visibly confirms
-  success. Recordings now land in History (mixed with screenshots by time), so stopping
-  a recording dismisses the quick menu without a completion toast; keep the busy and
-  error feedback while saving.
-- Preserve persistent field labels. Placeholders provide optional examples, not labels.
-- Preserve meaningful time, selection, and position information; show secondary metadata
-  on demand only when the interaction remains discoverable and keyboard accessible.
-- Keep Chinese and English terminology consistent: 历史/History, 截图/Screenshot,
-  录屏/Recording, 长截图/Scrolling screenshot. Use Window/Fullscreen where the
-  distinction changes behavior.
+### 字体与尺寸
 
-## Motion
+- 使用 `--font-sans` 和 `--font-mono`。字号优先复用 `--text`（13px）、`--text-small`（12px）、`--text-lead`（15px）。
+- 间距沿用 4 / 8 / 12 / 16 / 20 / 24 / 32px 的现有节奏，以相邻同类组件为准。
+- 图标复用 Lucide，控件复用现有按钮、输入框、菜单和对话框样式。
 
-- Page changes animate the content area and the navigation mark only. On a transparent
-  native surface (macOS sidebar vibrancy) the old root view-transition snapshot must stay
-  hidden: that bitmap loses the material underneath and paints the sidebar as a pale
-  opaque plate. Keep the sidebar and title bar live; hide `::view-transition-old(root)`
-  for page transitions and let the `page` and `nav-mark` groups carry the motion.
+## 页面框架
 
-## Validation
+- 侧栏组织资料库、设置与桌面伴侣；截图和录屏从桌宠快捷菜单或全局快捷键进入。
+- 页面复用 `mw-page`、`mw-toolbar`、`mw-scroll`，设置与表单复用 `panel`、`row`、`btn`、`input`。
+  独立窗口可复用视觉组件，无须引入主窗口的导航或上下文。
+- 页头显示标题和本页操作。工具栏使用统一的 `tb-btn` 图标按钮：默认无底色，悬停或展开时显示轻底色，保留 tooltip 与可访问名称。
+  本页操作与系统窗口按钮之间保留间距。
+- 工具栏搜索默认收起为图标；点击、Tab 或 Ctrl/Cmd+F 聚焦后展开，有查询词时保持展开。
+- 桌宠行的名称打开详情，名称右侧的圆点控制桌面显示。圆点可再次按下取消显示，使用 `aria-pressed` 切换按钮；隐藏桌宠后应用继续运行。
 
-Use the native main-window dimensions (960×580, minimum 820×520) for browser visual
-comparison, and check the affected UI in both languages. Use preview fixtures rather
-than personal app data. Record screenshots and viewport details in the simplification
-log. Browser screenshots validate presentation; native smoke checks validate OS behavior.
+## 页面专有规则
+
+### 历史
+
+截图和录屏按真实时间混排、按本地日期分组。截图打开标注，录屏打开播放；选择模式的页头显示所选数量和相关操作。
+保留有意义的时间、位置与选择信息；次要元信息可按需展示，并提供键盘可达的入口。
+
+#### 日期时间轴
+
+实现入口为 `src/components/TimelineScrollbar.tsx`，连续映射与波形计算位于 `src/lib/timelineScrubber.ts`。
+时间轴固定在列表可视区域右侧独立的 36px 窄栏中，列表隐藏原生滚动条。
+
+| 状态 | 刻度与波浪 | 日期气泡 |
+| --- | --- | --- |
+| 内容不溢出或无记录 | 收起时间轴和窄栏 | 隐藏 |
+| 默认或普通滚动 | 刻度常显，单个波浪跟随实际滚动进度；停下后保留在当前位置 | 隐藏 |
+| 鼠标悬停 | 同一个波浪预览鼠标位置；移开后回到实际滚动位置 | 显示预览日期 |
+| 点击或拖动 | 使用与普通滚动相同的连续映射定位内容，支持拖出区域后续拖与松手结束 | 跟随所选位置 |
+| 键盘聚焦 | 波浪表示实际滚动位置；失焦后恢复普通状态 | 显示当前位置日期 |
+
+- 波浪只由刻度本身的宽度和颜色组成。普通刻度为 9×2px、低对比度中性灰、圆角端点；
+  波峰使用 `--accent`，宽度在刻度之间连续变化并保持 22–24px，邻线逐渐经过 17px、14px 收至 9px。
+  保持完整刻度，不叠加独立指针、中心线或第二个位置标记。
+- 视觉行程为「可用行程 × 可滚动距离 / 内容总高度」，且不超过可滚动距离。
+  短内容使用短轴，长列表逐渐接近可用高度；命中区至少 44px 高，不拉长视觉行程，短轴下方空白不触发交互。
+  刻度约每 12px 一个、最多 64 个，极小溢出允许只有一个刻度。
+- 顶部最新、底部最早。位置按实际内容滚动比例连续映射，不按日期间隔或离散刻度跳格；最后一天内也应能连续滚到底部。
+  日期来自筛选后的完整真实日期索引和缓存分组偏移，装饰刻度不作为日期数据源。
+  当前列表完整渲染，仅布局变化时测量分组；未来引入分页或虚拟化时，应接入完整日期索引和列表定位接口。
+- 指针与滚动事件按动画帧合并，只更新时间轴局部状态；高频输入不重新渲染历史墙或反复测量日期节点。
+  气泡显示完整本地化日期，使用 `--pop`、轻阴影并限制在视口内，不遮挡记录操作。
+- 保留竖向 slider 的名称、完整日期与进度读屏信息。↑↓ / ←→ 到相邻可达日期，单日列表按比例移动；
+  PgUp/PgDn 翻页，Home/End 到两端。筛选重建索引时取消旧手势。
+
+### Prompt 与设置归属
+
+- 侧栏只保留一个 Prompt 入口，润色历史、已保存 Prompt 库、润色模型与规则通过页头按钮切换。
+- 快捷菜单与已有的全局库快捷键直接打开库区块。Prompt 库只保留一个新建入口，不绑定新建快捷键；搜索和保存保留现有键位。
+- 切换区块或页面时保留未保存草稿；隐藏的搜索框和编辑器不处理键盘事件。
+- 通用设置只承载应用级偏好；录屏声音选项放在录制入口。
+
+## 控件、文案与反馈
+
+- 操作标签描述要做的事，状态标签说明当前结果。输入框保留持久字段标签，placeholder 只提供示例。
+- 控件保留默认、悬停、可见键盘焦点和禁用状态；图标控件有可访问名称，按需信息提供等效键盘入口。
+  未绑定快捷键可在明确的快捷键控件中显示短横线。
+- 空状态说明当前集合；有可执行下一步时提供相应操作或有效快捷键，无匹配时提供清除筛选。
+  仅展示已绑定、已启用且无冲突的快捷键。
+- 只有结果已被控件或内容明确确认时，才省略成功提示。录屏停止并保存后进入历史，快捷菜单关闭，不额外弹完成提示；
+  保存中的忙碌状态和失败反馈仍保留。错误说明原因，并保留对应的恢复途径。
+- 快捷菜单、设置和快捷键列表依据平台能力报告展示可用功能，保留旧偏好与绑定，以便回到支持的平台时恢复；
+  录制启动时忽略不支持的输入。支持功能的权限恢复入口仍可见，录制已经开始时即使后续能力探测失败也保留停止操作。
+- 界面文案同步维护中英文，统一使用「历史 / History」「截图 / Screenshot」「录屏 / Recording」「长截图 / Scrolling screenshot」。
+  区域、窗口和全屏会改变行为时明确区分。
+
+## 动效
+
+- 动效表达位置与因果，允许新操作打断。按下与悬停使用 `--t-press`（100ms），小状态使用 `--t-fade`（180ms），
+  进场与移动使用 `--t-open`（320ms），退场使用 `--t-exit`（160ms），主题变化使用 `--t-theme`（520ms）。
+  移动、进场、退场分别复用 `--ease-out`、`--ease-enter`、`--ease-exit`；回弹留给桌宠。
+- 换页只让内容区与导航标记过渡，侧栏和窗口标题区域保持实时渲染。
+  页面过渡隐藏 `::view-transition-old(root)`，避免 macOS 透明材质被旧位图覆盖后闪白。
+- 时间轴刻度的宽度和颜色使用 `--t-fade` 与 `--ease-out`，日期气泡淡入淡出为 150ms。
+- 尊重系统 reduced-motion 与应用减弱设置：通用动效去掉位移和回弹，保留必要淡入淡出；时间轴关闭刻度与气泡过渡。
+
+## 验收
+
+- 使用内存 mock 与预览夹具，在 960×580 和最小 820×520 下检查中英文、明暗主题与键盘交互。
+- 覆盖已有内容、加载、空状态、筛选无匹配、失败恢复、禁用状态和 reduced-motion；时间轴还需覆盖悬停/离开、
+  点击/区域外拖动、普通滚动同步、键盘、短溢出、单日长列表及跨年大量记录。
+- 按 [AGENTS.md](AGENTS.md) 运行工程检查；界面变更在简化记录中注明截图、视口和验证条件。
+  浏览器预览验证呈现与前端交互，权限、采集、剪贴板、透明窗口和原生输入需单独 smoke。
+  未完成的设备验证登记在 [docs/pending-device-verification.md](docs/pending-device-verification.md)。
