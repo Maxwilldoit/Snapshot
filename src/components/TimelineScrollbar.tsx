@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../lib/i18n";
-import { nearestTimelineDate, sampleTimeline, timelineDateRatio, timelineScrollPosition, type TimelineStop } from "../lib/timelineScrubber";
+import { sampleTimeline, timelineAdjacentOffset, timelineScrollPosition, timelineTrackSpan, type TimelineStop } from "../lib/timelineScrubber";
 
 const PAD = 14;
 const INSET_TOP = 8;
 const INSET_BOTTOM = 12;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-type Geometry = { max: number; height: number; top: number; left: number; offsets: number[] };
+type Geometry = { max: number; height: number; span: number; top: number; left: number; offsets: number[] };
 type Selection = { index: number; ratio: number };
 type PointerSample = { y: number; navigate: boolean };
 
@@ -54,15 +54,20 @@ export function TimelineScrollbar({ scrollRef, stops }: {
       positions.set(node.dataset.dayKey!, Math.max(0, node.getBoundingClientRect().top - base));
     }
     const box = root.getBoundingClientRect();
+    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const available = Math.max(0, root.clientHeight - INSET_TOP - INSET_BOTTOM);
+    const span = timelineTrackSpan(available - PAD * 2, scroller.clientHeight, max);
     const next = {
-      max: Math.max(0, scroller.scrollHeight - scroller.clientHeight),
-      height: Math.max(0, root.clientHeight - INSET_TOP - INSET_BOTTOM),
+      max,
+      height: Math.min(available, Math.max(44, span + PAD * 2)),
+      span,
       top: box.top + INSET_TOP,
       left: box.left,
-      offsets: stops.map((stop) => positions.get(stop.key) ?? 0),
+      // The newest day starts at the scroll origin, including gallery padding.
+      offsets: stops.map((stop, index) => index === 0 ? 0 : positions.get(stop.key) ?? 0),
     };
     const old = geometryRef.current;
-    if (!old || old.max !== next.max || old.height !== next.height || old.top !== next.top || old.left !== next.left
+    if (!old || old.max !== next.max || old.height !== next.height || old.span !== next.span || old.top !== next.top || old.left !== next.left
       || old.offsets.length !== next.offsets.length || old.offsets.some((value, index) => Math.abs(value - next.offsets[index]) > 0.5)) {
       geometryRef.current = next;
       setGeometry(next);
@@ -107,16 +112,14 @@ export function TimelineScrollbar({ scrollRef, stops }: {
     };
   }, [scrollRef, syncPosition]);
 
-  const navigate = useCallback((selection: Selection) => {
+  const navigate = useCallback((ratio: number) => {
     const scroller = scrollRef.current;
     const layout = geometryRef.current;
     if (!scroller || !layout) return;
-    // A single long day still permits browsing within that day's records.
-    scroller.scrollTop = stops.length === 1 ? selection.ratio * layout.max
-      : selection.ratio === 0 ? 0 : selection.ratio === 1 ? layout.max
-        : Math.min(layout.offsets[selection.index] ?? 0, layout.max);
+    // The same continuous mapping drives scrolling, clicking and dragging.
+    scroller.scrollTop = ratio * layout.max;
     syncPosition();
-  }, [scrollRef, stops.length, syncPosition]);
+  }, [scrollRef, syncPosition]);
 
   const selectPointer = useCallback(({ y, navigate: shouldNavigate }: PointerSample) => {
     let layout = geometryRef.current;
@@ -131,11 +134,11 @@ export function TimelineScrollbar({ scrollRef, stops }: {
       setGeometry(layout);
     }
     const pad = Math.min(PAD, layout.height / 2);
-    const span = layout.height - pad * 2;
+    const span = layout.span;
     const ratio = span > 0 ? clamp((y - layout.top - pad) / span, 0, 1) : 0;
-    const selection = { ratio, index: nearestTimelineDate(stops, ratio) };
+    const selection = timelineScrollPosition(stops, layout.offsets, ratio * layout.max, layout.max);
     setPreview(selection);
-    if (shouldNavigate) navigate(selection);
+    if (shouldNavigate) navigate(ratio);
   }, [stops, navigate]);
 
   const queuePointer = useCallback((sample: PointerSample) => {
@@ -190,7 +193,7 @@ export function TimelineScrollbar({ scrollRef, stops }: {
     };
   }, [queuePointer, selectPointer]);
 
-  const ready = !!geometry && geometry.max > 0 && geometry.height > PAD * 2 && stops.length > 0;
+  const ready = !!geometry && geometry.max > 0 && geometry.span > 0 && stops.length > 0;
   const engaged = ready && (hovering || dragging || focused);
   const selected = (hovering || dragging) && preview ? preview : current;
   const index = Math.min(selected.index, Math.max(0, stops.length - 1));
@@ -200,10 +203,10 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   const date = stops[index] ? formatter.format(stops[index].timestamp) : "";
   const currentDate = stops[current.index] ? formatter.format(stops[current.index].timestamp) : "";
   const pad = Math.min(PAD, (geometry?.height ?? 0) / 2);
-  const span = Math.max(0, (geometry?.height ?? 0) - pad * 2);
-  const ticks = useMemo(() => sampleTimeline(stops, span), [stops, span]);
-  const currentTick = Math.round(current.ratio * (ticks.length - 1));
+  const span = geometry?.span ?? 0;
+  const ticks = useMemo(() => sampleTimeline(span), [span]);
   const interactionTick = engaged ? Math.round(selected.ratio * (ticks.length - 1)) : -1;
+  const covered = engaged && Math.abs(current.ratio - (ticks[interactionTick] ?? selected.ratio)) * span < 3;
 
   useLayoutEffect(() => {
     if (!ready || !labelRef.current) return;
@@ -222,31 +225,28 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   }
 
   function keyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (!ready || !geometry) return;
+    const scroller = scrollRef.current;
+    if (!ready || !geometry || !scroller) return;
     let next: number;
     switch (event.key) {
-      case "ArrowDown": case "ArrowRight": next = Math.min(stops.length - 1, current.index + 1); break;
-      case "ArrowUp": case "ArrowLeft": next = Math.max(0, current.index - 1); break;
-      case "Home": next = 0; break;
-      case "End": next = stops.length - 1; break;
-      case "PageDown": case "PageUp": {
-        const scroller = scrollRef.current;
-        if (scroller) scroller.scrollTop = clamp(scroller.scrollTop + (event.key === "PageDown" ? 1 : -1) * scroller.clientHeight, 0, geometry.max);
-        syncPosition();
-        event.preventDefault();
-        setFocused(true);
-        return;
+      case "ArrowDown": case "ArrowRight":
+      case "ArrowUp": case "ArrowLeft": {
+        const direction = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
+        next = stops.length === 1 ? clamp(scroller.scrollTop + direction * geometry.max * 0.1, 0, geometry.max)
+          : timelineAdjacentOffset(geometry.offsets, scroller.scrollTop, geometry.max, direction);
+        break;
       }
+      case "Home": next = 0; break;
+      case "End": next = geometry.max; break;
+      case "PageDown": case "PageUp":
+        next = clamp(scroller.scrollTop + (event.key === "PageDown" ? 1 : -1) * scroller.clientHeight, 0, geometry.max); break;
       default: return;
     }
     event.preventDefault();
     setFocused(true);
     setHovering(false);
     setPreview(null);
-    const ratio = event.key === "End" ? 1 : event.key === "Home" ? 0
-      : stops.length === 1 ? clamp(current.ratio + (event.key === "ArrowDown" || event.key === "ArrowRight" ? 0.1 : -0.1), 0, 1)
-        : timelineDateRatio(stops, stops[next].timestamp);
-    navigate({ index: next, ratio });
+    navigate(next / geometry.max);
   }
 
   return (
@@ -273,6 +273,7 @@ export function TimelineScrollbar({ scrollRef, stops }: {
     >
       <div
         className="timeline-track"
+        style={{ height: geometry?.height }}
         role="slider"
         tabIndex={ready ? 0 : -1}
         aria-label={t("历史时间线")}
@@ -287,15 +288,20 @@ export function TimelineScrollbar({ scrollRef, stops }: {
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
       >
-        {ready && ticks.map((tick, tickIndex) => {
+        {ready && <span aria-hidden="true" className="timeline-ticks">{ticks.map((ratio, tickIndex) => {
           const distance = Math.abs(tickIndex - interactionTick);
           return <span
             key={tickIndex}
             aria-hidden="true"
-            className={`timeline-tick ${tickIndex === currentTick ? "is-current" : ""} ${engaged && distance <= 2 ? `is-near-${distance}` : ""}`}
-            style={{ top: Math.round(pad + tick.ratio * span) }}
+            className={`timeline-tick ${engaged && distance <= 2 ? `is-near-${distance}` : ""}`}
+            style={{ top: pad + ratio * span }}
           />;
-        })}
+        })}</span>}
+        {ready && <span
+          aria-hidden="true"
+          className={`timeline-cursor ${covered ? "is-covered" : ""}`}
+          style={{ transform: `translateY(${pad + current.ratio * span}px)` }}
+        />}
       </div>
       {ready && geometry && createPortal(
         <div

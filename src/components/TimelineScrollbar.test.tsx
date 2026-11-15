@@ -11,7 +11,7 @@ const MAX = CONTENT - VIEW;
 const TRACK = 360;
 const PAD = 14;
 const TRACK_TOP = 8;
-const SPAN = TRACK - PAD * 2;
+const SPAN = (TRACK - PAD * 2) * MAX / CONTENT;
 const stops: TimelineStop[] = [
   { key: "d0", timestamp: new Date(2026, 7, 15).getTime() },
   { key: "d1", timestamp: new Date(2026, 7, 5).getTime() },
@@ -28,7 +28,9 @@ const frame = () => act(() => { vi.advanceTimersByTime(20); });
 const root = () => document.querySelector<HTMLElement>(".timeline-scrollbar")!;
 const slider = () => screen.getByRole("slider", { name: "历史时间线" });
 const bubble = () => screen.getByRole("tooltip", { hidden: true });
-const yAt = (ratio: number) => rootTop + TRACK_TOP + PAD + ratio * (rootHeight - TRACK_TOP - 12 - PAD * 2);
+const yAt = (ratio: number) => rootTop + TRACK_TOP + PAD + ratio * (rootHeight - TRACK_TOP - 12 - PAD * 2) * (contentHeight - VIEW) / contentHeight;
+const cursor = () => document.querySelector<HTMLElement>(".timeline-cursor")!;
+const cursorY = () => Number(cursor().style.transform.match(/translateY\((.+)px\)/)?.[1]);
 
 function Harness({ groups }: { groups: TimelineStop[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -81,7 +83,7 @@ afterEach(() => {
 });
 
 describe("minimal hover date scrubber", () => {
-  it("starts with only bounded ticks, and normal scrolling updates position without opening a date", () => {
+  it("keeps one continuous cursor independent of the bounded, interaction-only ticks", () => {
     const { scroll } = setup();
     expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor(SPAN / 12) + 1);
     expect(root().textContent).toBe("");
@@ -91,11 +93,12 @@ describe("minimal hover date scrubber", () => {
     scroll(700);
     expect(slider().getAttribute("aria-valuetext")).toContain("2026年8月5日");
     expect(Number(slider().getAttribute("aria-valuenow"))).toBeGreaterThan(33);
-    expect(document.querySelectorAll(".timeline-tick.is-current")).toHaveLength(1);
+    expect(document.querySelectorAll(".timeline-cursor")).toHaveLength(1);
+    expect(cursorY()).toBeCloseTo(PAD + 700 / MAX * SPAN);
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
-  it("previews the nearest real date on hover without scrolling, and restores quiet ticks on leave", () => {
+  it("previews the real date at the content position without scrolling and restores the quiet cursor on leave", () => {
     const { hover, scroller } = setup();
     hover(0.64);
     expect(bubble().textContent).toBe("2026年7月26日");
@@ -112,35 +115,34 @@ describe("minimal hover date scrubber", () => {
 
   it("keeps the scrolling position independent of hover and retains it after leaving", () => {
     const { hover, scroll } = setup();
-    const ticks = () => [...document.querySelectorAll<HTMLElement>(".timeline-tick")];
-    const current = () => document.querySelector<HTMLElement>(".timeline-tick.is-current")!;
-    const initial = current();
+    const initial = cursor();
     hover(0.64);
     const hovered = document.querySelector<HTMLElement>(".timeline-tick.is-near-0")!;
-    expect(hovered).not.toBe(initial);
-    expect(current()).toBe(initial);
+    expect(cursor()).toBe(initial);
+    expect(cursorY()).toBe(PAD);
     scroll(700);
-    const expected = Math.round((700 / 600 / 3) * (ticks().length - 1));
-    expect(current()).toBe(ticks()[expected]);
-    expect(current()).not.toBe(hovered);
+    const expected = PAD + 700 / MAX * SPAN;
+    expect(cursorY()).toBeCloseTo(expected);
     expect(document.querySelector(".timeline-tick.is-near-0")).toBe(hovered);
     expect(bubble().textContent).toBe("2026年7月26日");
     fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
-    expect(current()).toBe(ticks()[expected]);
+    expect(cursorY()).toBeCloseTo(expected);
     expect(document.querySelector(".is-near-0")).toBeNull();
     expect(bubble().classList.contains("is-shown")).toBe(false);
     scroll(MAX);
-    expect(current()).toBe(ticks().at(-1));
+    expect(cursorY()).toBeCloseTo(PAD + SPAN);
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
-  it("can highlight the same tick as both current and hovered without losing the current mark", () => {
+  it("lets hover take priority where it overlaps the cursor and restores the cursor on leave", () => {
     const { hover } = setup();
-    const current = document.querySelector(".timeline-tick.is-current");
+    const current = cursor();
     hover(0);
-    expect(document.querySelector(".timeline-tick.is-near-0")).toBe(current);
+    expect(current.classList.contains("is-covered")).toBe(true);
+    expect(document.querySelector(".timeline-tick.is-near-0")).toBeTruthy();
     fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
-    expect(document.querySelector(".timeline-tick.is-current")).toBe(current);
+    expect(cursor()).toBe(current);
+    expect(current.classList.contains("is-covered")).toBe(false);
     expect(document.querySelector(".timeline-tick.is-near-0")).toBeNull();
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
@@ -150,19 +152,18 @@ describe("minimal hover date scrubber", () => {
     hover(0.64);
     act(() => slider().focus());
     fireEvent.keyDown(slider(), { key: "ArrowDown" });
-    const current = document.querySelector(".timeline-tick.is-current");
-    fireEvent.pointerMove(root(), { clientY: yAt(0.85) }); frame();
-    expect(document.querySelector(".timeline-tick.is-current")).toBe(current);
-    expect(document.querySelector(".timeline-tick.is-near-0")).not.toBe(current);
+    const current = cursorY();
+    fireEvent.pointerMove(root(), { clientY: yAt(0.95) }); frame();
+    expect(cursorY()).toBe(current);
     expect(bubble().textContent).toBe("2026年7月16日");
   });
 
-  it("clicks actual dates, drags beyond the hit area and commits the final pointer position", () => {
+  it("clicks within real dates and drags continuously, including beyond the hit area and the last sample", () => {
     const { scroller } = setup();
     fireEvent.pointerDown(slider(), { button: 0, pointerId: 7, clientY: yAt(0.64) });
-    expect(scroller.scrollTop).toBe(1200);
+    expect(scroller.scrollTop).toBeCloseTo(MAX * 0.64);
     fireEvent.pointerUp(window, { pointerId: 7, clientY: yAt(0.64) });
-    expect(scroller.scrollTop).toBe(1200);
+    expect(scroller.scrollTop).toBeCloseTo(MAX * 0.64);
     fireEvent.pointerDown(slider(), { button: 0, pointerId: 8, clientY: yAt(0) });
     fireEvent.pointerMove(window, { pointerId: 99, clientY: yAt(1) }); frame();
     expect(scroller.scrollTop).toBe(0);
@@ -170,11 +171,11 @@ describe("minimal hover date scrubber", () => {
     fireEvent.pointerMove(window, { pointerId: 8, clientX: 10, clientY: yAt(1) + 100 }); frame();
     expect(scroller.scrollTop).toBe(MAX);
     expect(bubble().classList.contains("is-shown")).toBe(true);
-    fireEvent.pointerUp(window, { pointerId: 8, clientY: yAt(1 / 3) });
-    expect(scroller.scrollTop).toBe(600);
+    fireEvent.pointerUp(window, { pointerId: 8, clientY: yAt(0.3) });
+    expect(scroller.scrollTop).toBeCloseTo(600);
     expect(bubble().classList.contains("is-shown")).toBe(false);
     fireEvent.pointerMove(window, { pointerId: 8, clientY: yAt(1) }); frame();
-    expect(scroller.scrollTop).toBe(600);
+    expect(scroller.scrollTop).toBeCloseTo(600);
   });
 
   it("ignores secondary presses and cancels gestures on pointer cancellation or window blur", () => {
@@ -194,9 +195,14 @@ describe("minimal hover date scrubber", () => {
   });
 
   it("supports focus, adjacent dates, Home/End, and page keys without a visible thumb", () => {
+    offsets.set(stops[0].key, 12); // Gallery padding is not another date step.
     const { scroller } = setup();
     act(() => slider().focus());
     expect(bubble().classList.contains("is-shown")).toBe(true);
+    fireEvent.keyDown(slider(), { key: "ArrowDown" });
+    expect(scroller.scrollTop).toBe(600);
+    fireEvent.keyDown(slider(), { key: "ArrowUp" });
+    expect(scroller.scrollTop).toBe(0);
     fireEvent.keyDown(slider(), { key: "ArrowDown" });
     expect(scroller.scrollTop).toBe(600);
     fireEvent.keyDown(slider(), { key: "ArrowRight" });
@@ -224,7 +230,7 @@ describe("minimal hover date scrubber", () => {
     expect(scroller.scrollTop).toBe(0);
     expect(root().classList.contains("is-dragging")).toBe(false);
     rootHeight = 260; act(() => resize?.()); frame();
-    expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor((260 - 20 - PAD * 2) / 12) + 1);
+    expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor((260 - 20 - PAD * 2) * MAX / CONTENT / 12) + 1);
     contentHeight = VIEW; act(() => resize?.()); frame();
     expect(screen.queryByRole("slider")).toBeNull();
     expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
@@ -243,6 +249,60 @@ describe("minimal hover date scrubber", () => {
     expect(bubble().textContent).toBe("2026年8月15日");
     fireEvent.keyDown(slider(), { key: "ArrowDown" });
     expect(scroller.scrollTop).toBeCloseTo(MAX * 0.6);
+  });
+
+  it("shrinks a short axis and follows small scroll steps between decorative ticks", () => {
+    contentHeight = VIEW + 40;
+    const { scroll } = setup();
+    const height = Number.parseFloat(slider().style.height);
+    expect(height).toBeGreaterThanOrEqual(44);
+    expect(height).toBeLessThan(60);
+    expect(document.querySelectorAll(".timeline-tick").length).toBeLessThan(4);
+    const positions = [0, 1, 2, 10, 39, 40].map((top) => { scroll(top); return cursorY(); });
+    expect(positions.every((position, index) => index === 0 || position > positions[index - 1])).toBe(true);
+    expect(positions[1] - positions[0]).toBeLessThan(1);
+    expect(positions[2] - positions[1]).toBeCloseTo(positions[1] - positions[0]);
+    expect(positions.at(-1)! - positions[0]).toBeLessThan(40);
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+    expect(root().classList.contains("is-engaged")).toBe(false);
+  });
+
+  it("moves continuously through the last date instead of stopping at its heading", () => {
+    const { scroll } = setup();
+    scroll(1800);
+    const before = cursorY();
+    scroll(1900);
+    const middle = cursorY();
+    scroll(2000);
+    const end = cursorY();
+    expect(middle - before).toBeGreaterThan(0);
+    expect(end - middle).toBeCloseTo(middle - before);
+  });
+
+  it("keeps pointer and cursor movement continuous within the same date", () => {
+    const { scroller } = setup();
+    fireEvent.pointerDown(slider(), { button: 0, pointerId: 1, clientY: yAt(0.62) });
+    const before = cursorY();
+    const date = bubble().textContent;
+    fireEvent.pointerMove(window, { pointerId: 1, clientY: yAt(0.63) }); frame();
+    expect(scroller.scrollTop).toBeCloseTo(MAX * 0.63);
+    expect(cursorY() - before).toBeCloseTo(SPAN * 0.01);
+    expect(bubble().textContent).toBe(date);
+  });
+
+  it("leaves the bottom by keyboard even when final dates are below the scroll limit", () => {
+    contentHeight = VIEW + 100;
+    offsets = new Map(stops.map((stop, index) => [stop.key, index * 60]));
+    const { scroller } = setup();
+    act(() => slider().focus());
+    fireEvent.keyDown(slider(), { key: "End" });
+    expect(scroller.scrollTop).toBe(100);
+    fireEvent.keyDown(slider(), { key: "ArrowUp" });
+    expect(scroller.scrollTop).toBe(60);
+    fireEvent.keyDown(slider(), { key: "ArrowDown" });
+    expect(scroller.scrollTop).toBe(100);
+    fireEvent.keyDown(slider(), { key: "Home" });
+    expect(scroller.scrollTop).toBe(0);
   });
 
   it("coalesces high-frequency pointer input and does not remeasure the list", () => {
