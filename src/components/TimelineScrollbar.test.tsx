@@ -110,6 +110,53 @@ describe("minimal hover date scrubber", () => {
     expect(bubble().classList.contains("is-shown")).toBe(false);
   });
 
+  it("keeps the scrolling position independent of hover and retains it after leaving", () => {
+    const { hover, scroll } = setup();
+    const ticks = () => [...document.querySelectorAll<HTMLElement>(".timeline-tick")];
+    const current = () => document.querySelector<HTMLElement>(".timeline-tick.is-current")!;
+    const initial = current();
+    hover(0.64);
+    const hovered = document.querySelector<HTMLElement>(".timeline-tick.is-near-0")!;
+    expect(hovered).not.toBe(initial);
+    expect(current()).toBe(initial);
+    scroll(700);
+    const expected = Math.round((700 / 600 / 3) * (ticks().length - 1));
+    expect(current()).toBe(ticks()[expected]);
+    expect(current()).not.toBe(hovered);
+    expect(document.querySelector(".timeline-tick.is-near-0")).toBe(hovered);
+    expect(bubble().textContent).toBe("2026年7月26日");
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
+    expect(current()).toBe(ticks()[expected]);
+    expect(document.querySelector(".is-near-0")).toBeNull();
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+    scroll(MAX);
+    expect(current()).toBe(ticks().at(-1));
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+  });
+
+  it("can highlight the same tick as both current and hovered without losing the current mark", () => {
+    const { hover } = setup();
+    const current = document.querySelector(".timeline-tick.is-current");
+    hover(0);
+    expect(document.querySelector(".timeline-tick.is-near-0")).toBe(current);
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); frame();
+    expect(document.querySelector(".timeline-tick.is-current")).toBe(current);
+    expect(document.querySelector(".timeline-tick.is-near-0")).toBeNull();
+    expect(bubble().classList.contains("is-shown")).toBe(false);
+  });
+
+  it("resumes hover after keyboard navigation without requiring a new pointer entry", () => {
+    const { hover } = setup();
+    hover(0.64);
+    act(() => slider().focus());
+    fireEvent.keyDown(slider(), { key: "ArrowDown" });
+    const current = document.querySelector(".timeline-tick.is-current");
+    fireEvent.pointerMove(root(), { clientY: yAt(0.85) }); frame();
+    expect(document.querySelector(".timeline-tick.is-current")).toBe(current);
+    expect(document.querySelector(".timeline-tick.is-near-0")).not.toBe(current);
+    expect(bubble().textContent).toBe("2026年7月16日");
+  });
+
   it("clicks actual dates, drags beyond the hit area and commits the final pointer position", () => {
     const { scroller } = setup();
     fireEvent.pointerDown(slider(), { button: 0, pointerId: 7, clientY: yAt(0.64) });

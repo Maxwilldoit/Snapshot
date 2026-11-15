@@ -19,7 +19,6 @@ describe("date navigation index", () => {
     expect(ticks[0]).toMatchObject({ ratio: 0, index: 0 });
     expect(ticks.at(-1)).toMatchObject({ ratio: 1, index: 2 });
     expect(ticks.every((tick) => stops[tick.index])).toBe(true);
-    expect(ticks.some((tick) => tick.major)).toBe(true);
   });
 
   it("adapts to available height and stays bounded across 50,000 real dates", () => {

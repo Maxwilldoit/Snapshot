@@ -202,7 +202,8 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   const pad = Math.min(PAD, (geometry?.height ?? 0) / 2);
   const span = Math.max(0, (geometry?.height ?? 0) - pad * 2);
   const ticks = useMemo(() => sampleTimeline(stops, span), [stops, span]);
-  const activeTick = Math.round((engaged ? selected.ratio : current.ratio) * (ticks.length - 1));
+  const currentTick = Math.round(current.ratio * (ticks.length - 1));
+  const interactionTick = engaged ? Math.round(selected.ratio * (ticks.length - 1)) : -1;
 
   useLayoutEffect(() => {
     if (!ready || !labelRef.current) return;
@@ -254,7 +255,12 @@ export function TimelineScrollbar({ scrollRef, stops }: {
       className={`timeline-scrollbar ${ready ? "is-interactive" : ""} ${engaged ? "is-engaged" : ""} ${dragging ? "is-dragging" : ""}`}
       aria-hidden={!ready}
       onPointerEnter={(event) => { setHovering(true); queuePointer({ y: event.clientY, navigate: false }); }}
-      onPointerMove={(event) => { if (pointerId.current === null) queuePointer({ y: event.clientY, navigate: false }); }}
+      onPointerMove={(event) => {
+        if (pointerId.current === null) {
+          setHovering(true);
+          queuePointer({ y: event.clientY, navigate: false });
+        }
+      }}
       onPointerLeave={() => {
         setHovering(false);
         if (pointerId.current === null) {
@@ -282,11 +288,11 @@ export function TimelineScrollbar({ scrollRef, stops }: {
         onBlur={() => setFocused(false)}
       >
         {ready && ticks.map((tick, tickIndex) => {
-          const distance = Math.abs(tickIndex - activeTick);
+          const distance = Math.abs(tickIndex - interactionTick);
           return <span
             key={tickIndex}
             aria-hidden="true"
-            className={`timeline-tick ${tick.major ? "is-major" : ""} ${distance === 0 ? "is-current" : ""} ${engaged && distance <= 2 ? `is-near-${distance}` : ""}`}
+            className={`timeline-tick ${tickIndex === currentTick ? "is-current" : ""} ${engaged && distance <= 2 ? `is-near-${distance}` : ""}`}
             style={{ top: Math.round(pad + tick.ratio * span) }}
           />;
         })}

@@ -228,10 +228,9 @@ html[data-surface="app"] .timeline-tick {
   background: color-mix(in srgb, var(--text1) 22%, transparent); pointer-events: none;
   transition: width var(--t-fade) var(--ease-out), background-color var(--t-fade) var(--ease-out);
 }
-html[data-surface="app"] .timeline-tick.is-major { width: 15px; }
-html[data-surface="app"] .timeline-tick.is-current { background: color-mix(in srgb, var(--text1) 42%, transparent); }
-html[data-surface="app"] .timeline-tick.is-near-2 { width: 16px; }
-html[data-surface="app"] .timeline-tick.is-near-1 { width: 19px; background: color-mix(in srgb, var(--accent) 42%, var(--text3)); }
+html[data-surface="app"] .timeline-tick.is-current { width: 17px; background: color-mix(in srgb, var(--text1) 42%, transparent); }
+html[data-surface="app"] .timeline-tick.is-near-2:not(.is-current) { width: 14px; }
+html[data-surface="app"] .timeline-tick.is-near-1:not(.is-current) { width: 17px; background: color-mix(in srgb, var(--accent) 42%, var(--text3)); }
 html[data-surface="app"] .timeline-tick.is-near-0 { width: 24px; background: var(--accent); }
 html[data-surface="app"] .timeline-scrollbar.is-dragging .timeline-track { cursor: grabbing; }
 html[data-surface="app"] .timeline-label {

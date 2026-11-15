@@ -280,4 +280,4 @@ macOS 本机已完成：
 - [x] **macOS 签名、替换与启动**：新包通过 `codesign --verify --deep --strict`，并满足旧包的 designated requirement；安装后可执行文件 SHA256 与构建包一致，原有历史与桌宠选择正常加载。旧包备份在 `Snapshot Backups/20261115-150719-before-minimal-scrubber/`。
 - [x] **macOS WKWebView 基础导航**：初始仅显示灰色短刻度；列表滚动更新日期/进度而不弹气泡；点击时间轴显示完整日期并定位。Tab 可聚焦时间轴，End / Home 分别到 100% / 0%，方向下键定位相邻日期；回到历史页并移开指针、失焦后日期气泡消失。
 - [ ] **macOS 剩余人工场景**：真实触控板与连续拖出区域、松手后的交互；多屏/缩放下气泡不越界，系统减弱动态效果生效。浏览器与组件测试已覆盖对应路径，尚未在本轮原生窗口逐项实操。
-- [ ] **Windows WebView2 / Linux WebKitGTK**：相同鼠标路径、方向键/Home/End/PgUp/PgDn 与读屏完整日期可用；不同缩放、窗口最小尺寸及深浅主题下短线清晰，不遮挡图片操作。需相应系统真机，当前仅本机 macOS 编译检查与浏览器 mock 验证。
+- [ ] **Windows WebView2 / Linux WebKitGTK**：相同鼠标路径、方向键/Home/End/PgUp/PgDn 与读屏完整日期可用；当前位置与悬停标记可并存，离开后当前位置仍保留并随滚动同步；不同缩放、窗口最小尺寸及深浅主题下短线清晰，不遮挡图片操作。需相应系统真机，当前仅本机 macOS 编译检查与浏览器 mock 验证。

@@ -43,13 +43,16 @@ existing reduced-motion handling. Reuse current Lucide icons and button styles.
   actions from the window controls. Toolbar search stays collapsed to an icon until
   focused (click, Tab, or Ctrl/Cmd+F) and stays open while it holds a query.
 - History hides the native scrollbar. A narrow date scrubber occupies a separate 36px
-  right gutter when content overflows. At rest show only neutral 9px/15px round ticks,
-  without labels, a thumb, or a rail. Sample the complete filtered date range at roughly
+  right gutter when content overflows. At rest show neutral 9px round ticks and one
+  slightly darker 17px tick for the live scroll position, without labels, a thumb, or a
+  rail. Sample the complete filtered date range at roughly
   12px intervals, up to 64 ticks. Newest is at the top; gaps resolve to real recorded days.
   Hover, dragging, or keyboard focus extends the selected tick to 24px in `--accent` and
   reveals a full localized date beside it; adjacent ticks lengthen gently. Ordinary list
-  scrolling updates a neutral position marker without opening the date bubble. Mouse
-  leave restores quiet ticks unless a drag or keyboard focus is still active. Click or
+  scrolling updates the position marker independently of hover without opening the date
+  bubble. The current and hovered ticks can coexist; hover wins when they coincide.
+  Mouse leave removes hover while retaining the live position marker. Animate tick width
+  and color with the existing fade timing. Click or
   drag anywhere in the gutter, or use ↑↓/←→ for adjacent days, PgUp/PgDn and Home/End.
   Keep the bubble inside the viewport and hide the scrubber for empty or short lists.
   Reuse `--pop`, `--t-fade` and the existing easing; honor system reduced motion.
