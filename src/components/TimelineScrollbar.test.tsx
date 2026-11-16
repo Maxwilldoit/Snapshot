@@ -11,7 +11,7 @@ const MAX = CONTENT - VIEW;
 const TRACK = 360;
 const PAD = 14;
 const TRACK_TOP = 8;
-const SPAN = (TRACK - PAD * 2) * MAX / CONTENT;
+const SPAN = TRACK - PAD * 2;
 const stops: TimelineStop[] = [
   { key: "d0", timestamp: new Date(2026, 7, 15).getTime() },
   { key: "d1", timestamp: new Date(2026, 7, 5).getTime() },
@@ -30,7 +30,7 @@ const settle = () => advance(120);
 const root = () => document.querySelector<HTMLElement>(".timeline-scrollbar")!;
 const slider = () => screen.getByRole("slider", { name: "历史时间线" });
 const bubble = () => screen.getByRole("tooltip", { hidden: true });
-const yAt = (ratio: number) => rootTop + TRACK_TOP + PAD + ratio * (rootHeight - TRACK_TOP - 12 - PAD * 2) * (contentHeight - VIEW) / contentHeight;
+const yAt = (ratio: number) => rootTop + TRACK_TOP + PAD + ratio * (rootHeight - TRACK_TOP - 12 - PAD * 2);
 const tickWidths = () => [...document.querySelectorAll<HTMLElement>(".timeline-tick")].map((tick) => Number.parseFloat(tick.style.width));
 const peak = () => tickWidths().indexOf(Math.max(...tickWidths()));
 
@@ -97,7 +97,7 @@ describe("content date scrubber", () => {
     const initialWidths = tickWidths();
     expect(initialWidths[0]).toBe(24);
     scroll(700);
-    expect(slider().getAttribute("aria-valuetext")).toContain("2026年8月5日");
+    expect(slider().getAttribute("aria-valuetext")).toContain("8月5日");
     expect(Number(slider().getAttribute("aria-valuenow"))).toBeGreaterThan(33);
     expect(peak()).toBe(Math.round(700 / MAX * (initialWidths.length - 1)));
     expect(Math.max(...tickWidths())).toBeGreaterThanOrEqual(22);
@@ -109,7 +109,7 @@ describe("content date scrubber", () => {
     const { hover, scroller } = setup();
     const initialWidths = tickWidths();
     hover(0.64);
-    expect(bubble().textContent).toBe("2026年7月26日");
+    expect(bubble().textContent).toBe("7月26日");
     expect(bubble().classList.contains("is-shown")).toBe(true);
     expect(peak()).toBe(Math.round(0.64 * (initialWidths.length - 1)));
     expect(scroller.scrollTop).toBe(0);
@@ -128,7 +128,7 @@ describe("content date scrubber", () => {
     scroll(700);
     expect(slider().getAttribute("aria-valuenow")).toBe("35");
     expect(tickWidths()).toEqual(hovered);
-    expect(bubble().textContent).toBe("2026年7月26日");
+    expect(bubble().textContent).toBe("7月26日");
     fireEvent.pointerOut(root(), { relatedTarget: document.body }); settle();
     expect(tickWidths()).not.toEqual(hovered);
     expect(peak()).toBe(Math.round(0.35 * (hovered.length - 1)));
@@ -155,7 +155,7 @@ describe("content date scrubber", () => {
     const current = scroller.scrollTop;
     fireEvent.pointerMove(root(), { clientY: yAt(0.95) }); frame();
     expect(scroller.scrollTop).toBe(current);
-    expect(bubble().textContent).toBe("2026年7月16日");
+    expect(bubble().textContent).toBe("7月16日");
   });
 
   it("clicks within real dates and drags continuously, including beyond the hit area and the last sample", () => {
@@ -230,7 +230,7 @@ describe("content date scrubber", () => {
     expect(scroller.scrollTop).toBe(0);
     expect(root().classList.contains("is-dragging")).toBe(false);
     rootHeight = 260; act(() => resize?.()); frame();
-    expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor((260 - 20 - PAD * 2) * MAX / CONTENT / 12) + 1);
+    expect(document.querySelectorAll(".timeline-tick")).toHaveLength(Math.floor((260 - 20 - PAD * 2) / 12) + 1);
     contentHeight = VIEW; act(() => resize?.()); frame();
     expect(screen.queryByRole("slider")).toBeNull();
     expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
@@ -247,23 +247,21 @@ describe("content date scrubber", () => {
     fireEvent.pointerDown(slider(), { button: 0, pointerId: 1, clientY: yAt(0.5) });
     expect(scroller.scrollTop).toBe(MAX / 2);
     fireEvent.pointerUp(window, { pointerId: 1, clientY: yAt(0.5) });
-    expect(bubble().textContent).toBe("2026年8月15日");
+    expect(bubble().textContent).toBe("8月15日");
     fireEvent.keyDown(slider(), { key: "ArrowDown" });
     expect(scroller.scrollTop).toBeCloseTo(MAX * 0.6);
   });
 
-  it("shrinks a short axis and follows small scroll steps between decorative ticks", () => {
+  it("keeps the full-height axis and continuous wave for tiny overflow", () => {
     contentHeight = VIEW + 40;
     const { scroll } = setup();
     const height = Number.parseFloat(slider().style.height);
-    expect(height).toBeGreaterThanOrEqual(44);
-    expect(height).toBeLessThan(60);
-    expect(document.querySelectorAll(".timeline-tick").length).toBeLessThan(4);
+    expect(height).toBe(rootHeight - TRACK_TOP - 12);
+    expect(document.querySelectorAll(".timeline-tick").length).toBe(Math.floor(SPAN / 12) + 1);
     const waves = [0, 1, 2, 10, 39, 40].map((top) => { scroll(top); return tickWidths(); });
     expect(waves[1]).not.toEqual(waves[0]);
     expect(waves[2]).not.toEqual(waves[1]);
     expect(waves[0][0] - waves[1][0]).toBeGreaterThan(0);
-    expect(waves[0][0] - waves[1][0]).toBeLessThan(1);
     expect(waves.every((widths) => Math.max(...widths) >= 22)).toBe(true);
     expect(waves.at(-1)?.at(-1)).toBe(24);
     expect(bubble().classList.contains("is-shown")).toBe(false);
@@ -327,7 +325,7 @@ describe("content date scrubber", () => {
     bounds.mockClear();
     for (let index = 0; index < 100; index++) fireEvent.pointerMove(root(), { clientY: yAt(index / 100) });
     frame();
-    expect(bubble().textContent).toBe("2026年7月16日");
+    expect(bubble().textContent).toBe("7月16日");
     expect(bounds.mock.contexts.filter((node) => (node as HTMLElement).hasAttribute("data-day-key"))).toHaveLength(0);
   });
 
@@ -336,7 +334,7 @@ describe("content date scrubber", () => {
     rootTop = 200;
     bounds.mockClear();
     hover(1 / 3);
-    expect(bubble().textContent).toBe("2026年8月5日");
+    expect(bubble().textContent).toBe("8月5日");
     expect(bounds.mock.contexts.filter((node) => (node as HTMLElement).hasAttribute("data-day-key"))).toHaveLength(0);
   });
 
@@ -345,11 +343,41 @@ describe("content date scrubber", () => {
     rootLeft = 5;
     const { hover } = setup(stops, "en");
     hover(0);
-    expect(bubble().textContent).toBe("Aug 15, 2026");
+    expect(bubble().textContent).toBe("Aug 15");
     expect(Number.parseFloat(bubble().style.left)).toBeGreaterThanOrEqual(8);
     expect(Number.parseFloat(bubble().style.top)).toBeGreaterThanOrEqual(20);
     hover(1);
     expect(Number.parseFloat(bubble().style.top)).toBeLessThan(window.innerHeight - 12);
+  });
+
+  it("shows the year only for dates outside the current year", () => {
+    const year = new Date().getFullYear();
+    const groups: TimelineStop[] = [
+      { key: "now", timestamp: new Date(year, 7, 15).getTime() },
+      { key: "old", timestamp: new Date(year - 1, 6, 16).getTime() },
+    ];
+    offsets = new Map([["now", 0], ["old", 1200]]);
+    const { hover } = setup(groups);
+    hover(0);
+    expect(bubble().textContent).toBe("8月15日");
+    hover(1);
+    expect(bubble().textContent).toBe(`${year - 1}年7月16日`);
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); settle();
+  });
+
+  it("shows the year only for non-current dates in English", () => {
+    const year = new Date().getFullYear();
+    const groups: TimelineStop[] = [
+      { key: "now", timestamp: new Date(year, 7, 15).getTime() },
+      { key: "old", timestamp: new Date(year - 1, 6, 16).getTime() },
+    ];
+    offsets = new Map([["now", 0], ["old", 1200]]);
+    const { hover } = setup(groups, "en");
+    hover(0);
+    expect(bubble().textContent).toBe("Aug 15");
+    hover(1);
+    expect(bubble().textContent).toBe(`Jul 16, ${year - 1}`);
+    fireEvent.pointerOut(root(), { relatedTarget: document.body }); settle();
   });
 
   it("cancels queued work and removes listeners when unmounted", () => {
