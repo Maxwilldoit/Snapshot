@@ -44,11 +44,10 @@ function settingsWith(asset: PetAsset) {
     shutterSound: "crisp",
     customSoundPath: null,
     flashOnCapture: true,
-        launchOnBoot: false,
+    launchOnBoot: false,
     includeCursor: false,
     recordSystemAudio: false,
     recordMicrophone: false,
-    afterCapture: "clipboard",
   } as Settings;
 }
 

@@ -13,7 +13,7 @@ const base: Settings = {
   snapshotFormat: "png", saveDir: "", recordingDir: "",
   shutterSound: "crisp", customSoundPath: null, flashOnCapture: true,
   launchOnBoot: false, includeCursor: false, recordSystemAudio: false,
-  recordMicrophone: false, afterCapture: "clipboard",
+  recordMicrophone: false,
 };
 
 async function renderPetPage(handle: IPCHandler = () => undefined, settings: Settings = base) {

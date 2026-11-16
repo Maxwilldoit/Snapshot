@@ -40,10 +40,6 @@ export const coreEnglish: Record<string, string> = {
   "English": "English",
   "颜色": "Color",
 
-  "截完之后": "After capture",
-  "放进剪贴板": "Copy to Clipboard",
-  "打开标注": "Open in Markup",
-  "仅保存": "Save to History",
   "快门声": "Shutter sound",
   "清脆": "Crisp",
   "轻柔": "Soft",

@@ -152,7 +152,6 @@ let settings: Settings = {
   includeCursor: false,
   recordSystemAudio: demo,
   recordMicrophone: false,
-  afterCapture: "clipboard",
 };
 
 const demoApps: Array<[string, number, number, number]> = [

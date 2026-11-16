@@ -41,7 +41,6 @@ const settings: Settings = {
   includeCursor: false,
   recordSystemAudio: false,
   recordMicrophone: false,
-  afterCapture: "clipboard",
 };
 
 const capabilities: PlatformCapabilities = {
@@ -109,7 +108,6 @@ describe("B2 拆页后逐页渲染", () => {
     expect(Boolean(screen.queryByRole("switch", { name: "同时录系统声音" }))).toBe(recording);
     if (recording) expect(screen.getByRole("switch", { name: "同时录系统声音" })).toHaveProperty("disabled", false);
     expect(screen.getByRole("switch", { name: "截屏时闪一下" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "通用" }));
     expect(screen.queryByRole("switch", { name: "开机时静默启动" })).toBeNull();
     expect(screen.getByRole("radiogroup", { name: "界面语言" })).toBeTruthy();
     expect(preferences).not.toHaveBeenCalled();
@@ -147,7 +145,7 @@ describe("B2 拆页后逐页渲染", () => {
   it("侧栏只有导航，截图录屏走快捷菜单和快捷键；模型和规则只出现在 Prompt 设置", async () => {
     await renderApp();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "通用" }));
+    await user.click(screen.getByRole("button", { name: "截图与录制" }));
     const aside = within(screen.getByRole("complementary"));
     expect(aside.queryByRole("button", { name: "截图" })).toBeNull();
     expect(aside.queryByRole("button", { name: "录屏" })).toBeNull();
@@ -201,7 +199,7 @@ describe("B2 拆页后逐页渲染", () => {
     [/^应用图标/, "自由走动"],
     [/^截图与录制/, "截图时"],
     [/^快捷键/, "启用全局快捷键"],
-    [/^通用/, "界面语言"],
+    [/^截图与录制/, "界面语言"],
   ])("导航到「%s」能渲染出该页独有内容", async (navLabel, marker) => {
     await renderApp();
     const user = userEvent.setup();
@@ -423,12 +421,15 @@ describe("B2 拆页后逐页渲染", () => {
     await waitFor(() => expect(within(shutter).getByRole("radio", { name: "自定义" }).getAttribute("aria-checked")).toBe("true"));
   });
 
-  it("截图后的第三个行为是仅保存，不再显示另存为", async () => {
+  it("截图固定复制并存历史，不再提供截完之后选项", async () => {
     await renderApp();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^截图与录制/ }));
 
-    expect(await screen.findByRole("radio", { name: "仅保存" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "截图" })).toBeTruthy();
+    expect(screen.queryByRole("radiogroup", { name: "截完之后" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "仅保存" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "打开标注" })).toBeNull();
     expect(screen.queryByRole("radio", { name: /另存为/ })).toBeNull();
   });
 
@@ -438,7 +439,7 @@ describe("B2 拆页后逐页渲染", () => {
     const nav = screen.getByRole("navigation", { name: "主导航" });
     // 导入按钮与伴侣名称各是一个按钮，不再显示独立选择圆圈。
     expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "历史", "Prompt", "截图与录制", "快捷键", "通用", "", "应用图标",
+      "历史", "Prompt", "截图与录制", "快捷键", "", "应用图标",
     ]);
     expect(within(nav).getByRole("button", { name: "导入伴侣素材…" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();

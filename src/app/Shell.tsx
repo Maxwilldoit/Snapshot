@@ -86,7 +86,6 @@ export function SideNav() {
       label: t("快捷键"),
       trailing: conflicts.length ? <span className="mw-nav-badge" aria-label={t("{count} 个冲突", { count: conflicts.length })}>{conflicts.length}</span> : null,
     },
-    { page: "general", label: t("通用") },
   ];
 
   const item = (entry: NavItem) => (

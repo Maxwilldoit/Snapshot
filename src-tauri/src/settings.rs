@@ -163,8 +163,6 @@ pub(crate) struct Settings {
     pub(crate) record_system_audio: bool,
     #[serde(default)]
     pub(crate) record_microphone: bool,
-    #[serde(default = "default_after_capture")]
-    pub(crate) after_capture: String,
     /// 启动台顶层顺序，`app:<id>` 或 `folder:<id>`。空的表示还没排过，按名字排。
     #[serde(default)]
     pub(crate) launchpad_order: Vec<String>,
@@ -186,10 +184,6 @@ fn default_snapshot_format() -> String {
 
 fn default_shutter_sound() -> String {
     "crisp".into()
-}
-
-fn default_after_capture() -> String {
-    "clipboard".into()
 }
 
 /// 桌宠大小能调的范围（百分比），和前端 lib/petSize.ts 的 PET_SCALE 一致
@@ -236,7 +230,6 @@ impl Default for Settings {
             include_cursor: false,
             record_system_audio: false,
             record_microphone: false,
-            after_capture: default_after_capture(),
             launchpad_order: Vec::new(),
             launchpad_folders: Vec::new(),
         }
@@ -272,7 +265,6 @@ pub(crate) struct PreferencesPatch {
     include_cursor: Option<bool>,
     record_system_audio: Option<bool>,
     record_microphone: Option<bool>,
-    after_capture: Option<String>,
     pet_scale: Option<u32>,
     pet_wander: Option<bool>,
     pet_random_actions: Option<bool>,
@@ -677,9 +669,6 @@ pub(crate) fn save_preferences(
     }
     if let Some(value) = prefs.record_microphone {
         settings.record_microphone = value;
-    }
-    if let Some(value) = prefs.after_capture {
-        settings.after_capture = value;
     }
     if let Some(value) = prefs.pet_scale {
         settings.pet_scale = clamp_pet_scale(value);

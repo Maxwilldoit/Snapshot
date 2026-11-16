@@ -28,7 +28,6 @@ const base: Settings = {
   includeCursor: false,
   recordSystemAudio: false,
   recordMicrophone: false,
-  afterCapture: "clipboard",
 };
 
 type Saved = { templates: Settings["templates"]; activeTemplateId: string };

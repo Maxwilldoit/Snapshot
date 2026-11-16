@@ -172,7 +172,7 @@ fn cursor_degrade_note(error: &str) -> String {
     format!("（未能包含鼠标光标：{short}{ellipsis}）")
 }
 
-/// 统一收尾：按偏好决定是否落盘、剪贴板清空时限、截后动作与闪烁/音效提示。
+/// 统一收尾：存入历史、放进剪贴板，并给出闪烁/音效提示。
 /// `cursor_degraded`：Linux 带光标静帧失败后回退时的说明，会拼进成功文案。
 pub(crate) fn finalize_capture(
     app: &AppHandle,
@@ -206,28 +206,17 @@ pub(crate) fn finalize_capture(
     );
     trace.mark_capture_ready();
 
-    // 截图始终存进历史；「仅保存」存失败要报错，其余路径存失败在提示里说明。
-    let only_save = settings.after_capture == "saveas";
+    // 截图固定「复制 + 存历史」；存失败不报错，在成功提示里说明。
     let record =
         snapshots::store_snapshot_traced(state, &image, app_name, app_id.clone(), &trace).ok();
     let archived = record.is_some();
-    if only_save && !archived {
-        return Err(format!("未能把 {app_name} 保存到历史记录"));
-    }
     if archived {
         let _ = app.emit("snapshots-changed", ());
     }
     let snapshot_id = record.map(|record| record.id);
 
-    // after_capture：annotate 打开标注窗；saveas 仅保存到历史；默认剪贴板。
-    let annotate = settings.after_capture == "annotate";
-    if annotate {
-        open_annotate_window(app, state, &image, app_name, app_id)?;
-        trace.mark("annotate_open");
-    } else if !only_save {
-        clipboard::copy_image(image)?;
-        trace.mark("clipboard");
-    }
+    clipboard::copy_image(image)?;
+    trace.mark("clipboard");
 
     // 活动、宠物成功反馈和兼容的最终事件都放在必需后处理成功之后，
     // 避免剪贴板/标注失败时先报一次成功。
@@ -256,37 +245,17 @@ pub(crate) fn finalize_capture(
     trace.mark("feedback_event");
     let suffix = cursor_degraded.unwrap_or_default();
     if interface_is_english() {
-        let head = if annotate {
-            if archived {
-                format!("Opened {app_name} in Markup and saved it to History.")
-            } else {
-                format!("Opened {app_name} in Markup, but couldn’t save it to History.")
-            }
-        } else if only_save {
-            format!("Saved {app_name} to History.")
+        let head = if archived {
+            format!("Copied {app_name} and saved it to History.")
         } else {
-            if archived {
-                format!("Copied {app_name} and saved it to History.")
-            } else {
-                format!("Copied {app_name}, but couldn’t save it to History.")
-            }
+            format!("Copied {app_name}, but couldn’t save it to History.")
         };
         return Ok(format!("{head}{suffix}"));
     }
-    if annotate {
-        if archived {
-            Ok(format!("已打开标注：{app_name}（已存入历史）{suffix}"))
-        } else {
-            Ok(format!("已打开标注：{app_name}（未能存入历史）{suffix}"))
-        }
-    } else if only_save {
-        Ok(format!("已保存到历史记录：{app_name}{suffix}"))
+    if archived {
+        Ok(format!("已复制 {app_name} 并存入历史{suffix}"))
     } else {
-        if archived {
-            Ok(format!("已复制 {app_name} 并存入历史{suffix}"))
-        } else {
-            Ok(format!("已复制 {app_name}（未能存入历史）{suffix}"))
-        }
+        Ok(format!("已复制 {app_name}（未能存入历史）{suffix}"))
     }
 }
 

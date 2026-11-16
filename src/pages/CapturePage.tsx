@@ -10,29 +10,52 @@ import { usePreferences } from "../hooks/usePreferences";
 import type { Settings } from "../types";
 import { useI18n } from "../lib/i18n";
 
-/** 截完做什么、存不存历史，以及怎么存（剪贴板、格式、位置） */
+/** 截图固定复制并存历史，这里只管怎么存（格式、位置） */
 function SnapshotPanel() {
-  const { settings } = useApp();
-  const update = usePreferences();
   const { t } = useI18n();
   return (
     <section className="panel">
       <h2 className="panel-title">{t("截图")}</h2>
       <div className="rows">
+        <SnapshotStorageRows />
+      </div>
+    </section>
+  );
+}
+
+/** 应用级偏好：语言和开机启动。 */
+function GeneralPanel() {
+  const { preference, setLanguagePreference, t } = useI18n();
+  const { settings, caps } = useApp();
+  const update = usePreferences();
+  return (
+    <section className="panel">
+      <h2 className="panel-title">{t("通用")}</h2>
+      <div className="rows">
         <div className="row">
-          <span className="row-label">{t("截完之后")}</span>
+          <span className="row-label">{t("界面语言")}</span>
           <Choices
-            ariaLabel={t("截完之后")}
-            value={settings.afterCapture}
-            onChange={(value) => void update({ afterCapture: value })}
+            ariaLabel={t("界面语言")}
+            value={preference}
+            onChange={setLanguagePreference}
             options={[
-              { value: "clipboard", label: t("放进剪贴板") },
-              { value: "annotate", label: t("打开标注") },
-              { value: "saveas", label: t("仅保存") },
+              { value: "system", label: t("跟随系统") },
+              { value: "zh", label: t("简体中文") },
+              { value: "en", label: "English" },
             ]}
           />
         </div>
-        <SnapshotStorageRows />
+        {caps?.autostart.available !== false && (
+          <div className="row">
+            <label className="row-label" htmlFor="pref-launchOnBoot">{t("开机时静默启动")}</label>
+            <Switch
+              id="pref-launchOnBoot"
+              label={t("开机时静默启动")}
+              value={settings.launchOnBoot}
+              onChange={(value) => void update({ launchOnBoot: value })}
+            />
+          </div>
+        )}
       </div>
     </section>
   );
@@ -114,7 +137,7 @@ function BehaviorPanel() {
   );
 }
 
-/** 设置 · 截图与录制：左栏截图，右栏截图时和录制 */
+/** 设置 · 截图与录制：左栏截图和通用，右栏截图时和录制 */
 export function CapturePage() {
   const { t } = useI18n();
   return (
@@ -124,6 +147,7 @@ export function CapturePage() {
         <div className="form cols">
           <div className="page-col">
             <SnapshotPanel />
+            <GeneralPanel />
           </div>
           <div className="page-col">
             <BehaviorPanel />

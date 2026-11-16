@@ -29,7 +29,6 @@ const base: Settings = {
   includeCursor: false,
   recordSystemAudio: false,
   recordMicrophone: false,
-  afterCapture: "clipboard",
 };
 
 const ACTIVE = "在任何应用里都能用下面的组合键。";

@@ -1,12 +1,11 @@
-/** 主窗口侧栏里的页面：资料库（截图、Prompt）、桌面伴侣、设置（截图与录制、快捷键、通用） */
+/** 主窗口侧栏里的页面：资料库（截图、Prompt）、桌面伴侣、设置（截图与录制、快捷键） */
 export type NavPage =
   | "history"
   | "clipboard"
   | "prompts"
   | "pet"
   | "capture"
-  | "shortcuts"
-  | "general";
+  | "shortcuts";
 
 export type ShortcutAction =
   | "snapshot"
@@ -145,7 +144,6 @@ export interface Settings {
   includeCursor: boolean;
   recordSystemAudio: boolean;
   recordMicrophone: boolean;
-  afterCapture: "clipboard" | "annotate" | "saveas";
 }
 
 /** 图标不随数据下发，按 pid 经 media:// 协议现取（见 lib/media.ts） */

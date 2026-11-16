@@ -29,7 +29,6 @@ const settings: Settings = {
   includeCursor: false,
   recordSystemAudio: false,
   recordMicrophone: false,
-  afterCapture: "clipboard",
 };
 
 const capabilities: PlatformCapabilities = {

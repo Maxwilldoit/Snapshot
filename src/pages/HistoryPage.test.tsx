@@ -26,7 +26,6 @@ const settings: Settings = {
   includeCursor: false,
   recordSystemAudio: false,
   recordMicrophone: false,
-  afterCapture: "clipboard",
 };
 
 const context: AppContextValue = {
