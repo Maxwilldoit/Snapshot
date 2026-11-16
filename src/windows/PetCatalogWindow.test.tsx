@@ -8,7 +8,7 @@ import type { PetCatalogAsset, Settings } from "../types";
 const base: Settings = {
   baseUrl: "", model: "", hasApiKey: false, templates: [], activeTemplateId: "builtin-default",
   selectedAppearanceId: "app-icon", petAssets: [], petScale: 100, shortcuts: [],
-  clipboardAutoClear: "60s", snapshotFormat: "png", saveDir: "", recordingDir: "",
+  snapshotFormat: "png", saveDir: "", recordingDir: "",
   shutterSound: "crisp", customSoundPath: null, flashOnCapture: true, hideAfterCopy: false,
   autoSaveLocal: true, launchOnBoot: false, includeCursor: false, recordSystemAudio: false,
   recordMicrophone: false, afterCapture: "clipboard",

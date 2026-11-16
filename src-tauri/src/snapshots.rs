@@ -90,16 +90,6 @@ pub(crate) fn snapshot_index_path(state: &AppState) -> PathBuf {
     history_dir(state).join("index.json")
 }
 
-pub(crate) fn clipboard_clear_delay(setting: &str) -> Option<Duration> {
-    match setting {
-        "30s" => Some(Duration::from_secs(30)),
-        "5m" => Some(Duration::from_secs(300)),
-        "never" => None,
-        // "60s" 与未知值一律按 60 秒
-        _ => Some(Duration::from_secs(60)),
-    }
-}
-
 pub(crate) fn snapshot_format_parts(setting: &str) -> (ImageFormat, &'static str) {
     match setting {
         "jpeg" | "jpg" => (ImageFormat::Jpeg, "jpg"),
@@ -116,33 +106,6 @@ pub(crate) fn mime_for_snapshot_file(file_name: &str) -> &'static str {
         "image/webp"
     } else {
         "image/png"
-    }
-}
-
-/// English toasts are built from whole sentences; an empty clipboard note is simply left out.
-pub(crate) fn english_sentence(head: &str, tail: &str) -> String {
-    if tail.is_empty() {
-        head.to_string()
-    } else {
-        format!("{head} {tail}")
-    }
-}
-
-/// English: a full sentence such as "The clipboard clears in 30 seconds.", or empty for "never".
-pub(crate) fn format_clear_label(setting: &str) -> String {
-    if interface_is_english() {
-        return match setting {
-            "30s" => "The clipboard clears in 30 seconds.".into(),
-            "5m" => "The clipboard clears in 5 minutes.".into(),
-            "never" => String::new(),
-            _ => "The clipboard clears in 60 seconds.".into(),
-        };
-    }
-    match setting {
-        "30s" => "30 秒后自动清空剪贴板".into(),
-        "5m" => "5 分钟后自动清空剪贴板".into(),
-        "never" => "不会自动清空剪贴板".into(),
-        _ => "60 秒后自动清空剪贴板".into(),
     }
 }
 
@@ -467,31 +430,22 @@ pub(crate) async fn annotate_snapshot(app: AppHandle, id: String) -> Result<(), 
     .await
 }
 
-/// 把历史里的一张重新放回剪贴板（同样按偏好自动清空）
+/// 把历史里的一张重新放回剪贴板，内容一直保留到用户复制别的东西
 #[tauri::command]
 pub(crate) async fn copy_snapshot(app: AppHandle, id: String) -> Result<String, String> {
-    on_worker(app, move |app, state| copy_snapshot_now(app, state, id)).await
+    on_worker(app, move |_app, state| copy_snapshot_now(state, id)).await
 }
 
-fn copy_snapshot_now(app: &AppHandle, state: &AppState, id: String) -> Result<String, String> {
+fn copy_snapshot_now(state: &AppState, id: String) -> Result<String, String> {
     let record = find_record(state, &id)?;
     let image = image::open(history_dir(state).join(&record.file_name))
         .map_err(|_| "快照文件已被移动或删除".to_string())?
         .to_rgba8();
-    let title = if interface_is_english() {
-        format!("{} screenshot", record.app_name)
-    } else {
-        format!("{} 截图", record.app_name)
-    };
-    clipboard::copy_image(app, state, image, &title, Some(record.id.clone()))?;
-    let clear_label = format_clear_label(&state.settings.lock().clipboard_auto_clear);
+    clipboard::copy_image(image)?;
     if interface_is_english() {
-        Ok(english_sentence(
-            &format!("Copied {}.", record.app_name),
-            &clear_label,
-        ))
+        Ok(format!("Copied {}.", record.app_name))
     } else {
-        Ok(format!("已复制 {}，{clear_label}", record.app_name))
+        Ok(format!("已复制 {}", record.app_name))
     }
 }
 
@@ -528,18 +482,6 @@ mod tests {
         let back: SnapshotRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(back.app_id.as_deref(), Some("/usr/bin/codex"));
         assert!(!serde_json::to_string(&record).unwrap().contains("appId"));
-    }
-
-    #[test]
-    fn clipboard_clear_delay_honors_preference_tokens() {
-        assert_eq!(clipboard_clear_delay("30s"), Some(Duration::from_secs(30)));
-        assert_eq!(clipboard_clear_delay("60s"), Some(Duration::from_secs(60)));
-        assert_eq!(clipboard_clear_delay("5m"), Some(Duration::from_secs(300)));
-        assert_eq!(clipboard_clear_delay("never"), None);
-        assert_eq!(
-            clipboard_clear_delay("weird"),
-            Some(Duration::from_secs(60))
-        );
     }
 
     #[test]

@@ -1,9 +1,6 @@
 /** English copy used by the quick actions, annotation, and launchpad windows. */
 export const windowsEnglish: Record<string, string> = {
-  "已复制标注图，30 秒后自动清空剪贴板": "Copied. The clipboard clears in 30 seconds.",
-  "已复制标注图，5 分钟后自动清空剪贴板": "Copied. The clipboard clears in 5 minutes.",
-  "已复制标注图，60 秒后自动清空剪贴板": "Copied. The clipboard clears in 60 seconds.",
-  "已复制标注图，不会自动清空剪贴板": "Copied to the clipboard.",
+  "已复制标注图": "Copied.",
   "快速操作": "Quick Menu",
   "标注截图": "Markup",
   "启动台": "Launchpad",

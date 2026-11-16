@@ -180,10 +180,6 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 @keyframes busy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .busy-dot { display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--ink-3); animation: breathe 0.8s ease-in-out infinite alternate; }
 
-/* 倒计时：全应用唯一匀速的东西 */
-.drain { display: block; width: 100%; height: 2px; margin-top: 6px; background: var(--rule); }
-.drain > span { display: block; height: 100%; background: var(--ink-fill); transition: width 1s linear; }
-
 .cat-shape { display: block; flex: 0 0 auto; fill: var(--ink-2); }
 .cat-shape.is-outline { fill: none; stroke: var(--ink-4); stroke-width: 1; stroke-dasharray: 2 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .app-glyph {

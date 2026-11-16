@@ -228,12 +228,7 @@ pub(crate) fn finalize_capture(
         open_annotate_window(app, state, &image, app_name, app_id)?;
         trace.mark("annotate_open");
     } else if !only_save {
-        let title = if interface_is_english() {
-            format!("{app_name} screenshot")
-        } else {
-            format!("{app_name} 截图")
-        };
-        clipboard::copy_image(app, state, image, &title, snapshot_id.clone())?;
+        clipboard::copy_image(image)?;
         trace.mark("clipboard");
     }
 
@@ -281,15 +276,13 @@ pub(crate) fn finalize_capture(
         } else if only_save {
             format!("Saved {app_name} to History.")
         } else {
-            let clear_label = snapshots::format_clear_label(&settings.clipboard_auto_clear);
-            let copied = if archived {
+            if archived {
                 format!("Copied {app_name} and saved it to History.")
             } else if settings.auto_save_local {
                 format!("Copied {app_name}, but couldn’t save it to History.")
             } else {
                 format!("Copied {app_name}.")
-            };
-            snapshots::english_sentence(&copied, &clear_label)
+            }
         };
         return Ok(format!("{head}{suffix}"));
     }
@@ -304,17 +297,12 @@ pub(crate) fn finalize_capture(
     } else if only_save {
         Ok(format!("已保存到历史记录：{app_name}{suffix}"))
     } else {
-        let clear_label = snapshots::format_clear_label(&settings.clipboard_auto_clear);
         if archived {
-            Ok(format!(
-                "已复制 {app_name} 并存入历史，{clear_label}{suffix}"
-            ))
+            Ok(format!("已复制 {app_name} 并存入历史{suffix}"))
         } else if settings.auto_save_local {
-            Ok(format!(
-                "已复制 {app_name}，{clear_label}（未能存入历史）{suffix}"
-            ))
+            Ok(format!("已复制 {app_name}（未能存入历史）{suffix}"))
         } else {
-            Ok(format!("已复制 {app_name}，{clear_label}{suffix}"))
+            Ok(format!("已复制 {app_name}{suffix}"))
         }
     }
 }
@@ -522,22 +510,15 @@ fn annotate_copy_now(
             .meta(format!("{} × {}", image.width(), image.height()))
             .snapshot(snapshot_id.clone()),
     );
-    clipboard::copy_image(
-        app,
-        state,
-        image,
-        ui_text("标注图", "Marked-up image"),
-        snapshot_id,
-    )?;
+    clipboard::copy_image(image)?;
     // 窗口由前端在按钮打勾、提示停留片刻后收起（annotate_close），这里不立刻隐藏
     if let Some(error) = archive_error {
         return Ok(format!("已复制，但没能存进历史记录：{error}"));
     }
-    let clear_label = snapshots::format_clear_label(&settings.clipboard_auto_clear);
     if interface_is_english() {
-        return Ok(snapshots::english_sentence("Copied.", &clear_label));
+        return Ok("Copied.".into());
     }
-    Ok(format!("已复制标注图，{clear_label}"))
+    Ok("已复制标注图".into())
 }
 
 /// 另存为。返回 `None` 表示用户在对话框里取消了：标注保留、窗口不收起。

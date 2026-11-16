@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  getClipboardState,
   getRecordingStatus,
   listActivity,
   onActivity,
-  onClipboardChanged,
   onRecordingChanged,
 } from "../lib/backend";
-import type { ActivityEntry, ClipboardState, RecordingStatus } from "../types";
+import type { ActivityEntry, RecordingStatus } from "../types";
 
 /** 订阅一个 Tauri 事件；卸载时取消 */
 function useTauriListener(subscribe: () => Promise<() => void>) {
@@ -32,17 +30,6 @@ export function useActivityLog() {
     onActivity((entry) => setEntries((list) => [entry, ...list.filter((item) => item.id !== entry.id)].slice(0, 300))),
   );
   return entries;
-}
-
-export function useClipboardState() {
-  const [state, setState] = useState<ClipboardState | null>(null);
-  useEffect(() => {
-    getClipboardState()
-      .then((value) => setState(value ?? null))
-      .catch(() => {});
-  }, []);
-  useTauriListener(() => onClipboardChanged((value) => setState(value ?? null)));
-  return state;
 }
 
 const idle: RecordingStatus = { active: false, target: null, startedAt: null };

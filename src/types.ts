@@ -134,7 +134,6 @@ export interface Settings {
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
   shortcutsPaused?: boolean;
-  clipboardAutoClear: "30s" | "60s" | "5m" | "never";
   snapshotFormat: "png" | "jpeg" | "webp";
   saveDir: string;
   recordingDir: string;
@@ -226,15 +225,6 @@ export interface SavedPrompt {
   content: string;
   createdAt: number;
   updatedAt: number;
-}
-
-/** 剪贴板里放着我们的图时的状态 */
-export interface ClipboardState {
-  label: string;
-  snapshotId: string | null;
-  armedAt: number;
-  /** 何时自动清空；null 表示不会 */
-  clearAt: number | null;
 }
 
 export interface PetImportResult {

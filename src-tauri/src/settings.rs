@@ -142,8 +142,6 @@ pub(crate) struct Settings {
     /// 只由用户手动切换；暂停时释放系统快捷键，但保留所有绑定。
     #[serde(default)]
     pub(crate) shortcuts_paused: bool,
-    #[serde(default = "default_clipboard_auto_clear")]
-    pub(crate) clipboard_auto_clear: String,
     #[serde(default = "default_snapshot_format")]
     pub(crate) snapshot_format: String,
     #[serde(default)]
@@ -184,10 +182,6 @@ fn is_false(value: &bool) -> bool {
 
 fn default_true() -> bool {
     true
-}
-
-fn default_clipboard_auto_clear() -> String {
-    "60s".into()
 }
 
 fn default_snapshot_format() -> String {
@@ -236,7 +230,6 @@ impl Default for Settings {
             pet_hidden: false,
             shortcuts: default_shortcut_bindings(),
             shortcuts_paused: false,
-            clipboard_auto_clear: default_clipboard_auto_clear(),
             snapshot_format: default_snapshot_format(),
             save_dir: String::new(),
             recording_dir: String::new(),
@@ -275,7 +268,6 @@ fn is_supported_action(action: &str) -> bool {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PreferencesPatch {
-    clipboard_auto_clear: Option<String>,
     snapshot_format: Option<String>,
     save_dir: Option<String>,
     recording_dir: Option<String>,
@@ -657,9 +649,6 @@ pub(crate) fn save_preferences(
     prefs: PreferencesPatch,
 ) -> Result<Settings, String> {
     let mut settings = state.settings.lock();
-    if let Some(value) = prefs.clipboard_auto_clear {
-        settings.clipboard_auto_clear = value;
-    }
     if let Some(value) = prefs.snapshot_format {
         settings.snapshot_format = value;
     }

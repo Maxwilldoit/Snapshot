@@ -13,7 +13,7 @@ import { canViewTransition, viewTransition, type TransitionDirection } from "./l
 import { AppContext, errorText, type AppContextValue, type Notice, type NoticeKind } from "./app/context";
 import { NoticeLine, SideNav, WindowChrome } from "./app/Shell";
 import { LoadingState } from "./components/LoadingState";
-import { useActivityLog, useClipboardState, useRecordingStatus } from "./hooks/useLive";
+import { useActivityLog, useRecordingStatus } from "./hooks/useLive";
 import { ShortcutsPage } from "./pages/ShortcutsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { PromptsPage } from "./pages/PromptsPage";
@@ -68,7 +68,6 @@ export function App() {
   const mainRef = useRef<HTMLElement>(null);
 
   const activity = useActivityLog();
-  const clipboard = useClipboardState();
   const recording = useRecordingStatus();
 
   const notify = useCallback((text: string, kind: NoticeKind = "info") => {
@@ -212,7 +211,6 @@ export function App() {
         setConflicts,
         caps,
         activity,
-        clipboard,
         recording,
         page,
         navigate,
@@ -221,7 +219,7 @@ export function App() {
         consumePreviewId: () => setPendingPreviewId(null),
       },
     [
-      settings, notify, notice, dismissNotice, conflicts, caps, activity, clipboard, recording,
+      settings, notify, notice, dismissNotice, conflicts, caps, activity, recording,
       page, navigate, viewedPetId, pendingPreviewId,
     ],
   );

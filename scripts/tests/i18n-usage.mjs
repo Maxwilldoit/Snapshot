@@ -13,7 +13,6 @@ test("backend messages keep translations even without frontend literal calls", (
   const keys = referencedKeys([], ['ui_text("已保存", "Saved"); format!("录制 {target}");']);
   assert.ok(keys.has("已保存"));
   assert.ok(keys.has("录制 {target}"));
-  assert.ok(keys.has("已复制标注图，30 秒后自动清空剪贴板"));
 });
 
 test("TypeScript generic arrows are parsed with the actual file extension", () => {

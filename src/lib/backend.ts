@@ -4,7 +4,6 @@ import type { LaunchpadView } from "./launchpad";
 import type {
   ActivityEntry,
   CapturableWindow,
-  ClipboardState,
   PetCatalogAsset,
   PetImportResult,
   PetEvent,
@@ -239,16 +238,6 @@ export const onPromptHistoryChanged = (callback: () => void) =>
 
 export const onActivity = (callback: (entry: ActivityEntry) => void) =>
   listen<ActivityEntry>("activity-added", ({ payload }) => callback(payload));
-
-export const getClipboardState = () => invoke<ClipboardState | null>("get_clipboard_state");
-
-export const onClipboardChanged = (callback: (state: ClipboardState | null) => void) =>
-  listen<ClipboardState | null>("clipboard-changed", ({ payload }) => callback(payload));
-
-export const clearClipboardNow = () => invoke<void>("clear_clipboard_now");
-
-/** 图留在剪贴板里，只是不再倒计时 */
-export const keepClipboard = () => invoke<void>("keep_clipboard");
 
 export const copyText = (text: string) => invoke<void>("copy_text", { text });
 

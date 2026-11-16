@@ -42,7 +42,7 @@ function useStorageActions() {
   return { update, pickDir };
 }
 
-/** 截图怎么存：剪贴板多久清空、图片格式、存到哪个文件夹。放在「截图与录制」左栏 */
+/** 截图怎么存：图片格式、存到哪个文件夹。放在「截图与录制」左栏 */
 export function SnapshotStorageRows() {
   const { settings, notify } = useApp();
   const { t } = useI18n();
@@ -59,20 +59,6 @@ export function SnapshotStorageRows() {
 
   return (
     <>
-      <div className="row">
-        <span className="row-label">{t("自动清空剪贴板")}</span>
-        <Choices
-          ariaLabel={t("自动清空剪贴板")}
-          value={settings.clipboardAutoClear}
-          onChange={(value) => void update({ clipboardAutoClear: value })}
-          options={[
-            { value: "30s", label: t("30 秒") },
-            { value: "60s", label: t("60 秒") },
-            { value: "5m", label: t("5 分钟") },
-            { value: "never", label: t("不清空") },
-          ]}
-        />
-      </div>
       <div className="row">
         <span className="row-label">{t("图像格式")}</span>
         <Choices

@@ -142,7 +142,6 @@ let settings: Settings = {
     { action: "prompts", accelerator: demo ? "CommandOrControl+Shift+P" : null },
     { action: "palette", accelerator: demo ? "Alt+Space" : null },
   ],
-  clipboardAutoClear: "60s",
   snapshotFormat: "png",
   saveDir: demo ? "D:\\Dropbox\\工作\\2026\\截图归档\\应用快照\\原始文件" : "",
   recordingDir: "",
@@ -246,10 +245,6 @@ let savedPrompts: SavedPrompt[] = demo
       },
     ]
   : [];
-
-const demoClipboard = demo
-  ? { label: "Visual Studio Code 截图", snapshotId: "snap-0", armedAt: Date.now() - 18_000, clearAt: Date.now() + 42_000 }
-  : null;
 
 const previewOs = params.get("os") ?? "windows";
 const capabilities: PlatformCapabilities = {
@@ -434,8 +429,6 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       throw new Error("请在桌面应用中打开标注窗口");
     case "list_activity":
       return structuredClone(activity);
-    case "get_clipboard_state":
-      return demoClipboard;
     case "list_capturable_windows":
       return demo
         ? [

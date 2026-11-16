@@ -18,7 +18,6 @@ const base: Settings = {
   petAssets: [],
   petScale: 100,
   shortcuts: [],
-  clipboardAutoClear: "60s",
   snapshotFormat: "png",
   saveDir: "",
   recordingDir: "",

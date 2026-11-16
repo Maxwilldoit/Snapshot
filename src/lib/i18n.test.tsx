@@ -68,7 +68,7 @@ describe("interface language", () => {
   it("translates common native errors, including interpolated details", () => {
     expect(localizeMessage("目标窗口已经关闭", "en")).toBe("That window is closed. Choose another one.");
     expect(localizeMessage("截取失败：permission denied", "en")).toBe("Couldn’t take the screenshot. permission denied");
-    expect(localizeMessage("已复制标注图，30 秒后自动清空剪贴板", "en")).toBe("Copied. The clipboard clears in 30 seconds.");
+    expect(localizeMessage("已复制标注图", "en")).toBe("Copied.");
     expect(localizeMessage("已复制，但没能存进历史记录：保存快照失败：disk full", "en")).toBe(
       "Copied, but couldn’t save it to History. Couldn’t save the screenshot. disk full",
     );

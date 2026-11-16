@@ -19,7 +19,7 @@ async function editor() {
     if (command === "get_annotate_image") return image;
     if (command === "annotate_get_title") return "历史截图";
     if (command === "annotate_save_copy") return "标注副本已保存到历史记录";
-    if (command === "annotate_copy") return "已复制标注图，不会自动清空剪贴板";
+    if (command === "annotate_copy") return "已复制标注图";
     if (command === "annotate_save") return saveResult;
   }, { currentWindow: "annotate", shouldMockEvents: true });
   vi.stubGlobal("Image", class {
@@ -454,7 +454,7 @@ describe("截图标注：快捷键与出口", () => {
     key({ key: "c", metaKey: true, ctrlKey: true });
     await waitFor(() => expect(count("annotate_copy")).toBe(1));
     expect(await screen.findByText("已复制")).toBeTruthy();
-    expect(await screen.findByText("已复制标注图，不会自动清空剪贴板")).toBeTruthy();
+    expect(await screen.findByText("已复制标注图")).toBeTruthy();
     // 确认期间不重复导出，也还没收起
     key({ key: "c", metaKey: true, ctrlKey: true });
     expect(count("annotate_copy")).toBe(1);

@@ -31,7 +31,6 @@ const settings: Settings = {
     { action: "snapshot", accelerator: "Alt+Shift+2" },
     { action: "record", accelerator: null },
   ],
-  clipboardAutoClear: "60s",
   snapshotFormat: "png",
   saveDir: "",
   recordingDir: "",

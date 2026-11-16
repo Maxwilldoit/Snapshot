@@ -333,6 +333,12 @@
 
 验证：`npm run check` 全量通过（641 前端测试、154 Rust 测试通过 / 1 忽略，其余检查通过），契约快照一致。中英文深浅主题浏览器对比实际尺寸、三行间距与文本完整显示，检查方向键、Shift+F10、Escape、窗口边缘定位及录屏两项菜单；证据在 `/tmp/snapshot-compact-menu-qa/`。复制、删除确认与多选行为由现有历史页回归覆盖。
 
+## 35. 移除剪贴板自动清空（2026-11-16）
+
+按用户要求整体移除该功能：复制的截图一直留在剪贴板，直到用户自己复制别的内容。删除后台清空线程、图片指纹与状态跟踪（`ClipboardState`、`clipboard-changed`、`get_clipboard_state` / `clear_clipboard_now` / `keep_clipboard` 命令）、设置项 `clipboardAutoClear` 及「截图与录制」里的时限选择行；复制成功提示不再带「多久后清空」尾巴，中英文同步精简。保留 Linux X11 剪贴板 keep-alive、写入占用重试与 Prompt 文字读写。契约差异即上述命令、事件与设置字段的移除；老用户 settings.json 里的 `clipboardAutoClear` 字段会被忽略，不影响其它设置。
+
+验证：`npm run check` 全量通过（641 前端测试、152 Rust 测试通过 / 1 忽略；i18n、构建、Knip、fmt、Clippy 通过）。中英文浏览器确认设置页不再出现清空时限选项、图像格式与保存路径正常。契约快照对比确认只少了本批移除的条目。证据在 `/tmp/snapshot-clipboard-removal-qa/`；真实剪贴板写入与长期保留需原生补验。
+
 ## 暂缓事项与原因
 
 - **截图策略迁移**：真实枚举是 clipboard / annotate / saveas。仅保存必须进历史，关闭历史的旧用户也要保持原行为。本轮保留选项与开关，不新增隐藏标志。未来需先列出 3×2 配置行为表，并验证保存失败及迁移幂等。
