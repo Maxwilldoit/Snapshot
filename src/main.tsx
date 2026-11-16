@@ -11,6 +11,7 @@ import { PromptLibraryWindow } from "./windows/PromptLibraryWindow";
 import { applyTheme, readTheme, watchSystemTheme } from "./lib/theme";
 import { suppressNativeContextMenu } from "./lib/contextMenu";
 import { viewTransition } from "./lib/motion";
+import { installWheelPace } from "./lib/wheelScroll";
 import { applyDocumentLanguage, I18nProvider, readLanguagePreference, resolveLanguage } from "./lib/i18n";
 import "./styles/variables.css";
 import "./styles.css";
@@ -38,6 +39,13 @@ function mount() {
     else applyTheme(mode);
   });
   import.meta.hot?.dispose(unwatchTheme);
+
+  // 滚轮定速：主窗口和库窗口把鼠标滚轮的大颗粒增量收成固定小步，触控板保持原生。
+  // 启动台自己管翻页手势，不叠加。
+  if (label !== "launchpad" && label !== "pet") {
+    const uninstallWheel = installWheelPace(document.documentElement);
+    import.meta.hot?.dispose(uninstallWheel);
+  }
 
   const CurrentWindow =
     label === "pet" ? PetWindow
