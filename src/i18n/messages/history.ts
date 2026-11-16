@@ -1,10 +1,7 @@
 export const historyEnglish: Record<string, string> = {
   "剪贴板": "Clipboard",
-  "记录剪贴板历史": "Record clipboard history",
-  "剪贴板历史未开启": "Clipboard History Is Off",
-  "打开开关后，复制的文字和图片会记录在这里，随时放回剪贴板。密码管理器标记的敏感内容不会被记录。": "Turn it on to keep copied text and images here and put them back on the clipboard anytime. Content marked sensitive by password managers is never recorded.",
   "还没有剪贴板记录": "No Clipboard Entries Yet",
-  "复制一段文字或一张图片，稍等片刻就会出现在这里。": "Copy some text or an image and it will show up here in a moment.",
+  "复制一段文字或一张图片，稍等片刻就会出现在这里。密码管理器标记的敏感内容不会被记录。": "Copy some text or an image and it will show up here in a moment. Content marked sensitive by password managers is never recorded.",
   "正在读取剪贴板历史…": "Loading clipboard history…",
   "搜索剪贴板历史": "Search clipboard history",
   "没有含「{query}」的剪贴板记录。": "No clipboard entries match “{query}”.",

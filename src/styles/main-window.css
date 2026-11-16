@@ -299,10 +299,6 @@ html[data-surface="app"] .mw-empty-line { margin: 28px 24px 0; color: var(--text
 /* ---------- Prompt 记录 ---------- */
 
 html[data-surface="app"] .prompt-groups { padding: 2px 24px 32px; }
-html[data-surface="app"] .clipboard-toggle-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  margin: 10px 24px 4px; padding: 10px 14px; border-radius: 8px; background: var(--fill);
-}
 html[data-surface="app"] .clip-entry {
   display: flex; align-items: center; gap: 4px; min-width: 0;
   border-bottom: 0.5px solid var(--sep);

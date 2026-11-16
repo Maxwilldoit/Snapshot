@@ -10,23 +10,19 @@ import { SearchField } from "../components/SearchField";
 import { Toolbar } from "../app/Shell";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
-import { usePreferences } from "../hooks/usePreferences";
-import { Switch } from "../components/ui/Switch";
 import type { ClipboardHistoryEntry } from "../types";
 
 /**
- * 剪贴板历史（macOS / Linux）：设置打开后记录复制的文字与图片，按天分组。
+ * 剪贴板历史（macOS / Linux）：始终记录复制的文字与图片，按天分组。
  * 点一条把它放回剪贴板；可单条删除或整个清空。密码管理器标记的敏感内容不会出现在这里。
  */
 export function ClipboardPage() {
-  const { settings, notify } = useApp();
-  const update = usePreferences();
+  const { notify } = useApp();
   const { t } = useI18n();
   const [records, setRecords] = useState<ClipboardHistoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [busy, setBusy] = useState(false);
-  const enabled = settings.clipboardHistory === true;
 
   const refresh = useCallback(async () => {
     try {
@@ -96,18 +92,11 @@ export function ClipboardPage() {
   let body;
   if (records === null) {
     body = <LoadingState text={t("正在读取剪贴板历史…")} />;
-  } else if (!enabled && records.length === 0) {
-    body = (
-      <div className="empty mw-empty">
-        <h2 className="empty-title">{t("剪贴板历史未开启")}</h2>
-        <p className="empty-body">{t("打开开关后，复制的文字和图片会记录在这里，随时放回剪贴板。密码管理器标记的敏感内容不会被记录。")}</p>
-      </div>
-    );
   } else if (records.length === 0) {
     body = (
       <div className="empty mw-empty">
         <h2 className="empty-title">{t("还没有剪贴板记录")}</h2>
-        <p className="empty-body">{t("复制一段文字或一张图片，稍等片刻就会出现在这里。")}</p>
+        <p className="empty-body">{t("复制一段文字或一张图片，稍等片刻就会出现在这里。密码管理器标记的敏感内容不会被记录。")}</p>
       </div>
     );
   } else if (filtered.length === 0) {
@@ -141,15 +130,6 @@ export function ClipboardPage() {
     <div className="mw-page clipboard-page">
       {toolbar}
       <div className="mw-scroll">
-        <div className="clipboard-toggle-row">
-          <label className="row-label" htmlFor="pref-clipboardHistory">{t("记录剪贴板历史")}</label>
-          <Switch
-            id="pref-clipboardHistory"
-            label={t("记录剪贴板历史")}
-            value={enabled}
-            onChange={(value) => void update({ clipboardHistory: value })}
-          />
-        </div>
         {body}
       </div>
       {confirmClear && (

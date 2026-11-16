@@ -135,8 +135,6 @@ export interface Settings {
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
   shortcutsPaused?: boolean;
-  /** 剪贴板历史（仅 macOS / Linux）；旧设置缺省时视为关闭 */
-  clipboardHistory?: boolean;
   snapshotFormat: "png" | "jpeg" | "webp";
   saveDir: string;
   recordingDir: string;

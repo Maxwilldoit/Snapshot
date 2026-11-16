@@ -1,7 +1,7 @@
-//! 剪贴板历史：设置打开后，后台每秒看一眼系统剪贴板，把新复制的文字和图片
+//! 剪贴板历史：macOS / Linux 上始终开启，后台每秒看一眼系统剪贴板，把新复制的文字和图片
 //! 存进应用数据目录（索引 clipboard-history.json + 图片 clipboard-history/<id>.png）。
-//! 只在 macOS / Linux 可用；密码管理器标记为敏感的内容（Concealed / transient）跳过。
-//! 默认关闭；关掉只是停止记录，已存的历史保留，删除单条或清空都立即落盘。
+//! 密码管理器标记为敏感的内容（Concealed / transient）跳过。
+//! 删除单条或清空都立即落盘；Windows 采样恒空，等于没有这个功能。
 
 use super::*;
 use serde::Deserialize;
@@ -130,7 +130,7 @@ pub(crate) fn hash_bytes(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// 后台轮询：设置开着才采样；内容没变（marker 相同）不做任何事。
+/// 后台轮询：内容没变（marker 相同）不做任何事；平台不支持时采样恒空。
 pub(crate) fn start(app: AppHandle) {
     thread::spawn(move || {
         let mut last_marker = String::new();
@@ -139,9 +139,6 @@ pub(crate) fn start(app: AppHandle) {
             let Some(state) = app.try_state::<AppState>() else {
                 continue;
             };
-            if !state.settings.lock().clipboard_history {
-                continue;
-            }
             let Some(sample) = os::clipboard_sample() else {
                 continue;
             };
