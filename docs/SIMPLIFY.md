@@ -295,6 +295,8 @@
 
 验证：针对性回归 45 项通过（大幅跳转当帧落位、快速连续/反向采样零滞后、布局变化落位、reduced-motion 直绘、卸载清理）。浏览器逐帧断言（中文 960×580 浅色 / 英文 820×520 深色）：61 个连续滚动采样与 6 个跳变采样中，波峰当帧均精确落在对应刻度（正中并列等宽属正确形态）、全程波峰 ≥22px；滚轮正反向后 aria 进度与实际一致，悬停/离开恢复精确，滚动期间零布局读取、历史墙零变更、无气泡弹出，reduced-motion 无过渡。既有中英文交互回归与 `npm run check` 全量通过，契约快照一致。证据在 `/tmp/snapshot-timeline-follow-qa/`（instant-* 系列）。原生触控板惯性滚动待设备补验。
 
+部署：`94c8037` 已合入并推送 `main`（合并提交 `b28b58d`），对应 GitHub Actions `43831115917`。Apple Development 签名包（仅 app bundle，跳过 DMG）已替换 `/Applications/snapshot.app` 并重启；严格签名校验、旧包 designated requirement、嵌入前端资源与可执行文件 SHA256（`10c9c63f…`）均通过，旧包备份在 `Snapshot Backups/20261116-162556-before-zero-lag-timeline/`，记录见其中 `install-state.json`。本轮原生界面操作工具不可用，触控板实测留待设备登记。
+
 ## 暂缓事项与原因
 
 - **截图策略迁移**：真实枚举是 clipboard / annotate / saveas。仅保存必须进历史，关闭历史的旧用户也要保持原行为。本轮保留选项与开关，不新增隐藏标志。未来需先列出 3×2 配置行为表，并验证保存失败及迁移幂等。
