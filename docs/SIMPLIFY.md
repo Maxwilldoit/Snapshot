@@ -304,6 +304,8 @@
 
 验证：针对性回归 47 项通过（全高轴、微小溢出全高与连续波形、本年/跨年日期中英文格式、既有交互）。浏览器中英文深浅主题回归通过：短列表与 12px 溢出轴高 543px（占满可视区）、悬停日期无年份、1200 日期长历史、拖动/键盘/筛选/空与失败状态、reduced-motion；逐帧零延迟断言仍全部通过，无脚本错误。`npm run check` 全量通过（637 前端、154 Rust 通过 / 1 忽略），契约快照一致。证据在 `/tmp/snapshot-timeline-follow-qa/`（fullaxis 系列与截图）。
 
+部署：`7b09ad0` 已合入并推送 `main`（合并提交 `62e99eb`），对应 GitHub Actions `43834939602`。Apple Development 签名包已替换 `/Applications/snapshot.app` 并重启；严格签名校验、旧包 designated requirement、嵌入前端资源与可执行文件 SHA256（`928f5dab…`）均通过，旧包备份在 `Snapshot Backups/20261116-165346-before-full-height-timeline/`，记录见其中 `install-state.json`。原生实测留待设备登记。
+
 ## 暂缓事项与原因
 
 - **截图策略迁移**：真实枚举是 clipboard / annotate / saveas。仅保存必须进历史，关闭历史的旧用户也要保持原行为。本轮保留选项与开关，不新增隐藏标志。未来需先列出 3×2 配置行为表，并验证保存失败及迁移幂等。
