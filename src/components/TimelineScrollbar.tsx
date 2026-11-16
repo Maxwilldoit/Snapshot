@@ -59,10 +59,10 @@ export function TimelineScrollbar({ scrollRef, stops }: {
     const box = root.getBoundingClientRect();
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const available = Math.max(0, root.clientHeight - INSET_TOP - INSET_BOTTOM);
-    const span = timelineTrackSpan(available - PAD * 2, scroller.clientHeight, max);
+    const span = timelineTrackSpan(available - PAD * 2, max);
     const next = {
       max,
-      height: Math.min(available, Math.max(44, span + PAD * 2)),
+      height: available,
       span,
       top: box.top + INSET_TOP,
       left: box.left,
@@ -195,11 +195,16 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   const engaged = ready && (hovering || dragging || focused);
   const selected = (hovering || dragging) && preview ? preview : current;
   const index = Math.min(selected.index, Math.max(0, stops.length - 1));
-  const formatter = useMemo(() => new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", {
-    year: "numeric", month: language === "en" ? "short" : "long", day: "numeric",
-  }), [language]);
-  const date = stops[index] ? formatter.format(stops[index].timestamp) : "";
-  const currentDate = stops[current.index] ? formatter.format(stops[current.index].timestamp) : "";
+  const currentYear = new Date().getFullYear();
+  const format = useMemo(() => {
+    const locale = language === "en" ? "en-US" : "zh-CN";
+    const month = language === "en" ? "short" : "long";
+    const withYear = new Intl.DateTimeFormat(locale, { year: "numeric", month, day: "numeric" });
+    const withoutYear = new Intl.DateTimeFormat(locale, { month, day: "numeric" });
+    return (timestamp: number) => (new Date(timestamp).getFullYear() === currentYear ? withoutYear : withYear).format(timestamp);
+  }, [language, currentYear]);
+  const date = stops[index] ? format(stops[index].timestamp) : "";
+  const currentDate = stops[current.index] ? format(stops[current.index].timestamp) : "";
   const pad = Math.min(PAD, (geometry?.height ?? 0) / 2);
   const span = geometry?.span ?? 0;
   const ticks = useMemo(() => sampleTimeline(span), [span]);

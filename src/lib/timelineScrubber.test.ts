@@ -8,15 +8,13 @@ const stops: TimelineStop[] = [
 ];
 
 describe("content-based date navigation", () => {
-  it("scales axis travel to overflow without amplifying short-list movement", () => {
-    expect(timelineTrackSpan(480, 500, 0)).toBe(0);
-    expect(timelineTrackSpan(480, 500, 20)).toBeCloseTo(18.46, 2);
-    expect(timelineTrackSpan(480, 500, 500)).toBe(240);
-    expect(timelineTrackSpan(480, 500, 4500)).toBe(432);
-    expect(timelineTrackSpan(480, 500, 1_000_000)).toBeLessThan(480);
-    expect(timelineTrackSpan(480, 0, 100)).toBe(0);
-    expect(timelineTrackSpan(0, 500, 100)).toBe(0);
-    expect(timelineTrackSpan(1000, 100, 20)).toBe(20);
+  it("spans the full visible height whenever content overflows", () => {
+    expect(timelineTrackSpan(480, 0)).toBe(0);
+    expect(timelineTrackSpan(480, 20)).toBe(480);
+    expect(timelineTrackSpan(480, 500)).toBe(480);
+    expect(timelineTrackSpan(480, 1_000_000)).toBe(480);
+    expect(timelineTrackSpan(0, 100)).toBe(0);
+    expect(timelineTrackSpan(-5, 100)).toBe(0);
   });
 
   it("bounds decorative ticks by the actual axis length", () => {

@@ -3,12 +3,10 @@ export type TimelineStop = { key: string; timestamp: number };
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
-/** Like native scrollbar travel: a little overflow gets a short axis, while a
- * large collection gradually approaches the available height. Never amplify
- * content movement just because the list has a sparse calendar range. */
-export function timelineTrackSpan(available: number, viewport: number, max: number): number {
-  if (available <= 0 || viewport <= 0 || max <= 0) return 0;
-  return Math.min(available, max, available * max / (viewport + max));
+/** The axis always spans the full visible height; scroll progress maps onto it
+ * continuously regardless of how much the content overflows. */
+export function timelineTrackSpan(available: number, max: number): number {
+  return available > 0 && max > 0 ? available : 0;
 }
 
 /** Decorative ticks share the continuous content axis; tiny overflow needs only
