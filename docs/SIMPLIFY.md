@@ -339,6 +339,12 @@
 
 验证：`npm run check` 全量通过（641 前端测试、152 Rust 测试通过 / 1 忽略；i18n、构建、Knip、fmt、Clippy 通过）。中英文浏览器确认设置页不再出现清空时限选项、图像格式与保存路径正常。契约快照对比确认只少了本批移除的条目。证据在 `/tmp/snapshot-clipboard-removal-qa/`；真实剪贴板写入与长期保留需原生补验。
 
+## 36. 剪贴板历史（macOS / Linux，2026-11-16）
+
+新增「剪贴板」页（侧栏资料库区，仅能力可用的平台显示）：设置开关默认关闭，打开后后台每秒采样系统剪贴板，新复制的文字与图片存入应用数据目录（clipboard-history.json + clipboard-history/<id>.png），最多 500 条、超出删最旧。macOS 用 NSPasteboard changeCount 判变化，跳过密码管理器的 Concealed / Transient 敏感标记；Linux 用 arboard 读文字/图片、内容哈希判变化（Wayland 合成器不支持时静默记不到）。按天分组、搜索文字、点条目放回剪贴板、单条删除与清空（带确认）；重复内容置顶更新时间而不存重复。图片经 media://clipboard/<id> 提供。Windows 能力探测下发不可用，采样恒空，界面不出现入口。新增契约：`list/delete/copy_clipboard_history` 命令、`clipboard-history-changed` 事件、设置字段 `clipboardHistory`（默认 false，老配置不受影响）。
+
+验证：`npm run check` 全量通过（641 前端测试、156 Rust 测试通过 / 1 忽略，新增 4 项历史存取/去重上限/删除文件回归；i18n、构建、Knip、fmt、Clippy 通过）。契约快照只新增上述条目。中英文浏览器（macOS 浅色 960×580 / Linux 深色 820×520）验证入口、开关、放回提示、搜索、单条删除、清空确认与空态；Windows 预览确认无入口。证据在 `/tmp/snapshot-clipboard-history-qa/`。真实剪贴板轮询、敏感内容跳过与 Wayland 行为需原生补验（见设备登记）。
+
 ## 暂缓事项与原因
 
 - **截图策略迁移**：真实枚举是 clipboard / annotate / saveas。仅保存必须进历史，关闭历史的旧用户也要保持原行为。本轮保留选项与开关，不新增隐藏标志。未来需先列出 3×2 配置行为表，并验证保存失败及迁移幂等。

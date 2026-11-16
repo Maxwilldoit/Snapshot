@@ -6,6 +6,7 @@
 
 mod apps;
 mod autostart;
+mod clipboard;
 mod cursor;
 mod icon;
 mod own_capture;
@@ -22,6 +23,7 @@ use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWN
 
 pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
 pub(crate) use autostart::apply as apply_autostart;
+pub(crate) use clipboard::sample as clipboard_sample;
 pub(crate) use icon::app_icon_png;
 pub(crate) use own_capture::{capture_own_window, capture_own_window_bounds};
 pub(crate) use pet_visibility::{refresh as refresh_pet_visibility, start as start_pet_visibility};
@@ -132,5 +134,6 @@ pub(crate) fn capabilities() -> PlatformCapabilities {
         autostart: CapabilityStatus::yes(),
         scrolling: None,
         include_cursor: CapabilityStatus::yes(),
+        clipboard_history: CapabilityStatus::no(),
     }
 }

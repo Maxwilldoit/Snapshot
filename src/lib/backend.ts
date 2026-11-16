@@ -4,6 +4,7 @@ import type { LaunchpadView } from "./launchpad";
 import type {
   ActivityEntry,
   CapturableWindow,
+  ClipboardHistoryEntry,
   PetCatalogAsset,
   PetImportResult,
   PetEvent,
@@ -242,6 +243,15 @@ export const onActivity = (callback: (entry: ActivityEntry) => void) =>
 export const copyText = (text: string) => invoke<void>("copy_text", { text });
 
 export const readClipboardText = () => invoke<string>("read_clipboard_text");
+
+export const listClipboardHistory = () => invoke<ClipboardHistoryEntry[]>("list_clipboard_history");
+
+export const deleteClipboardHistory = (ids: string[]) => invoke<ClipboardHistoryEntry[]>("delete_clipboard_history", { ids });
+
+export const copyClipboardHistory = (id: string) => invoke<void>("copy_clipboard_history", { id });
+
+export const onClipboardHistoryChanged = (callback: () => void) =>
+  listen("clipboard-history-changed", () => callback());
 
 export const onRecordingChanged = (callback: (status: RecordingStatus) => void) =>
   listen<RecordingStatus>("recording-changed", ({ payload }) => callback(payload));

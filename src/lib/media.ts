@@ -15,6 +15,9 @@ export const thumbUrl = (id: string) => media(`thumb/${id}`);
 /** 录屏成品；后端支持 Range，`#t=0.1` 让 video 元素停在第一帧当封面 */
 export const recordingUrl = (id: string) => media(`recording/${id}`);
 
+/** 剪贴板历史里存的图片（PNG） */
+export const clipboardImageUrl = (id: string) => media(`clipboard/${id}`);
+
 /** 不指定动作时由后端取该形象的默认动作 */
 export const petUrl = (assetId: string, entry?: string | null) =>
   media(entry ? `pet/${assetId}/${entry}` : `pet/${assetId}`);

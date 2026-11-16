@@ -5,6 +5,7 @@
 //! 无感窗口截图（经 Swift sidecar）、LaunchAgent 自启。
 
 mod autostart;
+mod clipboard;
 mod cursor;
 mod icon;
 pub(crate) mod permissions;
@@ -17,6 +18,7 @@ use image::RgbaImage;
 use std::{path::Path, process::Command};
 
 pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
+pub(crate) use clipboard::sample as clipboard_sample;
 pub(crate) use icon::png_for_app_name as app_icon_for_name;
 pub(crate) use icon::png_for_pid as app_icon_png;
 pub(crate) use icon::{png_for_app_id as app_icon_for_id, stable_id_for_pid as app_stable_id};
@@ -91,5 +93,6 @@ pub(crate) fn capabilities() -> PlatformCapabilities {
         autostart: CapabilityStatus::probe(autostart::autostart_capability()),
         scrolling: None,
         include_cursor: CapabilityStatus::yes(),
+        clipboard_history: CapabilityStatus::yes(),
     }
 }

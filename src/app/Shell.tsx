@@ -55,7 +55,7 @@ function sortedPets(assets: PetAsset[]) {
 }
 
 export function SideNav() {
-  const { page, navigate, conflicts, settings, viewedPetId, onSaved, notify } = useApp();
+  const { page, navigate, conflicts, settings, viewedPetId, onSaved, notify, caps } = useApp();
   const { t } = useI18n();
   const { importing, pickFiles } = usePetImport();
   const pets = useMemo(() => sortedPets(settings.petAssets), [settings.petAssets]);
@@ -76,6 +76,7 @@ export function SideNav() {
 
   const library: NavItem[] = [
     { page: "history", label: t("历史") },
+    ...(caps?.clipboardHistory?.available ? [{ page: "clipboard" as const, label: t("剪贴板") }] : []),
     { page: "prompts", label: t("Prompt") },
   ];
   const prefs: NavItem[] = [

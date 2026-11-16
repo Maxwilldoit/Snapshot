@@ -6,6 +6,7 @@
 
 mod apps;
 mod autostart;
+mod clipboard;
 mod icon;
 mod recording;
 mod scrolling;
@@ -21,6 +22,7 @@ use std::{path::Path, process::Command};
 
 pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
 pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
+pub(crate) use clipboard::sample as clipboard_sample;
 pub(crate) use scrolling::capture_scrolling_window;
 pub(crate) use window::restore_minimized;
 
@@ -119,5 +121,6 @@ pub(crate) fn capabilities() -> PlatformCapabilities {
         autostart: CapabilityStatus::probe(autostart::autostart_capability()),
         scrolling: Some(scrolling),
         include_cursor: CapabilityStatus::yes(),
+        clipboard_history: CapabilityStatus::yes(),
     }
 }

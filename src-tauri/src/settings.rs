@@ -142,6 +142,9 @@ pub(crate) struct Settings {
     /// 只由用户手动切换；暂停时释放系统快捷键，但保留所有绑定。
     #[serde(default)]
     pub(crate) shortcuts_paused: bool,
+    /// 剪贴板历史：后台记录复制的文字与图片（仅 macOS / Linux）。默认关闭。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(crate) clipboard_history: bool,
     #[serde(default = "default_snapshot_format")]
     pub(crate) snapshot_format: String,
     #[serde(default)]
@@ -230,6 +233,7 @@ impl Default for Settings {
             pet_hidden: false,
             shortcuts: default_shortcut_bindings(),
             shortcuts_paused: false,
+            clipboard_history: false,
             snapshot_format: default_snapshot_format(),
             save_dir: String::new(),
             recording_dir: String::new(),
@@ -268,6 +272,7 @@ fn is_supported_action(action: &str) -> bool {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PreferencesPatch {
+    clipboard_history: Option<bool>,
     snapshot_format: Option<String>,
     save_dir: Option<String>,
     recording_dir: Option<String>,
@@ -649,6 +654,9 @@ pub(crate) fn save_preferences(
     prefs: PreferencesPatch,
 ) -> Result<Settings, String> {
     let mut settings = state.settings.lock();
+    if let Some(value) = prefs.clipboard_history {
+        settings.clipboard_history = value;
+    }
     if let Some(value) = prefs.snapshot_format {
         settings.snapshot_format = value;
     }

@@ -16,6 +16,8 @@ pub(crate) struct PlatformCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) scrolling: Option<CapabilityStatus>,
     pub(crate) include_cursor: CapabilityStatus,
+    /// 剪贴板历史：macOS 与 Linux 支持；Windows 不下发可用
+    pub(crate) clipboard_history: CapabilityStatus,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]

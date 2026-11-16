@@ -4,6 +4,7 @@ mod capabilities;
 mod capture;
 mod capture_timing;
 mod clipboard;
+mod clipboard_history;
 #[cfg(not(target_os = "macos"))]
 mod launchpad;
 #[cfg(not(target_os = "macos"))]
@@ -80,6 +81,7 @@ struct AppState {
     sounds_dir: PathBuf,
     activity: Mutex<activity::ActivityLog>,
     prompt_history: Mutex<prompt_history::PromptHistory>,
+    clipboard_history: Mutex<clipboard_history::ClipboardHistory>,
     saved_prompts: Mutex<prompt_library::PromptLibrary>,
     pet_catalog_cache: pet_catalog::PetCatalogCache,
     settings: Mutex<settings::Settings>,
@@ -370,6 +372,10 @@ pub fn run() {
             sounds_dir,
             activity: Mutex::new(activity::ActivityLog::load(activity_path)),
             prompt_history: Mutex::new(prompt_history::PromptHistory::load(prompt_history_path)),
+            clipboard_history: Mutex::new(clipboard_history::ClipboardHistory::load(
+                data_dir.join("clipboard-history.json"),
+                data_dir.join("clipboard-history"),
+            )),
             saved_prompts: Mutex::new(prompt_library::PromptLibrary::load(saved_prompts_path)),
             pet_catalog_cache: pet_catalog::PetCatalogCache::new(data_dir.join("pet-catalog.json")),
             settings: Mutex::new(settings),
@@ -399,6 +405,7 @@ pub fn run() {
         })
         .setup(move |app| {
             clipboard::keep_alive();
+            clipboard_history::start(app.handle().clone());
             let state = app.state::<AppState>();
             let settings = state.settings.lock().clone();
             let tracker = state.tracker.clone();
@@ -686,6 +693,9 @@ pub fn run() {
             snapshots::copy_snapshot,
             activity::list_activity,
             prompt_history::list_prompt_history,
+            clipboard_history::list_clipboard_history,
+            clipboard_history::delete_clipboard_history,
+            clipboard_history::copy_clipboard_history,
             clipboard::copy_text,
             clipboard::read_clipboard_text,
             capabilities::platform_capabilities,

@@ -579,6 +579,7 @@ mod tests {
             autostart: CapabilityStatus::yes(),
             scrolling: None,
             include_cursor: CapabilityStatus::no(),
+            clipboard_history: CapabilityStatus::no(),
         };
         let options = super::RecordOptions::supported(&settings, &caps);
         assert!(options.system_audio);

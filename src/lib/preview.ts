@@ -257,7 +257,16 @@ const capabilities: PlatformCapabilities = {
   autostart: { available: true },
   ...(previewOs === "linux" ? { scrolling: { available: true } } : {}),
   includeCursor: { available: true },
+  clipboardHistory: { available: previewOs !== "windows" },
 };
+
+let clipboardHistory = demo
+  ? [
+      { id: "clip-demo-1", createdAt: minutesAgo(6), kind: "text" as const, text: "npm run check 通过后再合并到 main，并替换 /Applications 里的安装包。", width: 0, height: 0, hash: "demo-1" },
+      { id: "clip-demo-2", createdAt: minutesAgo(45), kind: "image" as const, text: "", width: 1280, height: 800, hash: "demo-2" },
+      { id: "clip-demo-3", createdAt: minutesAgo(60 * 26), kind: "text" as const, text: "https://github.com/Maxwilldoit/Snapshot", width: 0, height: 0, hash: "demo-3" },
+    ]
+  : [];
 
 const idleRecording = { active: false, target: null, startedAt: null };
 const noFileManager = "预览模式下不会打开文件管理器";
@@ -389,6 +398,14 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       return structuredClone(recordings);
     case "list_prompt_history":
       return structuredClone(promptHistory);
+    case "list_clipboard_history":
+      return structuredClone(clipboardHistory);
+    case "delete_clipboard_history":
+      clipboardHistory = clipboardHistory.filter((item) => !(args.ids as string[]).includes(item.id));
+      return structuredClone(clipboardHistory);
+    case "copy_clipboard_history":
+      if (!clipboardHistory.some((item) => item.id === args.id)) throw new Error("这条剪贴板记录已被删除");
+      return undefined;
     case "list_saved_prompts":
       return structuredClone(savedPrompts);
     case "save_saved_prompt": {
@@ -461,6 +478,10 @@ export function installPreviewBackend() {
         if (record) return demoSnapshotImage(record);
       }
       if (kind === "recording" && demoVideos[id]) return demoVideos[id];
+      if (kind === "clipboard") {
+        const entry = clipboardHistory.find((item) => item.id === id);
+        if (entry) return demoSnapshotImage({ id: entry.id, appName: "Clipboard", width: entry.width, height: entry.height } as never);
+      }
       // 历史角标：app-icon/<size>/<id>，id 是余下整段（可含斜杠），按它取一张演示图标
       if (kind === "app-icon" || kind === "app-name-icon") return demoAppIcon(path.split("/").slice(2).join("/"));
       if (kind === "pet" || kind === "pet-thumb") {

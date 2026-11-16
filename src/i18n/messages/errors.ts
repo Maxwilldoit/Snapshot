@@ -1,5 +1,8 @@
 /** Native errors are returned as strings; translate the common paths at the UI boundary. */
 export const backendErrorEnglish: Record<string, string> = {
+  "这条剪贴板记录已被删除": "That clipboard entry was deleted.",
+  "记录的图片文件已丢失": "The image file for this entry is missing.",
+  "记录不存在": "That entry no longer exists.",
   "需要「屏幕录制」权限才能读取和截取窗口": "Snapshot needs Screen Recording permission to see and capture windows.",
   "无法打开系统设置，请手动打开「屏幕录制」设置": "Couldn’t open System Settings. Open Privacy & Security → Screen Recording yourself.",
   "输入框窗口不存在": "The Quick Menu isn’t available. Try reopening Snapshot.",
@@ -177,6 +180,7 @@ export const backendErrorPatterns: Array<[RegExp, string]> = [
   [/^无感窗口采集失败：(.+)$/s, "Couldn’t capture the window. $1"],
   [/^无法打开系统设置：(.+)$/s, "Couldn’t open System Settings. $1"],
   [/^写入剪贴板失败：(.+)$/s, "Couldn’t copy to the clipboard. $1"],
+  [/^无法读取记录的图片：(.+)$/s, "Couldn’t read the entry’s image. $1"],
   [/^截取失败：(.+)$/s, "Couldn’t take the screenshot. $1"],
   [/^全屏截取失败：(.+)$/s, "Couldn’t take a full-screen screenshot. $1"],
   [/^另存为失败：(.+)$/s, "Couldn’t save the image. $1"],

@@ -1,6 +1,7 @@
 /** 主窗口侧栏里的页面：资料库（截图、Prompt）、桌面伴侣、设置（截图与录制、快捷键、通用） */
 export type NavPage =
   | "history"
+  | "clipboard"
   | "prompts"
   | "pet"
   | "capture"
@@ -134,6 +135,8 @@ export interface Settings {
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
   shortcutsPaused?: boolean;
+  /** 剪贴板历史（仅 macOS / Linux）；旧设置缺省时视为关闭 */
+  clipboardHistory?: boolean;
   snapshotFormat: "png" | "jpeg" | "webp";
   saveDir: string;
   recordingDir: string;
@@ -247,4 +250,17 @@ export interface PlatformCapabilities {
   /** 仅 Linux 下发：其余平台没有滚动长截图 */
   scrolling?: CapabilityStatus;
   includeCursor: CapabilityStatus;
+  /** 剪贴板历史：macOS / Linux 可用 */
+  clipboardHistory?: CapabilityStatus;
+}
+
+/** 剪贴板历史里的一条：文字全文或图片元信息（图片经 media://clipboard/<id> 取） */
+export interface ClipboardHistoryEntry {
+  id: string;
+  createdAt: number;
+  kind: "text" | "image";
+  text: string;
+  width: number;
+  height: number;
+  hash: string;
 }
