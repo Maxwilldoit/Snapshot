@@ -565,6 +565,11 @@ pub fn run() {
                         .build(),
                 );
             }
+            // 页面滚动不要橡皮筋：所有配置窗口在创建时关掉 WKWebView 的弹性回弹。
+            #[cfg(target_os = "macos")]
+            for window in app.webview_windows().values() {
+                os::disable_scroll_bounce(window);
+            }
             if should_show_main_window(started_at_login, tray_available) {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
@@ -574,6 +579,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // WebKit 可能重建内部滚动视图；聚焦时把弹性回弹再关一次。
+            #[cfg(target_os = "macos")]
+            if matches!(event, WindowEvent::Focused(true)) {
+                if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                    os::refresh_scroll_bounce(&webview);
+                }
+            }
             if matches!(window.label(), "main" | "pet-catalog") {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();

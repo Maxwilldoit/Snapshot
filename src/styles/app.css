@@ -72,7 +72,7 @@
 
 .shell { display: flex; flex: 1 1 auto; min-height: 0; }
 .sidebar { display: flex; flex-direction: column; flex: 0 0 164px; width: 164px; min-height: 0; padding: 10px 14px 0 16px; }
-.main { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.main { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: none; }
 
 /*
  * 新页自己淡入只在没有 View Transitions 时用（第一次打开、旧 WebView）。
@@ -248,7 +248,7 @@
 
 .history-page { display: flex; flex-direction: column; height: calc(100vh - var(--titlebar-h)); padding: 10px 32px 0 20px; }
 .history-bar { display: flex; align-items: center; gap: 16px; min-height: 32px; flex: 0 0 auto; }
-.history-scroll { flex: 1 1 auto; min-height: 0; margin-top: 14px; overflow-y: auto; padding-bottom: 24px; }
+.history-scroll { flex: 1 1 auto; min-height: 0; margin-top: 14px; overflow-y: auto; overscroll-behavior: none; padding-bottom: 24px; }
 .history-groups { display: flex; flex-direction: column; }
 .day { display: grid; grid-template-columns: 76px minmax(0, 1fr); padding: 14px 0 16px; border-top: 1px solid var(--rule); }
 .day-label { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
@@ -286,7 +286,7 @@
 .prompt-text { min-width: 0; }
 .prompt-text h4 { margin: 0 0 6px; font-size: var(--text-small); font-weight: 600; }
 .prompt-text pre {
-  margin: 0; max-height: 280px; overflow: auto; padding: 10px 12px;
+  margin: 0; max-height: 280px; overflow: auto; overscroll-behavior: none; padding: 10px 12px;
   border: 1px solid var(--rule); border-radius: 3px; background: var(--paper-raised);
   color: var(--ink-2); font: 12px/19px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
 }

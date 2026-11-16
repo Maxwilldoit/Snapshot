@@ -369,6 +369,12 @@
 
 验证：`npm run check` 全量通过（641 前端、156 Rust 测试通过 / 1 忽略）；中英文浏览器确认无截后选项、通用面板在同页且语言切换生效。证据在 `/tmp/snapshot-merge-settings-qa/`。
 
+## 41. 去掉页面滚动的橡皮筋回弹（2026-11-16）
+
+按用户要求页面滚动到边缘就停住：全部滚动容器（主内容、历史列表、侧栏、设置页、菜单、快捷菜单、桌宠详情等）统一 `overscroll-behavior: none`；macOS 上另加原生适配 `os/macos/scroll.rs`，把 WKWebView 内部 NSScrollView 的横竖弹性设为 None，窗口创建与聚焦时各补设一次（防 WebKit 重建滚动视图），桌宠透明窗不参与。IPC、设置与存储契约无变化。
+
+验证：`npm run check` 全量通过（641 前端、156 Rust 测试通过 / 1 忽略）。原生回弹消失需真机确认，已记入待验证清单。证据在 `/tmp/snapshot-no-bounce-qa/`。
+
 ## 暂缓事项与原因
 
 - **截图策略迁移**：已在第 40 批按用户要求收敛为固定「复制 + 存历史」，`afterCapture` 字段删除、老值忽略，无迁移步骤。

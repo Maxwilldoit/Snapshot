@@ -1,7 +1,9 @@
 /* ---------- 基础 ---------- */
 
 * { box-sizing: border-box; }
-html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
+/* 页面滚到边缘就停住，不做橡皮筋回弹（macOS 原生弹性另由后端关闭） */
+.main, .history-scroll, .palette-list, .palette-result, .prompt-text pre, .launchpad-grid.is-search { overscroll-behavior: none; }
 html, body { background: var(--paper); }
 html.transparent-window, body.transparent-window, body.transparent-window #root { background: transparent; }
 
@@ -433,7 +435,7 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 .palette-menu { height: auto; }
 .palette-menu .palette-item { flex: 0 0 45px; }
 /* 窗口列表最多显示 4 项，少于此数时高度随内容收紧 */
-.palette-windows { max-height: 144px; overscroll-behavior: contain; }
+.palette-windows { max-height: 144px; overscroll-behavior: none; }
 .palette-windows .palette-item { flex: 0 0 36px; }
 .palette-item {
   width: 100%;
