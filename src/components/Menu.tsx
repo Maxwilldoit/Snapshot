@@ -11,6 +11,7 @@ export function Menu({
   label,
   align = "end",
   point,
+  className = "",
   children,
 }: {
   anchor: HTMLElement | null;
@@ -18,6 +19,7 @@ export function Menu({
   label: string;
   align?: "start" | "end";
   point?: { x: number; y: number };
+  className?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -84,7 +86,7 @@ export function Menu({
   return createPortal(
     <div
       ref={ref}
-      className="mw-menu"
+      className={`mw-menu ${className}`}
       role="menu"
       aria-label={label}
       style={position ?? { visibility: "hidden", top: 0, left: 0 }}

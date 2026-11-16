@@ -21,7 +21,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
 import { SearchField } from "../components/SearchField";
 import { TimelineScrollbar } from "../components/TimelineScrollbar";
-import { Menu, MenuItem, MenuSeparator } from "../components/Menu";
+import { Menu, MenuItem } from "../components/Menu";
 import { Keys } from "../components/ui/Keys";
 import { Toolbar } from "../app/Shell";
 import { acceleratorOf } from "../lib/shortcuts";
@@ -410,12 +410,11 @@ export function HistoryPage() {
       </div>
 
       {contextMenu && (
-        <Menu anchor={contextMenu.anchor} point={contextMenu.point} onClose={closeMenu} label={t("历史操作")}>
+        <Menu className="history-actions-menu" anchor={contextMenu.anchor} point={contextMenu.point} onClose={closeMenu} label={t("历史操作")}>
           <MenuItem onSelect={() => menuAction(selectItem)}>
             {selecting ? t(selected.has(contextMenu.item.id) ? "取消选择" : "选择") : t("多选")}
           </MenuItem>
           {contextMenu.item.kind === "snapshot" && <MenuItem onSelect={() => menuAction(copyItem)}>{t("复制")}</MenuItem>}
-          <MenuSeparator />
           <MenuItem danger onSelect={() => menuAction(deleteItem)}>{t("删除")}</MenuItem>
         </Menu>
       )}
