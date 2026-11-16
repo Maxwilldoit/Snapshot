@@ -213,14 +213,16 @@ html[data-surface="app"] .mw .day::before {
    sticky 释放点即分组底边到达条底之时——整组图片吸完才上移。 */
 html[data-surface="app"] .mw .day-label { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0 -10px 0 -16px; padding: 6px 10px 6px 16px; background: var(--win); }
 html[data-surface="app"] .mw .day-title { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; color: var(--text3); }
-html[data-surface="app"] .mw .day > .jgrid { margin-top: 7px; }
-html[data-surface="app"] .jgrid { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-html[data-surface="app"] .jrow { display: flex; align-items: flex-start; min-width: 0; }
-html[data-surface="app"] .jrow.is-wrap { flex-wrap: wrap; row-gap: 8px; }
+/* 「照片」式等大网格：正方形格子随容器宽度伸缩，列宽有上下限，间距细而均匀 */
+html[data-surface="app"] .mw .day > .shot-grid { margin-top: 7px; }
+html[data-surface="app"] .shot-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
+  gap: 6px; min-width: 0;
+}
 html[data-surface="app"] .mw .shot { flex: 0 0 auto; min-width: 0; max-width: none; margin: 0; }
 /* 时间线的一格：封面铺满，平时只露类型标记和时长，悬停/聚焦才浮出信息和操作 */
 html[data-surface="app"] .mw .tile {
-  position: relative; border-radius: 5px; overflow: hidden; background: var(--fill);
+  position: relative; width: 100%; aspect-ratio: 1; border-radius: 5px; overflow: hidden; background: var(--fill);
   box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.16); transition: box-shadow var(--t-press) var(--ease-out);
 }
 html[data-surface="app"][data-theme="dark"] .mw .tile { box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12); }
@@ -229,9 +231,6 @@ html[data-surface="app"] .mw .tile.is-selected { box-shadow: 0 0 0 3px var(--acc
 html[data-surface="app"] .mw .tile-main { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; outline: 0; }
 html[data-surface="app"] .mw .tile-main:focus-visible { box-shadow: inset 0 0 0 3px var(--accent); }
 html[data-surface="app"] .mw .tile-main img, html[data-surface="app"] .mw .tile-main video { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
-/* 窄长竖图：整张居中放在浅底上，不裁成一条缝 */
-html[data-surface="app"] .mw .tile.is-narrow { background: var(--stage); }
-html[data-surface="app"] .mw .tile.is-narrow .tile-main img, html[data-surface="app"] .mw .tile.is-narrow .tile-main video { object-fit: contain; }
 /* 来源应用图标：浅底衬托，深色截图上也看得清；取不到就不渲染（没有类型图标顶替） */
 html[data-surface="app"] .mw .tile-app { position: absolute; left: 5px; bottom: 5px; width: 18px; height: 18px; padding: 1px; border-radius: 4px; object-fit: contain; background: rgba(255, 255, 255, 0.88); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
 html[data-surface="app"] .mw .tile-duration { position: absolute; right: 5px; bottom: 5px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 10px; line-height: 14px; pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }

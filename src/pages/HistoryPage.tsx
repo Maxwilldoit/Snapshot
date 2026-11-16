@@ -14,7 +14,6 @@ import {
 import { formatBytes, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
-import { JustifiedGrid } from "../components/JustifiedGrid";
 import { Lightbox } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
@@ -25,7 +24,7 @@ import { Toolbar } from "../app/Shell";
 import { acceleratorOf } from "../lib/shortcuts";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
-import { mergeTimeline, type MediaItem, type RecordingMeta } from "../lib/mediaTimeline";
+import { mergeTimeline, type MediaItem } from "../lib/mediaTimeline";
 import type { RecordingRecord, SnapshotRecord } from "../types";
 
 type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y: number } };
@@ -36,8 +35,6 @@ export function HistoryPage() {
   const { t } = useI18n();
   const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(null);
   const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
-  const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>({});
-  const metaRef = useRef<Record<string, RecordingMeta>>({});
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -58,13 +55,6 @@ export function HistoryPage() {
     void annotateSnapshot(item.id).catch((error) => notify(errorText(error), "error"));
   }, [notify]);
 
-  // 录屏封面 video 读到真实尺寸/时长后回填，时间线据此重新排版
-  const reportMeta = useCallback((id: string, meta: RecordingMeta) => {
-    if (metaRef.current[id]?.durationMs === meta.durationMs && metaRef.current[id]?.width === meta.width) return;
-    metaRef.current = { ...metaRef.current, [id]: meta };
-    setRecordingMeta(metaRef.current);
-  }, []);
-
   const refresh = useCallback(async () => {
     try {
       const snapList = await listSnapshots();
@@ -72,7 +62,7 @@ export function HistoryPage() {
       // 录屏是补充内容：读不到也不该让截图墙整个空掉，单独兜底
       const recList = await listRecordings().catch(() => [] as RecordingRecord[]);
       const recs = Array.isArray(recList) ? recList : [];
-      const next = mergeTimeline(snaps, recs, metaRef.current);
+      const next = mergeTimeline(snaps, recs, {});
       // 第一次加载不算「新来的」；之后多出来的那几格要从顶上挤进来
       if (known.current) {
         const added = next.filter((item) => !known.current!.has(item.id)).map((item) => item.id);
@@ -107,7 +97,7 @@ export function HistoryPage() {
     }
     if (snapshots === null || pendingHandled.current === pendingPreviewId) return;
     pendingHandled.current = pendingPreviewId;
-    const items = mergeTimeline(snapshots, recordings, metaRef.current);
+    const items = mergeTimeline(snapshots, recordings, {});
     const item = items.find((item) => item.id === pendingPreviewId);
     if (item?.kind === "snapshot") annotateItem(item);
     else if (item) setPreviewId(item.id);
@@ -121,8 +111,8 @@ export function HistoryPage() {
   }, [fresh]);
 
   const items = useMemo(
-    () => (snapshots === null ? null : mergeTimeline(snapshots, recordings, recordingMeta)),
-    [snapshots, recordings, recordingMeta],
+    () => (snapshots === null ? null : mergeTimeline(snapshots, recordings, {})),
+    [snapshots, recordings],
   );
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -197,7 +187,7 @@ export function HistoryPage() {
         snapIds.length ? deleteSnapshots(snapIds) : Promise.resolve(snapshots ?? []),
         recIds.length ? deleteRecordings(recIds) : Promise.resolve(recordings),
       ]);
-      const next = mergeTimeline(nextSnaps, nextRecs, metaRef.current);
+      const next = mergeTimeline(nextSnaps, nextRecs, {});
       known.current = new Set(next.map((item) => item.id));
       flip.capture();
       setSnapshots(nextSnaps);
@@ -346,29 +336,24 @@ export function HistoryPage() {
               <div className="day-label">
                 <h2 className="day-title">{group.label}</h2>
               </div>
-              <JustifiedGrid
-                items={group.items}
-                size={(item) => item}
-                render={(item, box) => (
+              <div className="shot-grid">
+                {group.items.map((item) => (
                   <figure
                     key={item.id}
                     data-flip-key={item.id}
-                    style={{ ...stagger(order++), width: box.width }}
+                    style={stagger(order++)}
                     className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
                   >
                     <MediaTile
                       item={item}
-                      boxWidth={box.width}
-                      boxHeight={box.height}
                       selecting={selecting}
                       selected={selected.has(item.id)}
                       onOpen={open}
                       onMenu={(item, anchor, point) => setContextMenu({ item, anchor, point })}
-                      onMeta={reportMeta}
                     />
                   </figure>
-                )}
-              />
+                ))}
+              </div>
             </section>
           );
         })}
