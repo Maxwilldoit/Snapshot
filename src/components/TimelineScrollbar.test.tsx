@@ -70,7 +70,7 @@ function setup(groups = stops, language = "zh") {
   const view = render(<I18nProvider><Harness groups={groups} /></I18nProvider>);
   frame();
   const scroller = document.querySelector<HTMLElement>(".history-scroll")!;
-  const scrollNow = (top: number) => { scroller.scrollTop = top; fireEvent.scroll(scroller); };
+  const scrollNow = (top: number) => { scroller.scrollTop = top; fireEvent.scroll(scroller); frame(); };
   const scroll = (top: number) => { scrollNow(top); settle(); };
   const hover = (ratio: number) => { fireEvent.pointerOver(root(), { clientY: yAt(ratio), relatedTarget: document.body }); fireEvent.pointerMove(root(), { clientY: yAt(ratio) }); frame(); settle(); };
   return { view, scroller, scroll, scrollNow, hover, bounds };
@@ -450,5 +450,40 @@ describe("content date scrubber", () => {
     expect(vi.getTimerCount()).toBe(0);
     view.unmount();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("coalesces a burst of scroll events into one frame without losing the final position", () => {
+    const { scroller } = setup();
+    for (let index = 1; index <= 12; index++) {
+      scroller.scrollTop = MAX * index / 12;
+      fireEvent.scroll(scroller);
+    }
+    expect(vi.getTimerCount()).toBe(1);
+    frame();
+    expect(tickWidths().at(-1)).toBe(24);
+    expect(slider().getAttribute("aria-valuenow")).toBe("100");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("writes only the ticks the wave actually touches", () => {
+    const { scroller } = setup();
+    scroller.scrollTop = MAX * 0.5;
+    fireEvent.scroll(scroller); frame();
+    const writes: string[] = [];
+    const ticks = [...document.querySelectorAll<HTMLElement>(".timeline-tick")];
+    const spies = ticks.map((tick) => {
+      const original = Object.getOwnPropertyDescriptor(tick.style, "width")
+        ?? Object.getOwnPropertyDescriptor(Object.getPrototypeOf(tick.style), "width");
+      return vi.spyOn(tick.style, "width", "set").mockImplementation(function (this: CSSStyleDeclaration, value: string) {
+        writes.push(value);
+        if (original?.set) original.set.call(this, value);
+        else this.setProperty("width", value);
+      });
+    });
+    scroller.scrollTop = MAX * 0.5 + 8;
+    fireEvent.scroll(scroller); frame();
+    spies.forEach((spy) => spy.mockRestore());
+    expect(writes.length).toBeGreaterThan(0);
+    expect(writes.length).toBeLessThan(tickWidths().length / 2);
   });
 });

@@ -217,6 +217,8 @@ html[data-surface="app"] .timeline-scrollbar {
 }
 html[data-surface="app"] .timeline-scrollbar.is-interactive {
   width: 36px; overflow: visible; opacity: 1;
+  /* Keep per-frame tick writes from invalidating the history wall's layout. */
+  contain: layout style;
 }
 html[data-surface="app"] .timeline-track {
   position: absolute; top: 8px; right: 0; left: 0; cursor: pointer; border-radius: 6px; outline: none; pointer-events: auto;
@@ -226,6 +228,7 @@ html[data-surface="app"] .timeline-track:focus-visible {
 }
 html[data-surface="app"] .timeline-ticks {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  contain: layout style;
 }
 html[data-surface="app"] .timeline-tick {
   position: absolute; right: 10px; width: 9px; height: 2px; margin-top: -1px; border-radius: 999px;

@@ -28,6 +28,7 @@ export function TimelineScrollbar({ scrollRef, stops }: {
   const pointerId = useRef<number | null>(null);
   const pending = useRef<PointerSample | null>(null);
   const pointerFrame = useRef<number | null>(null);
+  const scrollFrame = useRef<number | null>(null);
   const [geometry, setGeometry] = useState<Geometry | null>(null);
   const [current, setCurrent] = useState<Selection>({ index: 0, ratio: 0 });
   const [preview, setPreview] = useState<Selection | null>(null);
@@ -41,7 +42,8 @@ export function TimelineScrollbar({ scrollRef, stops }: {
     const layout = geometryRef.current;
     if (!scroller || !layout) return;
     const next = timelineScrollPosition(stops, layout.offsets, scroller.scrollTop, layout.max);
-    // Paint live scroll samples without waiting for React's next commit.
+    // Paint before the frame is presented; the coalesced React update only
+    // re-renders this small component once per frame.
     scrollWave.current?.(next.ratio);
     setCurrent((old) => old.index === next.index && old.ratio === next.ratio ? old : next);
   }, [scrollRef, stops]);
@@ -101,12 +103,20 @@ export function TimelineScrollbar({ scrollRef, stops }: {
 
   useEffect(() => {
     const scroller = scrollRef.current;
-    // Native scroll events already arrive with the rendering cycle. Deferring
-    // their position to another frame makes the wave trail the content.
-    const onScroll = () => syncPosition(); // Never opens the bubble.
+    // Coalesce bursts to one paint per frame. Scroll events fire before the
+    // frame's rAF callbacks, so the wave still lands in the same frame.
+    const onScroll = () => {
+      if (scrollFrame.current !== null) return;
+      scrollFrame.current = window.requestAnimationFrame(() => {
+        scrollFrame.current = null;
+        syncPosition(); // Never opens the bubble.
+      });
+    };
     scroller?.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       scroller?.removeEventListener("scroll", onScroll);
+      if (scrollFrame.current !== null) window.cancelAnimationFrame(scrollFrame.current);
+      scrollFrame.current = null;
     };
   }, [scrollRef, syncPosition]);
 
