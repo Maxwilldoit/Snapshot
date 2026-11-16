@@ -24,7 +24,6 @@ const base: Settings = {
   shutterSound: "crisp",
   customSoundPath: null,
   flashOnCapture: true,
-  hideAfterCopy: false,
   launchOnBoot: false,
   includeCursor: false,
   recordSystemAudio: false,

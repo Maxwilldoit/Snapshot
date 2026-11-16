@@ -148,7 +148,6 @@ let settings: Settings = {
   shutterSound: "crisp",
   customSoundPath: null,
   flashOnCapture: true,
-  hideAfterCopy: false,
   launchOnBoot: false,
   includeCursor: false,
   recordSystemAudio: demo,

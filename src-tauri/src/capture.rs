@@ -254,12 +254,6 @@ pub(crate) fn finalize_capture(
         }),
     );
     trace.mark("feedback_event");
-    if settings.hide_after_copy && !annotate && !only_save {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.hide();
-        }
-    }
-
     let suffix = cursor_degraded.unwrap_or_default();
     if interface_is_english() {
         let head = if annotate {

@@ -50,7 +50,6 @@ export const coreEnglish: Record<string, string> = {
   "静音": "None",
   "自定义": "Custom",
   "截屏时闪一下": "Flash screen on capture",
-  "复制后隐藏主窗口": "Hide window after copying",
   "截图带上鼠标指针": "Include pointer in screenshots",
   "开机时静默启动": "Open quietly at login",
   "大小": "Size",

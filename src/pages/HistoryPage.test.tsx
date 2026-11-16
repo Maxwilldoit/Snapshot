@@ -22,7 +22,6 @@ const settings: Settings = {
   shutterSound: "none",
   customSoundPath: null,
   flashOnCapture: false,
-  hideAfterCopy: false,
   launchOnBoot: false,
   includeCursor: false,
   recordSystemAudio: false,
