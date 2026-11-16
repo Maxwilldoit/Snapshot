@@ -109,7 +109,7 @@ describe("B2 拆页后逐页渲染", () => {
     if (recording) expect(screen.getByRole("switch", { name: "同时录系统声音" })).toHaveProperty("disabled", false);
     expect(screen.getByRole("switch", { name: "截屏时闪一下" })).toBeTruthy();
     expect(screen.queryByRole("switch", { name: "开机时静默启动" })).toBeNull();
-    expect(screen.getByRole("radiogroup", { name: "界面语言" })).toBeTruthy();
+    expect(screen.queryByRole("radiogroup", { name: "界面语言" })).toBeNull();
     expect(preferences).not.toHaveBeenCalled();
     expect(saved).toMatchObject({ recordMicrophone: true, recordSystemAudio: true, launchOnBoot: true, includeCursor: true });
   });
@@ -199,7 +199,6 @@ describe("B2 拆页后逐页渲染", () => {
     [/^应用图标/, "自由走动"],
     [/^截图与录制/, "截图时"],
     [/^快捷键/, "启用全局快捷键"],
-    [/^截图与录制/, "界面语言"],
   ])("导航到「%s」能渲染出该页独有内容", async (navLabel, marker) => {
     await renderApp();
     const user = userEvent.setup();

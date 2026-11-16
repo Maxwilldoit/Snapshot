@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCheck, FolderOpen, Trash2, X } from "lucide-react";
+import { CheckCheck, FolderOpen, ImageMinus, ImagePlus, Trash2, X } from "lucide-react";
 import {
   annotateSnapshot,
   copySnapshot,
@@ -14,6 +14,8 @@ import {
 import { formatBytes, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
+import { JustifiedGrid } from "../components/JustifiedGrid";
+import { DEFAULT_ZOOM, ZOOM_ROW_HEIGHTS } from "../lib/justify";
 import { Lightbox } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
@@ -29,6 +31,13 @@ import type { RecordingRecord, SnapshotRecord } from "../types";
 
 type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y: number } };
 
+const ZOOM_KEY = "snapshot-history-zoom";
+
+function readZoom(): number {
+  const stored = Number(localStorage.getItem(ZOOM_KEY));
+  return Number.isInteger(stored) && stored >= 0 && stored < ZOOM_ROW_HEIGHTS.length ? stored : DEFAULT_ZOOM;
+}
+
 /** 历史：截图点开标注，录屏点开播放；右键进入多选、复制或确认删除。 */
 export function HistoryPage() {
   const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
@@ -36,6 +45,7 @@ export function HistoryPage() {
   const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(null);
   const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
   const [query, setQuery] = useState("");
+  const [zoom, setZoom] = useState(readZoom);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -54,6 +64,12 @@ export function HistoryPage() {
   const annotateItem = useCallback((item: MediaItem) => {
     void annotateSnapshot(item.id).catch((error) => notify(errorText(error), "error"));
   }, [notify]);
+
+  const changeZoom = useCallback((next: number) => {
+    const clamped = Math.max(0, Math.min(ZOOM_ROW_HEIGHTS.length - 1, next));
+    setZoom(clamped);
+    localStorage.setItem(ZOOM_KEY, String(clamped));
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -290,6 +306,39 @@ export function HistoryPage() {
     </Toolbar>
   ) : (
     <Toolbar title={t("历史")}>
+      <span className="history-zoom">
+        <button
+          type="button"
+          className="tb-btn"
+          aria-label={t("缩小")}
+          title={t("缩小")}
+          disabled={zoom === 0}
+          onClick={() => changeZoom(zoom - 1)}
+        >
+          <ImageMinus aria-hidden="true" />
+        </button>
+        <input
+          className="range"
+          type="range"
+          min={0}
+          max={ZOOM_ROW_HEIGHTS.length - 1}
+          step={1}
+          value={zoom}
+          aria-label={t("缩放")}
+          aria-valuetext={`${zoom + 1}/${ZOOM_ROW_HEIGHTS.length}`}
+          onChange={(event) => changeZoom(Number(event.target.value))}
+        />
+        <button
+          type="button"
+          className="tb-btn"
+          aria-label={t("放大")}
+          title={t("放大")}
+          disabled={zoom === ZOOM_ROW_HEIGHTS.length - 1}
+          onClick={() => changeZoom(zoom + 1)}
+        >
+          <ImagePlus aria-hidden="true" />
+        </button>
+      </span>
       <SearchField value={query} onChange={setQuery} label={t("搜索截图")} />
       <button type="button" className="tb-btn" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
         <FolderOpen aria-hidden="true" />
@@ -336,24 +385,29 @@ export function HistoryPage() {
               <div className="day-label">
                 <h2 className="day-title">{group.label}</h2>
               </div>
-              <div className="shot-grid">
-                {group.items.map((item) => (
+              <JustifiedGrid
+                items={group.items}
+                size={(item) => item}
+                zoom={zoom}
+                render={(item, box) => (
                   <figure
                     key={item.id}
                     data-flip-key={item.id}
-                    style={stagger(order++)}
+                    style={{ ...stagger(order++), width: box.width }}
                     className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
                   >
                     <MediaTile
                       item={item}
+                      boxWidth={box.width}
+                      boxHeight={box.height}
                       selecting={selecting}
                       selected={selected.has(item.id)}
                       onOpen={open}
                       onMenu={(item, anchor, point) => setContextMenu({ item, anchor, point })}
                     />
                   </figure>
-                ))}
-              </div>
+                )}
+              />
             </section>
           );
         })}

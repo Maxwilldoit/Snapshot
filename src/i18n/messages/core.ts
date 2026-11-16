@@ -32,12 +32,11 @@ export const coreEnglish: Record<string, string> = {
   "正在读取设置…": "Loading settings…",
   "{count} 个冲突": "1 conflict|{count} conflicts",
 
-  "昨天": "Yesterday",
+  "缩放": "Zoom",
+  "缩小": "Zoom Out",
+  "放大": "Zoom In",
 
-  "界面语言": "Language",
-  "跟随系统": "System Default",
-  "简体中文": "简体中文",
-  "English": "English",
+  "昨天": "Yesterday",
   "颜色": "Color",
 
   "快门声": "Shutter sound",
@@ -47,7 +46,6 @@ export const coreEnglish: Record<string, string> = {
   "自定义": "Custom",
   "截屏时闪一下": "Flash screen on capture",
   "截图带上鼠标指针": "Include pointer in screenshots",
-  "开机时静默启动": "Open quietly at login",
   "大小": "Size",
   "100% 基准大小": "Base size (100%)",
   "自动适配": "Auto",
@@ -76,7 +74,6 @@ export const coreEnglish: Record<string, string> = {
   "Prompt": "Prompts",
   "截图与录制": "Capture & Recording",
   "快捷键": "Shortcuts",
-  "通用": "General",
   "录屏": "Record",
   "选择": "Select",
   "更多": "More",

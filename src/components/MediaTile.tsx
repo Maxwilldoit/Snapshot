@@ -5,20 +5,25 @@ import { useI18n } from "../lib/i18n";
 import type { MediaItem } from "../lib/mediaTimeline";
 
 /**
- * 历史网格的一格：等大的正方形，封面居中裁切铺满（同「照片」App）。
+ * 历史网格的一格：保留原始宽高比，封面铺满格子（同「照片」App 的「所有照片」）。
  * 平时只露左下角的来源应用图标（录屏再加右下角时长）；悬停或聚焦时底部只浮出时间。
  * 截图点开标注，右键（或 Shift+F10）打开操作菜单。
+ * 窄长的竖图给一个最小宽度，整张图居中放在浅底上，不裁成一条缝。
  * 旧记录按应用名查找已安装应用的图标；取不到就不显示角标，不用类型图标顶替——
  * 截图和录屏靠封面与时长就能分清，角标只回答「这是哪个应用」。
  */
 export function MediaTile({
   item,
+  boxWidth,
+  boxHeight,
   selecting = false,
   selected = false,
   onOpen,
   onMenu,
 }: {
   item: MediaItem;
+  boxWidth: number;
+  boxHeight: number;
   selecting?: boolean;
   selected?: boolean;
   onOpen: (item: MediaItem, event: React.MouseEvent) => void;
@@ -28,6 +33,7 @@ export function MediaTile({
   const [failed, setFailed] = useState(false);
   const [iconFailed, setIconFailed] = useState(false);
   const isRecording = item.kind === "recording";
+  const narrow = boxWidth < 48;
   const label = item.appName;
   const iconSrc = item.appId ? appIconUrl(item.appId, 20) : appNameIconUrl(item.appName, 20);
   const hasIcon = !iconFailed;
@@ -39,7 +45,8 @@ export function MediaTile({
 
   return (
     <div
-      className={`tile ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${hasIcon ? "has-app-icon" : ""} ${failed ? "is-failed" : ""}`}
+      className={`tile ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${hasIcon ? "has-app-icon" : ""} ${narrow ? "is-narrow" : ""} ${failed ? "is-failed" : ""}`}
+      style={{ width: boxWidth, height: boxHeight }}
     >
       <button
         type="button"

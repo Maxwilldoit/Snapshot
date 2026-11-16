@@ -1,18 +1,15 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { applyDocumentLanguage, I18nProvider, localizeMessage, translate, useI18n } from "./i18n";
 import { englishMessages } from "../i18n/messages";
 import { backendErrorEnglish, backendErrorPatterns } from "../i18n/messages/errors";
 
 function LanguageProbe() {
-  const { language, t, preference, setLanguagePreference } = useI18n();
+  const { language, t } = useI18n();
   return (
     <div>
       <span data-testid="language">{language}</span>
-      <span data-testid="preference">{preference}</span>
       <span>{t("设置")}</span>
-      <button type="button" onClick={() => setLanguagePreference("en")}>English</button>
-      <button type="button" onClick={() => setLanguagePreference("zh")}>Chinese</button>
     </div>
   );
 }
@@ -84,42 +81,30 @@ describe("interface language", () => {
       .toBe("Couldn’t capture the window. permission denied");
   });
 
-  it("switches immediately and remembers an explicit choice", () => {
-    localStorage.setItem("snapshot-language", "zh");
+  it("ignores and clears a stored explicit choice: the system locale always wins", () => {
+    vi.spyOn(navigator, "languages", "get").mockReturnValue(["zh-CN", "zh"]);
+    localStorage.setItem("snapshot-language", "en");
     render(<I18nProvider><LanguageProbe /></I18nProvider>);
+    expect(screen.getByTestId("language").textContent).toBe("zh");
     expect(screen.getByText("设置")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "English" }));
-    expect(screen.getByText("Settings")).toBeTruthy();
-    expect(screen.getByTestId("language").textContent).toBe("en");
-    expect(localStorage.getItem("snapshot-language")).toBe("en");
-
-    fireEvent.click(screen.getByRole("button", { name: "Chinese" }));
-    expect(screen.getByText("设置")).toBeTruthy();
-    expect(document.documentElement.lang).toBe("zh-CN");
+    expect(localStorage.getItem("snapshot-language")).toBeNull();
   });
 
   it("uses the English system locale on first launch", () => {
     vi.spyOn(navigator, "languages", "get").mockReturnValue(["en-GB", "en"]);
     localStorage.removeItem("snapshot-language");
     render(<I18nProvider><LanguageProbe /></I18nProvider>);
-    expect(screen.getByTestId("preference").textContent).toBe("system");
     expect(screen.getByTestId("language").textContent).toBe("en");
     expect(screen.getByText("Settings")).toBeTruthy();
     expect(document.documentElement.lang).toBe("en");
   });
 
-  it("uses Simplified Chinese for a Chinese system locale unless an explicit choice exists", () => {
-    vi.spyOn(navigator, "languages", "get").mockReturnValue(["zh-TW", "zh"]);
+  it.each(["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-SG"])("uses Simplified Chinese for %s", (locale) => {
+    vi.spyOn(navigator, "languages", "get").mockReturnValue([locale]);
     localStorage.removeItem("snapshot-language");
-    const view = render(<I18nProvider><LanguageProbe /></I18nProvider>);
+    render(<I18nProvider><LanguageProbe /></I18nProvider>);
     expect(screen.getByTestId("language").textContent).toBe("zh");
     expect(screen.getByText("设置")).toBeTruthy();
-
-    view.unmount();
-    localStorage.setItem("snapshot-language", "en");
-    render(<I18nProvider><LanguageProbe /></I18nProvider>);
-    expect(screen.getByTestId("language").textContent).toBe("en");
-    expect(screen.getByText("Settings")).toBeTruthy();
   });
 
   it("sets the document language before the interface renders", () => {

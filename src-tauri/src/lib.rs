@@ -145,6 +145,39 @@ pub(crate) fn interface_is_english() -> bool {
     INTERFACE_ENGLISH.load(Ordering::Relaxed)
 }
 
+/// 界面语言只跟随系统：任何 zh 开头的区域（含港澳台）用简体中文，其余用英文。
+/// 启动时按系统区域初始化，前端挂载后会再按 WebView 区域确认一次。
+#[cfg(not(target_os = "macos"))]
+fn system_locale_is_english() -> bool {
+    let locale = std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LC_MESSAGES"))
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_default()
+        .to_lowercase();
+    !locale.starts_with("zh")
+}
+
+#[cfg(target_os = "macos")]
+fn system_locale_is_english() -> bool {
+    // GUI 启动没有 LANG 环境变量，读系统偏好里的首选语言（如 zh-Hans-CN / en-CN）
+    let output = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleLanguages"])
+        .output();
+    let Ok(output) = output else { return true };
+    let text = String::from_utf8_lossy(&output.stdout).to_lowercase();
+    let first = text
+        .lines()
+        .map(|line| {
+            line.trim()
+                .trim_matches(|c| c == '"' || c == '(' || c == ',' || c == ' ')
+        })
+        .find(|line| !line.is_empty() && *line != ")");
+    match first {
+        Some(locale) => !locale.starts_with("zh"),
+        None => true,
+    }
+}
+
 pub(crate) fn ui_text(zh: &'static str, en: &'static str) -> &'static str {
     if interface_is_english() {
         en
@@ -406,6 +439,7 @@ pub fn run() {
         .setup(move |app| {
             clipboard::keep_alive();
             clipboard_history::start(app.handle().clone());
+            INTERFACE_ENGLISH.store(system_locale_is_english(), Ordering::Relaxed);
             let state = app.state::<AppState>();
             let settings = state.settings.lock().clone();
             let tracker = state.tracker.clone();

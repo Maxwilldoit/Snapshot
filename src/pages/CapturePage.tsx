@@ -23,44 +23,6 @@ function SnapshotPanel() {
   );
 }
 
-/** 应用级偏好：语言和开机启动。 */
-function GeneralPanel() {
-  const { preference, setLanguagePreference, t } = useI18n();
-  const { settings, caps } = useApp();
-  const update = usePreferences();
-  return (
-    <section className="panel">
-      <h2 className="panel-title">{t("通用")}</h2>
-      <div className="rows">
-        <div className="row">
-          <span className="row-label">{t("界面语言")}</span>
-          <Choices
-            ariaLabel={t("界面语言")}
-            value={preference}
-            onChange={setLanguagePreference}
-            options={[
-              { value: "system", label: t("跟随系统") },
-              { value: "zh", label: t("简体中文") },
-              { value: "en", label: "English" },
-            ]}
-          />
-        </div>
-        {caps?.autostart.available !== false && (
-          <div className="row">
-            <label className="row-label" htmlFor="pref-launchOnBoot">{t("开机时静默启动")}</label>
-            <Switch
-              id="pref-launchOnBoot"
-              label={t("开机时静默启动")}
-              value={settings.launchOnBoot}
-              onChange={(value) => void update({ launchOnBoot: value })}
-            />
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
 /** 截屏那一下：快门声、闪一下、带不带鼠标指针 */
 function BehaviorPanel() {
   const { settings, caps, notify, onSaved } = useApp();
@@ -137,7 +99,7 @@ function BehaviorPanel() {
   );
 }
 
-/** 设置 · 截图与录制：左栏截图和通用，右栏截图时和录制 */
+/** 设置 · 截图与录制：左栏截图，右栏截图时和录制。界面语言跟随系统，不再提供选项。 */
 export function CapturePage() {
   const { t } = useI18n();
   return (
@@ -147,7 +109,6 @@ export function CapturePage() {
         <div className="form cols">
           <div className="page-col">
             <SnapshotPanel />
-            <GeneralPanel />
           </div>
           <div className="page-col">
             <BehaviorPanel />

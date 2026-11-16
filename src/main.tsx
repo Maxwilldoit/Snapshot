@@ -12,7 +12,7 @@ import { applyTheme, readTheme, watchSystemTheme } from "./lib/theme";
 import { suppressNativeContextMenu } from "./lib/contextMenu";
 import { viewTransition } from "./lib/motion";
 import { installWheelPace } from "./lib/wheelScroll";
-import { applyDocumentLanguage, I18nProvider, readLanguagePreference, resolveLanguage } from "./lib/i18n";
+import { applyDocumentLanguage, I18nProvider, resolveLanguage } from "./lib/i18n";
 import "./styles/variables.css";
 import "./styles.css";
 import "./styles/app.css";
@@ -29,7 +29,7 @@ function mount() {
   document.body.classList.toggle("transparent-window", usesTransparentSurface);
 
   // 每个 WebView 都在首帧前应用系统颜色和完整动效，不读取旧外观偏好。
-  applyDocumentLanguage(resolveLanguage(readLanguagePreference()));
+  applyDocumentLanguage(resolveLanguage());
   applyTheme(readTheme());
   // 开发时留着系统右键菜单，方便「检查元素」
   if (!import.meta.env.DEV) suppressNativeContextMenu();
