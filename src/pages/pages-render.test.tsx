@@ -38,7 +38,6 @@ const settings: Settings = {
   customSoundPath: null,
   flashOnCapture: true,
   hideAfterCopy: false,
-  autoSaveLocal: true,
   launchOnBoot: false,
   includeCursor: false,
   recordSystemAudio: false,

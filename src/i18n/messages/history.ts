@@ -28,8 +28,6 @@ export const historyEnglish: Record<string, string> = {
   "取消": "Cancel",
   "清除筛选": "Clear Filter",
   "打开快照文件夹": "Open Screenshots Folder",
-  "打开了：之后的截图会留在这里": "Turned on. New screenshots will be saved here.",
-  "同时保存截图": "Save Screenshots to History",
   "还没有截图或录屏": "No Screenshots or Recordings Yet",
   "设置截图快捷键": "Set a Screenshot Shortcut",
   "截图后会自动留在这里": "Screenshots are saved here automatically",

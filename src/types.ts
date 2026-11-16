@@ -142,7 +142,6 @@ export interface Settings {
   customSoundPath: string | null;
   flashOnCapture: boolean;
   hideAfterCopy: boolean;
-  autoSaveLocal: boolean;
   launchOnBoot: boolean;
   includeCursor: boolean;
   recordSystemAudio: boolean;

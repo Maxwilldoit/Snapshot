@@ -33,15 +33,6 @@ function SnapshotPanel() {
           />
         </div>
         <div className="row">
-          <label className="row-label" htmlFor="pref-autoSaveLocal">{t("截图同时存进历史")}</label>
-          <Switch
-            id="pref-autoSaveLocal"
-            label={t("截图同时存进历史")}
-            value={settings.autoSaveLocal}
-            onChange={(value) => void update({ autoSaveLocal: value })}
-          />
-        </div>
-        <div className="row">
           <label className="row-label" htmlFor="pref-hideAfterCopy">{t("复制后隐藏主窗口")}</label>
           <Switch id="pref-hideAfterCopy" label={t("复制后隐藏主窗口")} value={settings.hideAfterCopy} onChange={(value) => void update({ hideAfterCopy: value })} />
         </div>

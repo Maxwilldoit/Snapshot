@@ -157,8 +157,6 @@ pub(crate) struct Settings {
     pub(crate) flash_on_capture: bool,
     #[serde(default)]
     pub(crate) hide_after_copy: bool,
-    #[serde(default = "default_true")]
-    pub(crate) auto_save_local: bool,
     #[serde(default)]
     pub(crate) launch_on_boot: bool,
     #[serde(default)]
@@ -237,7 +235,6 @@ impl Default for Settings {
             custom_sound_path: None,
             flash_on_capture: true,
             hide_after_copy: false,
-            auto_save_local: true,
             launch_on_boot: false,
             include_cursor: false,
             record_system_audio: false,
@@ -275,7 +272,6 @@ pub(crate) struct PreferencesPatch {
     custom_sound_path: Option<serde_json::Value>,
     flash_on_capture: Option<bool>,
     hide_after_copy: Option<bool>,
-    auto_save_local: Option<bool>,
     launch_on_boot: Option<bool>,
     include_cursor: Option<bool>,
     record_system_audio: Option<bool>,
@@ -674,9 +670,6 @@ pub(crate) fn save_preferences(
     }
     if let Some(value) = prefs.hide_after_copy {
         settings.hide_after_copy = value;
-    }
-    if let Some(value) = prefs.auto_save_local {
-        settings.auto_save_local = value;
     }
     if let Some(value) = prefs.launch_on_boot {
         settings.launch_on_boot = value;

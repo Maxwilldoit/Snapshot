@@ -10,7 +10,7 @@ const base: Settings = {
   selectedAppearanceId: "app-icon", petAssets: [], petScale: 100, shortcuts: [],
   snapshotFormat: "png", saveDir: "", recordingDir: "",
   shutterSound: "crisp", customSoundPath: null, flashOnCapture: true, hideAfterCopy: false,
-  autoSaveLocal: true, launchOnBoot: false, includeCursor: false, recordSystemAudio: false,
+  launchOnBoot: false, includeCursor: false, recordSystemAudio: false,
   recordMicrophone: false, afterCapture: "clipboard",
 };
 

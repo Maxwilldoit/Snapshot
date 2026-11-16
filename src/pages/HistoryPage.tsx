@@ -10,7 +10,6 @@ import {
   onRecordingsChanged,
   onSnapshotsChanged,
   openSnapshotsDir,
-  savePreferences,
 } from "../lib/backend";
 import { formatBytes, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
@@ -34,7 +33,7 @@ type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y
 
 /** 历史：截图点开标注，录屏点开播放；右键进入多选、复制或确认删除。 */
 export function HistoryPage() {
-  const { settings, onSaved, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
+  const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
   const { t } = useI18n();
   const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(null);
   const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
@@ -318,28 +317,10 @@ export function HistoryPage() {
   if (total === 0) {
     const shortcut = acceleratorOf(settings, "snapshot");
     const bound = shortcut && !settings.shortcutsPaused && !conflicts.includes(shortcut);
-    const historyOff = !settings.autoSaveLocal && settings.afterCapture !== "saveas";
     body = (
       <div className="empty mw-empty">
         <h2 className="empty-title">{t("还没有截图或录屏")}</h2>
-        {historyOff ? (
-          <div className="empty-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() =>
-                savePreferences({ autoSaveLocal: true })
-                  .then((next) => {
-                    onSaved(next);
-                    notify(t("打开了：之后的截图会留在这里"));
-                  })
-                  .catch((error) => notify(errorText(error), "error"))
-              }
-            >
-              {t("同时保存截图")}
-            </button>
-          </div>
-        ) : bound ? (
+        {bound ? (
           <p className="empty-hint">
             <Keys value={shortcut} />
             <span>{t("截图后会自动留在这里")}</span>

@@ -206,13 +206,10 @@ pub(crate) fn finalize_capture(
     );
     trace.mark_capture_ready();
 
-    // 「仅保存」必须进历史，否则用户选完既没有文件也没有剪贴板内容。
+    // 截图始终存进历史；「仅保存」存失败要报错，其余路径存失败在提示里说明。
     let only_save = settings.after_capture == "saveas";
-    let record = if settings.auto_save_local || only_save {
-        snapshots::store_snapshot_traced(state, &image, app_name, app_id.clone(), &trace).ok()
-    } else {
-        None
-    };
+    let record =
+        snapshots::store_snapshot_traced(state, &image, app_name, app_id.clone(), &trace).ok();
     let archived = record.is_some();
     if only_save && !archived {
         return Err(format!("未能把 {app_name} 保存到历史记录"));
@@ -249,7 +246,7 @@ pub(crate) fn finalize_capture(
             "shotId": trace.shot_id(),
             "sentAtMs": now_millis(),
             "ok": true,
-            "historySaveAttempted": settings.auto_save_local || only_save,
+            "historySaveAttempted": true,
             "historySaved": archived,
             "flash": settings.flash_on_capture,
             "shutterSound": settings.shutter_sound,
@@ -268,20 +265,16 @@ pub(crate) fn finalize_capture(
         let head = if annotate {
             if archived {
                 format!("Opened {app_name} in Markup and saved it to History.")
-            } else if settings.auto_save_local {
-                format!("Opened {app_name} in Markup, but couldn’t save it to History.")
             } else {
-                format!("Opened {app_name} in Markup.")
+                format!("Opened {app_name} in Markup, but couldn’t save it to History.")
             }
         } else if only_save {
             format!("Saved {app_name} to History.")
         } else {
             if archived {
                 format!("Copied {app_name} and saved it to History.")
-            } else if settings.auto_save_local {
-                format!("Copied {app_name}, but couldn’t save it to History.")
             } else {
-                format!("Copied {app_name}.")
+                format!("Copied {app_name}, but couldn’t save it to History.")
             }
         };
         return Ok(format!("{head}{suffix}"));
@@ -289,20 +282,16 @@ pub(crate) fn finalize_capture(
     if annotate {
         if archived {
             Ok(format!("已打开标注：{app_name}（已存入历史）{suffix}"))
-        } else if settings.auto_save_local {
-            Ok(format!("已打开标注：{app_name}（未能存入历史）{suffix}"))
         } else {
-            Ok(format!("已打开标注：{app_name}{suffix}"))
+            Ok(format!("已打开标注：{app_name}（未能存入历史）{suffix}"))
         }
     } else if only_save {
         Ok(format!("已保存到历史记录：{app_name}{suffix}"))
     } else {
         if archived {
             Ok(format!("已复制 {app_name} 并存入历史{suffix}"))
-        } else if settings.auto_save_local {
-            Ok(format!("已复制 {app_name}（未能存入历史）{suffix}"))
         } else {
-            Ok(format!("已复制 {app_name}{suffix}"))
+            Ok(format!("已复制 {app_name}（未能存入历史）{suffix}"))
         }
     }
 }
@@ -482,15 +471,12 @@ fn annotate_copy_now(
     image_data: String,
 ) -> Result<String, String> {
     let image = decode_png_base64(&image_data)?;
-    let settings = state.settings.lock().clone();
     // 存历史失败不拦着复制，但要说出来：不然用户以为历史里有这张
     let title = markup_title(state);
     let app_id = state.annotate_app_id.lock().clone();
-    let archived = settings
-        .auto_save_local
-        .then(|| snapshots::store_snapshot(state, &image, &title, app_id));
+    let archived = snapshots::store_snapshot(state, &image, &title, app_id);
     let archive_error = match &archived {
-        Some(Err(error)) => {
+        Err(error) => {
             activity::record_error(
                 app,
                 ui_text("保存到历史记录失败", "Couldn’t save to History"),
@@ -498,9 +484,9 @@ fn annotate_copy_now(
             );
             Some(error.clone())
         }
-        _ => None,
+        Ok(_) => None,
     };
-    let snapshot_id = archived.and_then(Result::ok).map(|record| record.id);
+    let snapshot_id = archived.as_ref().ok().map(|record| record.id.clone());
     if snapshot_id.is_some() {
         let _ = app.emit("snapshots-changed", ());
     }
