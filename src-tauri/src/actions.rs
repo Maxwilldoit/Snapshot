@@ -22,6 +22,10 @@ pub(crate) fn set_app_language(
         item.set_text(ui_text("暂停全局快捷键", "Pause Shortcuts"))
             .map_err(|error| error.to_string())?;
     }
+    if let Some(item) = state.autostart_item.lock().as_ref() {
+        item.set_text(ui_text("开机时静默启动", "Open quietly at login"))
+            .map_err(|error| error.to_string())?;
+    }
     if let Some(item) = state.tray_quit_item.lock().as_ref() {
         item.set_text(ui_text("退出", "Quit Snapshot"))
             .map_err(|error| error.to_string())?;
@@ -40,6 +44,50 @@ pub(crate) fn set_app_language(
         settings::emit_settings(&app, &settings);
     }
     Ok(())
+}
+
+/// 托盘勾选「开机时静默启动」：先写系统启动项，成功才落盘设置；
+/// 失败时把勾选同步回真实状态，并给出可读的错误。
+pub(crate) fn toggle_autostart_from_tray(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = on_worker(app.clone(), |app, state| {
+            let enabled = {
+                let mut settings = state.settings.lock();
+                let next = !settings.launch_on_boot;
+                // 只在显式改动时写系统启动项；取消即删除。
+                os::apply_autostart(next)?;
+                settings.launch_on_boot = next;
+                settings::persist_settings(&state.settings_path, &settings)?;
+                settings.clone()
+            };
+            settings::emit_settings(app, &enabled);
+            Ok(enabled.launch_on_boot)
+        })
+        .await;
+        let state = app.state::<AppState>();
+        let actual = state.settings.lock().launch_on_boot;
+        if let Some(item) = state.autostart_item.lock().as_ref() {
+            // 原生勾选项点击后会先改变外观；失败时也必须同步回真实状态。
+            let _ = item.set_checked(actual);
+        }
+        if let Err(error) = result {
+            use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+            activity::record_error(
+                &app,
+                ui_text("开机启动设置未生效", "Couldn’t change opening at login"),
+                &error,
+            );
+            app.dialog()
+                .message(error)
+                .title(ui_text(
+                    "开机启动设置未生效",
+                    "Couldn’t change opening at login",
+                ))
+                .kind(MessageDialogKind::Error)
+                .show(|_| {});
+        }
+    });
 }
 
 /// 输入框窗口的逻辑大小由页面按当前视图量好再告诉这里（resize_quick_menu）；

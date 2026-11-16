@@ -31,9 +31,7 @@ const base: Settings = {
   recordMicrophone: false,
 };
 
-const ACTIVE = "在任何应用里都能用下面的组合键。";
-const PAUSED = "已关闭：下面的快捷键都不响应，按键让给其他程序。设好的组合会保留。";
-const TOGGLE = "启用全局快捷键";
+const PAUSED_NOTE = "全局快捷键已暂停，可在菜单栏图标中恢复";
 
 async function renderApp(handle: IPCHandler = () => undefined, initial: Settings = base, conflicts: string[] = []) {
   let current = structuredClone(initial);
@@ -57,8 +55,8 @@ async function renderApp(handle: IPCHandler = () => undefined, initial: Settings
   const user = userEvent.setup();
   // 主窗口默认打开截图记录；快捷键在侧栏「设置 · 快捷键」
   await user.click(await screen.findByRole("button", { name: /^快捷键/ }));
-  const toggle = await screen.findByRole("switch", { name: TOGGLE });
-  return { user, toggle };
+  await screen.findByRole("button", { name: /快捷键：窗口截图/ });
+  return { user };
 }
 
 describe("global shortcut editing", () => {
@@ -198,7 +196,7 @@ describe("global shortcut editing", () => {
     expect(await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：CommandOrControl+Shift+K" })).toBeTruthy();
   });
 
-  it("commits a Delete-pending clear when clicking outside the field", async () => {
+  it("commits a Delete-pending clear when focus leaves the field", async () => {
     const save = vi.fn((args: Record<string, unknown>) => structuredClone({
       ...base,
       shortcuts: args.shortcuts as ShortcutBinding[],
@@ -213,7 +211,7 @@ describe("global shortcut editing", () => {
     await user.keyboard("{Delete}");
     expect(save).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("switch", { name: TOGGLE }));
+    fireEvent.blur(row);
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect(save.mock.calls[0][0]).toMatchObject({
       shortcuts: [
@@ -251,6 +249,8 @@ describe("global shortcut editing", () => {
     expect(field).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" })).toHaveProperty("disabled", true);
     expect(field.closest(".panel-shortcuts")?.classList.contains("is-off")).toBe(true);
+    expect(screen.getByText(PAUSED_NOTE)).toBeTruthy();
+    expect(screen.queryByRole("switch")).toBeNull();
     fireEvent.click(field);
     fireEvent.keyDown(field, { key: "#", code: "Digit3", altKey: true, shiftKey: true });
     expect(save).not.toHaveBeenCalled();
@@ -282,53 +282,25 @@ describe("global shortcut editing", () => {
   });
 });
 
-describe("manual global shortcut pause", () => {
-  it("pauses and resumes only after backend success, disables pending toggles and clears conflicts", async () => {
-    let finishPause!: (next: Settings) => void;
-    const pending = new Promise<Settings>((resolve) => { finishPause = resolve; });
-    const setPaused = vi.fn((args: Record<string, unknown>): Promise<Settings> =>
-      Promise.resolve(structuredClone({ ...base, shortcutsPaused: args.paused as boolean })),
-    ).mockImplementationOnce(() => pending);
-    const { user, toggle } = await renderApp((command, payload) => {
-      if (command === "set_shortcuts_paused") return setPaused(invokeArgs(payload));
-      return undefined;
-    }, base, ["Alt+Shift+2"]);
-
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    expect(screen.queryByText(ACTIVE)).toBeNull();
+describe("pause state pushed from the menu bar", () => {
+  it("locks the fields and clears stale conflict marks when the tray pauses shortcuts", async () => {
+    await renderApp(undefined, base, ["Alt+Shift+2"]);
     expect(screen.getByText("没注册上，这组键已被其他程序占用")).toBeTruthy();
+    expect(screen.queryByText(PAUSED_NOTE)).toBeNull();
 
-    await user.click(toggle);
-    expect(setPaused).toHaveBeenCalledExactlyOnceWith({ paused: true });
-    expect(toggle).toHaveProperty("disabled", true);
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    expect(screen.queryByText(ACTIVE)).toBeNull();
-
-    await act(async () => { finishPause(structuredClone({ ...base, shortcutsPaused: true })); });
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
-    expect(toggle).toHaveProperty("disabled", false);
-    expect(screen.queryByText(PAUSED)).toBeNull();
+    await act(async () => {
+      await emit("settings-changed", structuredClone({ ...base, shortcutsPaused: true }));
+    });
+    expect(await screen.findByText(PAUSED_NOTE)).toBeTruthy();
     expect(screen.queryByText("没注册上，这组键已被其他程序占用")).toBeNull();
+    expect(screen.getByRole("button", { name: /快捷键：窗口截图/ })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("switch")).toBeNull();
 
-    await user.click(toggle);
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-    expect(setPaused).toHaveBeenLastCalledWith({ paused: false });
-    expect(screen.queryByText(ACTIVE)).toBeNull();
-    expect(await screen.findByText("全局快捷键已恢复")).toBeTruthy();
-  });
-
-  it.each([false, true])("keeps paused=%s when the toggle fails", async (paused) => {
-    const setPaused = vi.fn((_args: Record<string, unknown>) => Promise.reject(new Error("无法切换快捷键")));
-    const { user, toggle } = await renderApp((command, payload) => {
-      if (command === "set_shortcuts_paused") return setPaused(invokeArgs(payload));
-      return undefined;
-    }, { ...base, shortcutsPaused: paused }, ["Alt+Shift+2"]);
-
-    await user.click(toggle);
-    expect((await screen.findByText("无法切换快捷键")).closest('[role="alert"]')).toBeTruthy();
-    expect(setPaused).toHaveBeenCalledExactlyOnceWith({ paused: !paused });
-    expect(toggle.getAttribute("aria-checked")).toBe(String(!paused));
-    expect(screen.getByRole("button", { name: /快捷键：窗口截图/ })).toHaveProperty("disabled", paused);
+    await act(async () => {
+      await emit("settings-changed", structuredClone(base));
+    });
+    await waitFor(() => expect(screen.queryByText(PAUSED_NOTE)).toBeNull());
+    expect(screen.getByRole("button", { name: /快捷键：窗口截图/ })).toHaveProperty("disabled", false);
   });
 
   it("follows external settings changes without an unsaved local draft", async () => {
@@ -353,7 +325,7 @@ describe("manual global shortcut pause", () => {
     expect(screen.getByRole("button", { name: /快捷键：打开 Prompt 库/ })).toBeTruthy();
   });
 
-  it("persists paused state through the real preview backend", async () => {
+  it("persists edited bindings through the real preview backend without a pause switch", async () => {
     vi.resetModules();
     const { installPreviewBackend } = await import("../lib/preview");
     installPreviewBackend();
@@ -362,17 +334,15 @@ describe("manual global shortcut pause", () => {
     render(<App />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^快捷键/ }));
-    const toggle = await screen.findByRole("switch", { name: TOGGLE });
 
     // The plain preview has no recorder capability. Use its supported capture
     // binding to verify persistence instead of editing a hidden recording row.
     await user.click(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：未设置" }));
     await user.keyboard("{Alt>}{Shift>}3{/Shift}{/Alt}");
     await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+3" });
-    await user.click(toggle);
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+    expect(screen.queryByRole("switch")).toBeNull();
     const saved = await loadSettings();
-    expect(saved.shortcutsPaused).toBe(true);
+    expect(saved.shortcutsPaused ?? false).toBe(false);
     expect(saved.shortcuts.find((binding) => binding.action === "snapshot")?.accelerator).toBe("Alt+Shift+3");
   });
 });

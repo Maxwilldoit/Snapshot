@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { saveShortcuts, setShortcutsPaused } from "../lib/backend";
+import { saveShortcuts } from "../lib/backend";
 import { normalizeKey } from "../lib/format";
 import { Keys } from "../components/ui/Keys";
-import { Switch } from "../components/ui/Switch";
 import { errorText, useApp } from "../app/context";
 import { Toolbar } from "../app/Shell";
 import { useI18n } from "../lib/i18n";
@@ -59,7 +58,6 @@ function ShortcutsPanel() {
   const [rejected, setRejected] = useState<{ action: ShortcutAction; key: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
-  const [togglingPause, setTogglingPause] = useState(false);
   const previousSavedShortcuts = useRef(settings.shortcuts);
   const shortcutsPaused = settings.shortcutsPaused ?? false;
 
@@ -157,20 +155,6 @@ function ShortcutsPanel() {
     void persist(next);
   }
 
-  async function togglePause(paused: boolean) {
-    setTogglingPause(true);
-    try {
-      const next = await setShortcutsPaused(paused);
-      onSaved(next);
-      setConflicts([]);
-      notify(next.shortcutsPaused ? t("全局快捷键已暂停，按键已释放") : t("全局快捷键已恢复"));
-    } catch (error) {
-      notify(errorText(error), "error");
-    } finally {
-      setTogglingPause(false);
-    }
-  }
-
   const renderRow = (binding: ShortcutBinding) => {
     const label = ACTION_LABELS[binding.action] ?? { name: binding.action };
     const labelName = t(label.name);
@@ -244,21 +228,11 @@ function ShortcutsPanel() {
 
   return (
     <div className="shortcuts-panel">
-      <section className="panel panel-shortcuts-toggle">
-        <div className="rows">
-          <div className="row">
-            <label htmlFor="switch-shortcuts-enabled" className="row-label">{t("启用全局快捷键")}</label>
-            <Switch
-              id="switch-shortcuts-enabled"
-              label={t("启用全局快捷键")}
-              value={!shortcutsPaused}
-              disabled={togglingPause || saving}
-              onChange={(enabled) => void togglePause(!enabled)}
-            />
-          </div>
-        </div>
-
-      </section>
+      {shortcutsPaused && (
+        <p className="group-note shortcuts-paused-note">
+          {t("全局快捷键已暂停，可在菜单栏图标中恢复")}
+        </p>
+      )}
       {groups.map((group) => (
         <section key={group.title} className={`panel panel-shortcuts ${shortcutsPaused ? "is-off" : ""}`} aria-disabled={shortcutsPaused || undefined}>
           <h2 className="panel-title">{t(group.title)}</h2>

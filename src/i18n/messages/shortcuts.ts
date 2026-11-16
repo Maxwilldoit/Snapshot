@@ -4,15 +4,14 @@ export const shortcutsEnglish: Record<string, string> = {
   "打开 Prompt 库": "Open Prompt Library",
   "呼出快捷菜单": "Show Quick Menu",
 
-  "全局快捷键已暂停，按键已释放": "Shortcuts paused",
-  "全局快捷键已恢复": "Shortcuts turned on",
+  "全局快捷键已暂停，可在菜单栏图标中恢复": "Shortcuts are paused. Resume them from the menu bar icon.",
   "快捷键：{name}，当前按键：{keys}": "{name} shortcut: {keys}",
   "未设置": "None",
   "没注册上，这组键已被其他程序占用": "Another app is using this shortcut.",
   "只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个": "{rejection} alone won’t work. Add Control, Shift, or Alt (Option).",
   "暂停全局快捷键": "Pause Shortcuts",
-  "启用全局快捷键": "Use global shortcuts",
   "按下快捷键…": "Press keys…",
+  "开机时静默启动": "Open quietly at login",
 
   "快照保存位置已更改": "Screenshot folder changed",
   "录像保存位置已更改": "Recording folder changed",

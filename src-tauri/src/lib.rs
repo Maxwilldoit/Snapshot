@@ -110,6 +110,8 @@ struct AppState {
     /// 系统里实际注册成功的键；释放失败时保留，供下次操作重试。
     shortcut_registrations: Mutex<Vec<String>>,
     shortcut_pause_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
+    /// 托盘「开机时静默启动」勾选项；系统写不进启动项时把勾选同步回真实状态。
+    autostart_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
     tray_open_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     tray_quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     #[cfg(not(target_os = "macos"))]
@@ -426,6 +428,7 @@ pub fn run() {
             shortcut_conflicts: Mutex::new(Vec::new()),
             shortcut_registrations: Mutex::new(Vec::new()),
             shortcut_pause_item: Mutex::new(None),
+            autostart_item: Mutex::new(None),
             tray_open_item: Mutex::new(None),
             tray_quit_item: Mutex::new(None),
             #[cfg(not(target_os = "macos"))]
@@ -533,15 +536,37 @@ pub fn run() {
                 None::<&str>,
             )?;
             *state.shortcut_pause_item.lock() = Some(pause_shortcuts.clone());
+            // 开机启动只在托盘提供；系统启动项目录写不进去的平台不显示这一项。
+            let launch_on_boot = if os::capabilities().autostart.available {
+                let item = CheckMenuItem::with_id(
+                    app,
+                    "launch-on-boot",
+                    ui_text("开机时静默启动", "Open quietly at login"),
+                    true,
+                    settings.launch_on_boot,
+                    None::<&str>,
+                )?;
+                *state.autostart_item.lock() = Some(item.clone());
+                Some(item)
+            } else {
+                None
+            };
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             *state.tray_open_item.lock() = Some(open_settings.clone());
             *state.tray_quit_item.lock() = Some(quit.clone());
-            let menu = Menu::with_items(app, &[&open_settings, &pause_shortcuts, &quit])?;
+            let mut menu_items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+                vec![&open_settings, &pause_shortcuts];
+            if let Some(item) = launch_on_boot.as_ref() {
+                menu_items.push(item);
+            }
+            menu_items.push(&quit);
+            let menu = Menu::with_items(app, &menu_items)?;
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open-settings" => actions::show_main_window(app.clone()),
                     "pause-shortcuts" => shortcuts::toggle_from_tray(app),
+                    "launch-on-boot" => actions::toggle_autostart_from_tray(app),
                     "quit" => {
                         if let Some(state) = app.try_state::<AppState>() {
                             let _ = state.recorder.lock().stop();

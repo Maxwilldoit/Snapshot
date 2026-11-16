@@ -139,7 +139,7 @@ describe("B2 拆页后逐页渲染", () => {
     const main = within(screen.getByRole("main"));
     const user = userEvent.setup();
     await user.click(await main.findByRole("button", { name: "设置截图快捷键" }));
-    expect(await screen.findByText("启用全局快捷键", { exact: false })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /快捷键：窗口截图/ })).toBeTruthy();
   });
 
   it("侧栏只有导航，截图录屏走快捷菜单和快捷键；模型和规则只出现在 Prompt 设置", async () => {
@@ -198,7 +198,7 @@ describe("B2 拆页后逐页渲染", () => {
     [/^Prompt$/, "还没有 Prompt 记录"],
     [/^应用图标/, "自由走动"],
     [/^截图与录制/, "截图时"],
-    [/^快捷键/, "启用全局快捷键"],
+    [/^快捷键/, "窗口截图"],
   ])("导航到「%s」能渲染出该页独有内容", async (navLabel, marker) => {
     await renderApp();
     const user = userEvent.setup();

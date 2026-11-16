@@ -89,10 +89,6 @@ export const petAnimationDuration = (id: string, entry: string) =>
 export const saveShortcuts = (shortcuts: ShortcutBinding[]) =>
   invoke<Settings>("save_shortcuts", { shortcuts });
 
-/** 手动暂停时释放按键、保留绑定；恢复时重新注册 */
-export const setShortcutsPaused = (paused: boolean) =>
-  invoke<Settings>("set_shortcuts_paused", { paused });
-
 /** 启动时没能注册上的键（启动那一刻网页还没加载，只能事后来取） */
 export const getShortcutConflicts = () => invoke<string[]>("get_shortcut_conflicts");
 

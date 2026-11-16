@@ -430,9 +430,10 @@ html[data-surface="app"] .keys { gap: 3px; }
 html[data-surface="app"] .keys.is-struck .kbd { color: var(--red); }
 html[data-surface="app"] .kbd-slot { border: 1px dashed var(--accent); border-radius: 5px; }
 
-/* 快捷键：顶上一张卡片是总开关，下面两组，每行右边是同一种录制框。
+/* 快捷键：两组，每行右边是同一种录制框。暂停/恢复只在菜单栏托盘；暂停时本页只读并给一行说明。
    已绑定的键点一下保留原组合、蓝边待录；Delete 先置空，再点框内或框外才落盘清除。 */
 html[data-surface="app"] .mw .shortcuts-panel { display: flex; flex-direction: column; gap: 22px; }
+html[data-surface="app"] .mw .shortcuts-paused-note { margin: 0 6px -12px; }
 html[data-surface="app"] .mw .panel-shortcuts { transition: opacity 0.2s; }
 html[data-surface="app"] .mw .panel-shortcuts.is-off { opacity: 0.5; }
 html[data-surface="app"] .mw .shortcut-row { align-items: center; }
