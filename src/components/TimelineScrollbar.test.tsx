@@ -375,91 +375,51 @@ describe("content date scrubber", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("moves a large scroll jump through intermediate ticks while retaining a single full wave", () => {
+  it("matches the exact scroll position on every sample, even for a large jump", () => {
     const { scrollNow, bounds } = setup();
     bounds.mockClear();
+    const count = tickWidths().length;
     scrollNow(MAX);
     expect(slider().getAttribute("aria-valuenow")).toBe("100");
-    const visited: number[] = [];
-    for (let index = 0; index < 7; index++) {
-      frame();
-      visited.push(peak());
-      expect(Math.max(...tickWidths())).toBeGreaterThanOrEqual(22);
-    }
-    expect(new Set(visited).size).toBeGreaterThan(3);
-    expect(visited[0]).toBeGreaterThan(0);
-    expect(visited[0]).toBeLessThan(tickWidths().length - 1);
-    expect(visited.every((value, index) => index === 0 || value >= visited[index - 1])).toBe(true);
+    expect(peak()).toBe(count - 1);
     expect(tickWidths().at(-1)).toBe(24);
     expect(bubble().classList.contains("is-shown")).toBe(false);
     expect(bounds).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("does not restart the deadline during a burst or keep chasing after scrolling stops", () => {
+  it("tracks fast bursts and reversals with no lag or trailing animation", () => {
     const { scrollNow } = setup();
-    scrollNow(MAX * 0.7);
+    const count = tickWidths().length;
+    for (const ratio of [0.3, 0.55, 0.7, 0.9, 1, 0.4, 0]) {
+      scrollNow(MAX * ratio);
+      expect(peak()).toBe(Math.round(ratio * (count - 1)));
+      expect(Math.max(...tickWidths())).toBeGreaterThanOrEqual(22);
+      expect(vi.getTimerCount()).toBe(0);
+    }
     frame();
-    scrollNow(MAX * 0.8);
-    frame();
-    scrollNow(MAX * 0.9);
-    frame();
-    scrollNow(MAX);
-    advance(45);
-    expect(tickWidths().at(-1)).toBe(24);
+    expect(peak()).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("interrupts a moving wave on scroll reversal and resets it when layout changes", () => {
+  it("lands on the new position when layout changes mid-scroll", () => {
     const { scrollNow } = setup();
     scrollNow(MAX);
-    frame();
-    const forward = peak();
-    scrollNow(0);
-    frame();
-    expect(peak()).toBeLessThan(forward);
-    settle();
-    expect(tickWidths()[0]).toBe(24);
-    scrollNow(MAX);
+    expect(tickWidths().at(-1)).toBe(24);
     rootHeight = 260;
     act(() => resize?.()); frame();
     expect(tickWidths().at(-1)).toBe(24);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("updates immediately with reduced motion and cancels animation if the system preference changes", () => {
-    let reduced = false;
-    let change: (() => void) | undefined;
-    vi.stubGlobal("matchMedia", () => ({
-      get matches() { return reduced; },
-      addEventListener: (_: string, listener: () => void) => { change = listener; },
-      removeEventListener: vi.fn(),
-    }));
-    const { scrollNow } = setup();
-    scrollNow(MAX);
-    frame();
-    expect(peak()).toBeLessThan(tickWidths().length - 1);
-    reduced = true;
-    act(() => change?.());
-    expect(tickWidths().at(-1)).toBe(24);
-    expect(vi.getTimerCount()).toBe(0);
-    scrollNow(0);
-    expect(tickWidths()[0]).toBe(24);
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("respects the application motion setting and cancels wave frames on unmount", async () => {
+  it("paints instantly under reduced motion without scheduling any frames", async () => {
     const { scrollNow, view } = setup();
-    scrollNow(MAX);
-    expect(vi.getTimerCount()).toBe(1);
     await act(async () => { document.documentElement.dataset.motion = "reduced"; });
+    scrollNow(MAX);
     expect(tickWidths().at(-1)).toBe(24);
     scrollNow(0);
     expect(tickWidths()[0]).toBe(24);
     expect(vi.getTimerCount()).toBe(0);
-    await act(async () => { delete document.documentElement.dataset.motion; });
-    scrollNow(MAX);
-    expect(vi.getTimerCount()).toBe(1);
     view.unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
