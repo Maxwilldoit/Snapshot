@@ -101,25 +101,12 @@ html[data-surface="app"] .mw .nav-item {
 html[data-surface="app"] .mw .nav-item:hover { color: var(--text1); }
 html[data-surface="app"] .mw .nav-item.is-on { background: var(--side-sel); font-weight: 400; }
 html[data-surface="app"] .mw .nav-label { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-/* 伴侣行：名称与上方导航同列，最右侧圆点管桌面显示 */
+/* 伴侣行：名称与上方导航同列，双击切换桌面伴侣 */
 html[data-surface="app"] .mw .nav-pet { gap: 6px; }
 html[data-surface="app"] .mw .nav-pet-main {
   display: flex; align-items: center; flex: 1 1 auto; min-width: 0; height: 100%; padding: 0;
   border: 0; border-radius: 4px; background: none; color: inherit; font-size: 13px; font-weight: inherit; text-align: left;
 }
-html[data-surface="app"] .mw .pet-dot { position: relative; flex: 0 0 16px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: none; }
-html[data-surface="app"] .mw .pet-dot::before {
-  content: ""; position: absolute; inset: 2px; border-radius: 50%;
-  border: 1.5px solid var(--text4); transition: border-color 0.15s;
-}
-html[data-surface="app"] .mw .pet-dot:hover:not(:disabled)::before { border-color: var(--text2); }
-html[data-surface="app"] .mw .pet-dot.is-on::before { border-color: var(--accent); }
-html[data-surface="app"] .mw .pet-dot-core {
-  position: absolute; inset: 5px; border-radius: 50%; background: var(--accent);
-  opacity: 0; transform: scale(0.4); transition: opacity 0.15s, transform 0.15s;
-}
-html[data-surface="app"] .mw .pet-dot.is-on .pet-dot-core { opacity: 1; transform: scale(1); }
-html[data-surface="app"] .mw .pet-dot:disabled { opacity: 0.4; }
 html[data-surface="app"] .nav-pet.is-broken .nav-label { color: var(--text3); }
 html[data-surface="app"] .mw-nav-badge {
   min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--red); color: #fff;

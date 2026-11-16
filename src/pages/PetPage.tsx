@@ -3,7 +3,7 @@ import { MoreHorizontal } from "lucide-react";
 import { CatShape } from "../components/ui/CatShape";
 import { PetMedia } from "../components/PetMedia";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { deletePetAsset, showPetCatalog } from "../lib/backend";
+import { deletePetAsset, hidePet, showPetCatalog } from "../lib/backend";
 import { petUrl } from "../lib/media";
 import { commonPrefix, entryLabel } from "../lib/petNames";
 import { stagger } from "../lib/motion";
@@ -17,7 +17,7 @@ import { ensurePetAutoScale } from "../lib/petScale";
 
 /**
  * 桌面伴侣：侧栏里点哪一只就看哪一只。左边是大舞台和桌面设置，右边是它的动作（点一下预览），两栏独立滚动。
- * 换桌面上那只、或把它收起来，都由侧栏名字左边的圆点负责；看一看不会动桌面。
+ * 双击侧栏名称切换桌面伴侣；单击看详情，更多菜单可隐藏桌面伴侣。
  */
 export function PetPage() {
   const { settings, onSaved, notify, navigate, viewedPetId } = useApp();
@@ -124,6 +124,10 @@ export function PetPage() {
       {more.open && (
         <Menu anchor={more.anchor} onClose={more.close} label={t("更多")}>
           <MenuItem onSelect={openCatalog}>{t("浏览素材库…")}</MenuItem>
+          {!settings.petHidden && <MenuItem onSelect={() => {
+            more.close();
+            void hidePet().then(onSaved).catch((error) => notify(errorText(error), "error"));
+          }}>{t("隐藏桌面伴侣")}</MenuItem>}
           {asset && (
             <>
               <MenuSeparator />

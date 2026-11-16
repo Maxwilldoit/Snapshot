@@ -1,8 +1,8 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { usePresence } from "../lib/motion";
 import { errorText, useApp } from "./context";
-import { hidePet, selectPetAppearance } from "../lib/backend";
+import { selectPetAppearance } from "../lib/backend";
 import { WindowControls } from "../components/WindowTitleBar";
 import { usePetImport } from "./usePetImport";
 import type { NavPage, PetAsset, PlatformCapabilities } from "../types";
@@ -60,14 +60,17 @@ export function SideNav() {
   const { importing, pickFiles } = usePetImport();
   const pets = useMemo(() => sortedPets(settings.petAssets), [settings.petAssets]);
   const viewing = viewedPetId ?? settings.selectedAppearanceId;
+  const switching = useRef(false);
 
-  // 圆点管「在不在桌面上」：点没选中的换上它；点已选中的把桌宠整个收起来（应用照常运行）。
-  // 可以再点一次取消选中，所以不是标准 radio，用 aria-pressed 的切换按钮。
-  async function toggleDesk(id: string, onDesk: boolean) {
+  async function switchPet(id: string, unavailable: boolean) {
+    if (unavailable || switching.current || (settings.selectedAppearanceId === id && !settings.petHidden)) return;
+    switching.current = true;
     try {
-      onSaved(onDesk ? await hidePet() : await selectPetAppearance(id));
+      onSaved(await selectPetAppearance(id));
     } catch (error) {
       notify(errorText(error), "error");
+    } finally {
+      switching.current = false;
     }
   }
 
@@ -114,21 +117,16 @@ export function SideNav() {
           type="button"
           className="nav-pet-main"
           aria-current={current ? "page" : undefined}
-          title={name}
-          onClick={() => navigate("pet", { petId: id })}
+          aria-pressed={onDesk}
+          aria-description={broken ? t("原文件丢了") : t("双击切换桌面伴侣，或按 Enter / 空格")}
+          title={`${name} — ${broken ? t("原文件丢了") : t("双击切换桌面伴侣，或按 Enter / 空格")}`}
+          onClick={(event) => {
+            navigate("pet", { petId: id });
+            if (event.detail === 0) void switchPet(id, broken);
+          }}
+          onDoubleClick={() => void switchPet(id, broken)}
         >
           <span className="nav-label">{name}</span>
-        </button>
-        <button
-          type="button"
-          className={`pet-dot ${onDesk ? "is-on" : ""}`}
-          aria-pressed={onDesk}
-          aria-label={t("桌面显示：{name}", { name })}
-          title={broken && !onDesk ? t("原文件丢了") : onDesk ? t("隐藏桌面伴侣") : t("在桌面上显示")}
-          disabled={broken && !onDesk}
-          onClick={() => void toggleDesk(id, onDesk)}
-        >
-          <span className="pet-dot-core" aria-hidden="true" />
         </button>
       </div>
     );

@@ -26,7 +26,7 @@ export function useTimelineWave(ratio: number, span: number, ticks: number[]) {
       if (!node) return;
       const focus = timelineTickFocus(Math.abs(position - value) * travel / spacing);
       const width = `${focus.width}px`;
-      const background = `color-mix(in srgb, var(--accent) ${focus.accent * 100}%, color-mix(in srgb, var(--text1) 22%, transparent))`;
+      const background = `color-mix(in srgb, var(--text1) ${focus.accent * 100}%, color-mix(in srgb, var(--text1) 22%, transparent))`;
       if (node.style.width !== width) node.style.width = width;
       if (node.style.background !== background) node.style.background = background;
     });

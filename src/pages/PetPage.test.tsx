@@ -59,27 +59,20 @@ function petRow(id: string) {
   return row;
 }
 
-/** 行里点名字开详情的那块（圆点是另一个按钮） */
+/** 单击名称浏览详情，双击或键盘激活切换桌面伴侣。 */
 function petMainButton(id: string) {
   const button = petRow(id).querySelector<HTMLElement>(".nav-pet-main");
   if (!button) throw new Error(`${id} 行里找不到详情按钮`);
   return button;
 }
 
-/** 名字左边的圆点：管在不在桌面上 */
-function petDot(id: string) {
-  const dot = petRow(id).querySelector<HTMLElement>(".pet-dot");
-  if (!dot) throw new Error(`${id} 行里找不到圆点`);
-  return dot;
-}
-
-/** 桌面上的那只：圆点处于按下状态；收起后没有哪只按下 */
+/** 名称按钮的按下状态反映当前桌面伴侣。 */
 function deskIds() {
-  return sidebarIds().filter((id) => petDot(id!).getAttribute("aria-pressed") === "true");
+  return sidebarIds().filter((id) => petMainButton(id!).getAttribute("aria-pressed") === "true");
 }
 
 describe("侧栏里伴侣的固定位置", () => {
-  it("导航文字同列，伴侣列表不显示预览，桌面开关位于行尾", async () => {
+  it("导航文字同列，伴侣行只有名称，没有圆圈开关", async () => {
     await renderPetPage();
 
     const nav = screen.getByRole("navigation", { name: "主导航" });
@@ -91,7 +84,8 @@ describe("侧栏里伴侣的固定位置", () => {
     const row = petGroup().querySelector<HTMLElement>('[data-pet-id="app-icon"]')!;
     const main = row.querySelector<HTMLElement>(".nav-pet-main")!;
     expect(row.firstElementChild).toBe(main);
-    expect(row.lastElementChild?.classList.contains("pet-dot")).toBe(true);
+    expect(row.lastElementChild).toBe(main);
+    expect(row.querySelector(".pet-dot")).toBeNull();
     expect(main.firstElementChild?.classList.contains("nav-label")).toBe(true);
     expect(main.querySelector(".nav-avatar")).toBeNull();
     expect(main.textContent).toBe("应用图标");
@@ -104,24 +98,25 @@ describe("侧栏里伴侣的固定位置", () => {
     expect(deskIds()).toEqual(["old"]);
     expect(petMainButton("old").getAttribute("aria-current")).toBe("page");
     expect(within(petGroup()).getAllByRole("button", { name: /^同名伙伴/ })).toHaveLength(2);
-    // 圆点是可取消的切换按钮，不是标准 radio；读屏能听出是哪只、在不在桌面上
-    expect(petDot("old").getAttribute("aria-label")).toBe("桌面显示：最早导入");
-    expect(petDot("old").getAttribute("aria-pressed")).toBe("true");
-    expect(petDot("new").getAttribute("aria-pressed")).toBe("false");
+    expect(petMainButton("old").getAttribute("aria-description")).toContain("双击");
+    expect(petMainButton("old").getAttribute("aria-pressed")).toBe("true");
+    expect(petMainButton("new").getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("素材丢失的伴侣圆点不可点，名字仍能打开详情", async () => {
+  it("素材丢失时能查看详情，但双击和键盘均不能切换", async () => {
     const settings: Settings = {
       ...base,
       petAssets: [{ id: "gone", name: "丢了的", path: "pets/gone.gif", entry: "idle.gif", animations: ["idle.gif"], missing: true }],
     };
-    const { user } = await renderPetPage(undefined, settings);
-    expect(petDot("gone")).toHaveProperty("disabled", true);
+    const { user, calls } = await renderPetPage(undefined, settings);
     await user.click(petMainButton("gone"));
     await waitFor(() => expect(petMainButton("gone").getAttribute("aria-current")).toBe("page"));
+    await user.dblClick(petMainButton("gone"));
+    await user.keyboard("{Enter}");
+    expect(calls("select_pet_appearance")).toHaveLength(0);
   });
 
-  it("点名字只看详情，圆点才换桌面形象；再点已选中的收起桌宠；后端返回或广播新设置后位置不变", async () => {
+  it("单击只看详情，双击切换，更多菜单隐藏，设置返回或广播后位置不变", async () => {
     let saved = structuredClone(shelfSettings);
     let lastUsedAt = 30_000;
     const handle: IPCHandler = (command, payload) => {
@@ -148,7 +143,7 @@ describe("侧栏里伴侣的固定位置", () => {
       await waitFor(() => expect(petMainButton(id).getAttribute("aria-current")).toBe("page"));
       if (id !== saved.selectedAppearanceId) {
         expect(calls("select_pet_appearance").filter(([, payload]) => invokeArgs(payload).id === id)).toHaveLength(0);
-        await user.click(petDot(id));
+        await user.dblClick(petMainButton(id));
       }
       await waitFor(() => expect(deskIds()).toEqual([id]));
 
@@ -159,14 +154,16 @@ describe("侧栏里伴侣的固定位置", () => {
     }
     expect(calls("select_pet_appearance").map(([, payload]) => invokeArgs(payload).id)).toEqual(["twin-a", "twin-z", "old", "app-icon"]);
 
-    // 再点已选中那只的圆点：桌宠整个收起，选中保留，应用照常运行
-    await user.click(petDot("app-icon"));
+    await user.dblClick(petMainButton("app-icon"));
+    expect(calls("select_pet_appearance")).toHaveLength(4);
+    expect(calls("hide_pet")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "更多" }));
+    await user.click(screen.getByRole("menuitem", { name: "隐藏桌面伴侣" }));
     await waitFor(() => expect(deskIds()).toEqual([]));
     expect(calls("hide_pet")).toHaveLength(1);
     expect(saved.petHidden).toBe(true);
     expect(saved.selectedAppearanceId).toBe("app-icon");
-    // 点同一只的圆点又把它放回来
-    await user.click(petDot("app-icon"));
+    await user.dblClick(petMainButton("app-icon"));
     await waitFor(() => expect(deskIds()).toEqual(["app-icon"]));
     expect(saved.petHidden).toBe(false);
 
@@ -192,6 +189,44 @@ async function openCatalogItem(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "更多" }));
   await user.click(await screen.findByRole("menuitem", { name: "浏览素材库…" }));
 }
+
+describe("伴侣双击与键盘切换", () => {
+  it("Enter 和空格可切换伴侣，单击只浏览", async () => {
+    let saved = structuredClone(shelfSettings);
+    const { user, calls } = await renderPetPage((command, payload) => {
+      if (command !== "select_pet_appearance") return undefined;
+      saved = { ...saved, selectedAppearanceId: String(invokeArgs(payload).id), petHidden: false };
+      return structuredClone(saved);
+    }, saved);
+    await user.click(petMainButton("new"));
+    expect(calls("select_pet_appearance")).toHaveLength(0);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(deskIds()).toEqual(["new"]));
+    await user.click(petMainButton("twin-a"));
+    await user.keyboard(" ");
+    await waitFor(() => expect(deskIds()).toEqual(["twin-a"]));
+    expect(calls("select_pet_appearance")).toHaveLength(2);
+  });
+
+  it("切换未完成时阻止重复提交，失败可重试", async () => {
+    let rejectSwitch: (reason: string) => void = () => {};
+    let attempt = 0;
+    const { user, calls } = await renderPetPage((command) => {
+      if (command !== "select_pet_appearance") return undefined;
+      if (++attempt === 1) return new Promise((_resolve, reject) => { rejectSwitch = reject; });
+      return { ...shelfSettings, selectedAppearanceId: "new" };
+    }, shelfSettings);
+    await user.dblClick(petMainButton("new"));
+    await user.dblClick(petMainButton("new"));
+    expect(calls("select_pet_appearance")).toHaveLength(1);
+    await act(async () => rejectSwitch("切换失败"));
+    expect((await screen.findAllByText("切换失败")).length).toBeGreaterThan(0);
+    expect(deskIds()).toEqual(["old"]);
+    await user.dblClick(petMainButton("new"));
+    await waitFor(() => expect(deskIds()).toEqual(["new"]));
+    expect(calls("select_pet_appearance")).toHaveLength(2);
+  });
+});
 
 describe("桌面伴侣素材库入口", () => {
   it("只打开独立窗口，主页面不加载目录或展开素材卡片", async () => {
