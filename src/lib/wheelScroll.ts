@@ -21,7 +21,7 @@ const SETTLE_MS = 70;
 const EPSILON_PX = 0.5;
 
 export function wheelNotches(delta: number, mode: number): number {
-  if (mode === 1) return delta; // 行
+  if (mode === 1) return delta / 3; // 常见滚轮一格为三行，归一后约 48px
   if (mode === 2) return delta * 3; // 页：一页按三格折算，配合封顶不至于翻页失控
   return delta / NOTCH_DELTA;
 }
@@ -84,7 +84,7 @@ export function installWheelPace(root: HTMLElement): () => void {
     let step = pending * share;
     if (Math.abs(pending) - Math.abs(step) < EPSILON_PX) step = pending;
     // 至少走 1px，防止指数趋近在低刷新率下停滞
-    if (step !== 0 && Math.abs(step) < 1) step = Math.sign(step);
+    if (step !== 0 && Math.abs(step) < 1) step = Math.sign(step) * Math.min(1, Math.abs(pending));
     target.scrollTop = Math.max(0, Math.min(max, target.scrollTop + step));
     pending -= step;
     if (pending !== 0) raf = requestAnimationFrame(settle);
@@ -126,12 +126,8 @@ export function installWheelPace(root: HTMLElement): () => void {
       pending = 0;
     }
   };
-  // 时间轴等自定义手势在 pointerdown 里 preventDefault：视为程序化定位，丢掉滚轮余量
-  const onPointerDown = (event: PointerEvent) => {
-    queueMicrotask(() => {
-      if (event.defaultPrevented) cancelFor(scroller);
-    });
-  };
+  // 原生滚动条拖动、点击轨道与切换页面均优先于滚轮余量。
+  const onPointerDown = () => cancelFor(scroller);
   const onKeyDown = () => {
     if (scroller) cancelFor(scroller);
   };

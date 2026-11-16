@@ -19,7 +19,6 @@ import { Lightbox } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
 import { SearchField } from "../components/SearchField";
-import { TimelineScrollbar } from "../components/TimelineScrollbar";
 import { Menu, MenuItem } from "../components/Menu";
 import { Keys } from "../components/ui/Keys";
 import { Toolbar } from "../app/Shell";
@@ -53,7 +52,6 @@ export function HistoryPage() {
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const known = useRef<Set<string> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const flip = useFlip(listRef);
   const pendingHandled = useRef<string | null>(null);
   const annotateItem = useCallback((item: MediaItem) => {
@@ -132,10 +130,6 @@ export function HistoryPage() {
     return needle ? all.filter((item) => item.appName.toLowerCase().includes(needle)) : all;
   }, [items, query]);
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
-  const timelineStops = useMemo(
-    () => groups.map((group) => ({ key: group.key, timestamp: Number(group.key) })),
-    [groups],
-  );
 
   const exitSelecting = useCallback(() => {
     setSelecting(false);
@@ -348,7 +342,7 @@ export function HistoryPage() {
       <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
         {groups.map((group) => {
           return (
-            <section className="day" key={group.key} data-day-key={group.key} aria-label={group.label}>
+            <section className="day" key={group.key} aria-label={group.label}>
               <div className="day-label">
                 <h2 className="day-title">{group.label}</h2>
               </div>
@@ -386,8 +380,7 @@ export function HistoryPage() {
     <div className="mw-page history-page">
       {toolbar}
       <div className="history-body">
-        <div className="mw-scroll history-scroll" ref={scrollRef}>{body}</div>
-        <TimelineScrollbar scrollRef={scrollRef} stops={timelineStops} />
+        <div className="mw-scroll history-scroll" role="region" aria-label={t("历史")} tabIndex={0}>{body}</div>
       </div>
 
       {contextMenu && (

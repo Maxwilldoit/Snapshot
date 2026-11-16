@@ -197,54 +197,11 @@ html[data-surface="app"] .mw-window-title { min-width: 0; max-width: 220px; over
 /* ---------- 截图墙 ---------- */
 
 html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
-html[data-surface="app"] .history-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0; scrollbar-width: none; }
-html[data-surface="app"] .history-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+/* Use the same native scrollbar as Settings. The browser sizes the thumb
+   from visible/content height and updates it after filtering or resizing. */
+html[data-surface="app"] .history-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0; }
+html[data-surface="app"] .history-scroll:focus-visible { outline-offset: -3px; }
 
-/* The wave always follows live scroll progress; direct interaction previews
-   another position with the same wave and reveals its date. */
-html[data-surface="app"] .timeline-scrollbar {
-  position: relative; flex: 0 0 auto; width: 0; overflow: hidden;
-  opacity: 0; pointer-events: none; user-select: none; -webkit-user-select: none; touch-action: none;
-}
-html[data-surface="app"] .timeline-scrollbar.is-interactive {
-  width: 36px; overflow: visible; opacity: 1;
-  /* Keep per-frame tick writes from invalidating the history wall's layout. */
-  contain: layout style;
-}
-html[data-surface="app"] .timeline-track {
-  position: absolute; top: 8px; right: 0; left: 0; cursor: pointer; border-radius: 6px; outline: none; pointer-events: auto;
-}
-html[data-surface="app"] .timeline-track:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -2px;
-}
-html[data-surface="app"] .timeline-ticks {
-  position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  contain: layout style;
-}
-html[data-surface="app"] .timeline-tick {
-  position: absolute; right: 10px; width: 9px; height: 2px; margin-top: -1px; border-radius: 999px;
-  background: color-mix(in srgb, var(--text1) 22%, transparent); pointer-events: none;
-  /* One animated wave position drives these values; per-tick transitions lag
-     behind scroll samples and crossfade distant peaks instead of moving them. */
-}
-html[data-surface="app"] .timeline-scrollbar.is-dragging .timeline-track { cursor: grabbing; }
-html[data-surface="app"] .timeline-label {
-  position: fixed; z-index: 90; transform: translateY(-50%); box-sizing: border-box;
-  width: max-content; max-width: min(200px, calc(100vw - 16px)); padding: 4px 9px; border-radius: 6px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
-  background: var(--pop); color: var(--text1); font-size: 12px; line-height: 16px; font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  box-shadow: 0 0 0 0.5px var(--sep), 0 2px 8px rgba(0, 0, 0, 0.1);
-  opacity: 0; transition: opacity 150ms var(--ease-out);
-}
-html[data-surface="app"] .timeline-label.is-shown { opacity: 1; }
-html[data-surface="app"][data-theme="dark"] .timeline-label {
-  box-shadow: 0 0 0 0.5px var(--sep), 0 2px 8px rgba(0, 0, 0, 0.22);
-}
-html[data-surface="app"][data-motion="reduced"] :is(.timeline-tick, .timeline-label) { transition: none; }
-@media (prefers-reduced-motion: reduce) {
-  html[data-surface="app"] :is(.timeline-tick, .timeline-label) { transition: none; }
-}
 html[data-surface="app"] .gallery { display: block; padding: 2px 10px 24px 16px; }
 html[data-surface="app"] .mw .day { --history-day-label-height: 32px; position: relative; display: block; margin-top: 12px; padding: 0; border-top: 0; }
 html[data-surface="app"] .mw .day::before {
