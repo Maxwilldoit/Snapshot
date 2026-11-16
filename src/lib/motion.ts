@@ -13,8 +13,6 @@ import { flushSync } from "react-dom";
 
 export const DURATION = { press: 100, fade: 180, open: 320, exit: 160, theme: 520 } as const;
 const EASE_OUT = "cubic-bezier(0.2, 0, 0, 1)";
-const EASE_ENTER = "cubic-bezier(0.05, 0.7, 0.1, 1)";
-const EASE_EXIT = "cubic-bezier(0.3, 0, 0.8, 0.15)";
 
 export function motionReduced(): boolean {
   return document.documentElement.dataset.motion === "reduced";
@@ -143,55 +141,6 @@ export function useSlidingMark<T extends HTMLElement>(key: unknown) {
 /** 列表逐个入场：第 index 个晚一点点，最多晚到第 12 个为止 */
 export function stagger(index: number): CSSProperties {
   return { ["--i" as string]: Math.min(index, 12) } as CSSProperties;
-}
-
-/**
- * 共享元素：让 element 看起来是从 from 这块区域长出来的（FLIP）。
- * 放大预览用它——图从缩略图原位长出来，关掉时再缩回去。
- */
-export function growFrom(element: HTMLElement, from: DOMRect, ms: number = DURATION.open) {
-  const to = element.getBoundingClientRect();
-  if (!to.width || !to.height || typeof element.animate !== "function") return;
-  if (motionReduced()) {
-    element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
-    return;
-  }
-  const dx = from.left - to.left;
-  const dy = from.top - to.top;
-  const sx = from.width / to.width;
-  const sy = from.height / to.height;
-  element.animate(
-    [
-      { transformOrigin: "0 0", transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` },
-      { transformOrigin: "0 0", transform: "none" },
-    ],
-    { duration: ms, easing: EASE_ENTER },
-  );
-}
-
-/** growFrom 的反向：缩回 to 这块区域，结束后 resolve */
-export function shrinkTo(element: HTMLElement, to: DOMRect | null, ms: number = DURATION.exit + 60): Promise<void> {
-  const from = element.getBoundingClientRect();
-  if (typeof element.animate !== "function") return Promise.resolve();
-  if (!to || motionReduced() || !from.width || !from.height) {
-    return element.animate([{ opacity: 1 }, { opacity: 0 }], { duration: DURATION.exit, fill: "forwards" }).finished.then(
-      () => undefined,
-      () => undefined,
-    );
-  }
-  const dx = to.left - from.left;
-  const dy = to.top - from.top;
-  const animation = element.animate(
-    [
-      { transformOrigin: "0 0", transform: "none" },
-      { transformOrigin: "0 0", transform: `translate(${dx}px, ${dy}px) scale(${to.width / from.width}, ${to.height / from.height})` },
-    ],
-    { duration: ms, easing: EASE_EXIT, fill: "forwards" },
-  );
-  return animation.finished.then(
-    () => undefined,
-    () => undefined,
-  );
 }
 
 /**

@@ -52,7 +52,7 @@ export function MediaTile({
         type="button"
         className="tile-main"
         data-thumb-id={item.id}
-        aria-label={selecting ? t("选择：{label}", { label }) : t(isRecording ? "播放：{label}" : "标注：{label}", { label })}
+        aria-label={selecting ? t("选择：{label}", { label }) : t(isRecording ? "播放：{label}" : "查看：{label}", { label })}
         aria-keyshortcuts="Shift+F10"
         aria-pressed={selecting ? selected : undefined}
         onClick={(event) => onOpen(item, event)}

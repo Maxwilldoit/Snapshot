@@ -16,7 +16,7 @@ import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
 import { JustifiedGrid } from "../components/JustifiedGrid";
 import { DEFAULT_ZOOM_HEIGHT, ZOOM_MIN, ZOOM_MAX } from "../lib/justify";
-import { Lightbox } from "../components/Lightbox";
+import { PhotoViewer } from "../components/PhotoViewer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
 import { SearchField } from "../components/SearchField";
@@ -44,7 +44,7 @@ function readZoom(): number {
   return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, stored));
 }
 
-/** 历史：截图点开标注，录屏点开播放；右键进入多选、复制或确认删除。 */
+/** 历史：点开「照片」式查看器（截图可再进标注），录屏点开播放；右键进入多选、标注、复制或确认删除。 */
 export function HistoryPage() {
   const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
   const { t } = useI18n();
@@ -142,7 +142,7 @@ export function HistoryPage() {
     };
   }, [refresh]);
 
-  // 从别处点进来的截图也直接标注；录屏仍打开播放器。
+  // 从别处点进来的媒体也打开查看器。
   useEffect(() => {
     if (!pendingPreviewId) {
       pendingHandled.current = null;
@@ -152,10 +152,9 @@ export function HistoryPage() {
     pendingHandled.current = pendingPreviewId;
     const items = mergeTimeline(snapshots, recordings, {});
     const item = items.find((item) => item.id === pendingPreviewId);
-    if (item?.kind === "snapshot") annotateItem(item);
-    else if (item) setPreviewId(item.id);
+    if (item) setPreviewId(item.id);
     consumePreviewId();
-  }, [pendingPreviewId, snapshots, recordings, consumePreviewId, annotateItem]);
+  }, [pendingPreviewId, snapshots, recordings, consumePreviewId]);
 
   useEffect(() => {
     if (!fresh.size) return;
@@ -210,7 +209,6 @@ export function HistoryPage() {
 
   function open(item: MediaItem, event: React.MouseEvent) {
     if (selecting) toggle(item.id, event.shiftKey);
-    else if (item.kind === "snapshot") annotateItem(item);
     else setPreviewId(item.id);
   }
 
@@ -285,7 +283,7 @@ export function HistoryPage() {
 
   const total = items?.length ?? 0;
   const visibleIds = useMemo(() => filtered.map((item) => item.id), [filtered]);
-  const previewRecords = (filtered.length ? filtered : (items ?? [])).filter((item) => item.kind === "recording");
+  const previewRecords = filtered.length ? filtered : (items ?? []);
   const allDeleting = total > 0 && deleteIds?.length === total;
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   // 退场时文案别跟着变成「删除 0 项」：打开那一刻的文案一直留到对话框淡出
@@ -432,12 +430,13 @@ export function HistoryPage() {
             {selecting ? t(selected.has(contextMenu.item.id) ? "取消选择" : "选择") : t("多选")}
           </MenuItem>
           {contextMenu.item.kind === "snapshot" && <MenuItem onSelect={() => menuAction(copyItem)}>{t("复制")}</MenuItem>}
+          {contextMenu.item.kind === "snapshot" && <MenuItem onSelect={() => menuAction(annotateItem)}>{t("标注")}</MenuItem>}
           <MenuItem danger onSelect={() => menuAction(deleteItem)}>{t("删除")}</MenuItem>
         </Menu>
       )}
 
       {previewId && (
-        <Lightbox
+        <PhotoViewer
           records={previewRecords}
           startId={previewId}
           onClose={() => setPreviewId(null)}

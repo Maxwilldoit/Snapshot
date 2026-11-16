@@ -310,7 +310,11 @@ html[data-surface="app"] .mw .prompt-text pre { border: 0; border-radius: 6px; b
 html[data-surface="app"] .lightbox {
   inset: 0 0 0 var(--side-w); z-index: 30; background: var(--stage); color: var(--text1);
 }
+html[data-surface="app"] .photo-viewer {
+  background: color-mix(in srgb, var(--stage) calc(var(--viewer-backdrop, 1) * 100%), transparent);
+}
 html[data-surface="app"] .lightbox.is-closing { background-color: transparent; }
+html[data-surface="app"] .photo-viewer.is-closing { background: color-mix(in srgb, var(--stage) calc(var(--viewer-backdrop, 1) * 100%), transparent); }
 html[data-surface="app"] .lightbox-head {
   gap: 10px; height: 52px; padding: 0 14px 0 12px; border-bottom: 0.5px solid var(--sep); background: var(--win);
 }
@@ -327,7 +331,12 @@ html[data-surface="app"] .lightbox-arrow {
 html[data-surface="app"] .lightbox-arrow:hover:not(:disabled) { background: none; opacity: 1; }
 html[data-surface="app"] .lightbox-arrow:disabled { color: transparent; }
 html[data-surface="app"] .lightbox-stage { padding: 14px 0 6px; }
+html[data-surface="app"] .photo-stage { padding: 0; margin: 14px 0 6px; }
 html[data-surface="app"] .lightbox-image { outline: 0; border-radius: 6px; background: var(--fill); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 6px 24px rgba(0, 0, 0, 0.14); }
+html[data-surface="app"] .lightbox-annotate {
+  height: 26px; padding: 0 9px; border: 0; border-radius: 6px; background: none; color: var(--text1); font-size: 13px;
+}
+html[data-surface="app"] .lightbox-annotate:hover { background: var(--fill); }
 html[data-surface="app"] .lightbox-foot { justify-content: center; gap: 12px; height: 34px; font-size: 11px; color: var(--text2); }
 html[data-surface="app"] .lightbox-meta { flex: 0 1 auto; color: var(--text3); font-size: 11px; font-family: var(--font-sans); }
 

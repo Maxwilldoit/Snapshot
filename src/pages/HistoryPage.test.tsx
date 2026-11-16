@@ -67,26 +67,37 @@ function renderHistory(handler: (command: string, args?: Parameters<typeof invok
   return render(<AppContext.Provider value={{ ...context, ...overrides }}><HistoryPage /></AppContext.Provider>);
 }
 
-describe("history opens annotation and uses a context menu", () => {
-  it("clicking a screenshot opens its annotation window without mounting a lightbox", async () => {
+describe("history opens the photo viewer and uses a context menu", () => {
+  it("clicking a screenshot opens the viewer; markup runs from its header button", async () => {
     const annotate = vi.fn();
     renderHistory((command, args) => {
       if (command === "annotate_snapshot") annotate(invokeArgs(args).id);
     });
-    fireEvent.click(await screen.findByRole("button", { name: "标注：Alpha" }));
+    fireEvent.click(await screen.findByRole("button", { name: "查看：Alpha" }));
+    const viewer = await screen.findByRole("dialog");
+    expect(viewer.getAttribute("aria-label")).toContain("Alpha");
+    expect(annotate).not.toHaveBeenCalled();
+    fireEvent.click(within(viewer).getByRole("button", { name: "标注" }));
     await waitFor(() => expect(annotate).toHaveBeenCalledWith("1"));
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.querySelector(".lightbox")).toBeNull();
   });
 
-  it("a pending screenshot also opens annotation and reports a missing-file error", async () => {
-    const notify = vi.fn(), consumePreviewId = vi.fn();
-    renderHistory((command) => {
-      if (command === "annotate_snapshot") throw new Error("快照文件已被移动或删除");
-    }, { pendingPreviewId: "1", consumePreviewId, notify });
+  it("a pending screenshot opens the viewer too", async () => {
+    const consumePreviewId = vi.fn();
+    renderHistory(() => undefined, { pendingPreviewId: "1", consumePreviewId });
     await waitFor(() => expect(consumePreviewId).toHaveBeenCalledOnce());
-    await waitFor(() => expect(notify).toHaveBeenCalledWith("快照文件已被移动或删除", "error"));
-    expect(document.querySelector(".lightbox")).toBeNull();
+    const viewer = await screen.findByRole("dialog");
+    expect(viewer.getAttribute("aria-label")).toContain("Alpha");
+  });
+
+  it("the context menu offers markup for snapshots", async () => {
+    const annotate = vi.fn();
+    renderHistory((command, args) => {
+      if (command === "annotate_snapshot") annotate(invokeArgs(args).id);
+    });
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "查看：Alpha" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "标注" }));
+    await waitFor(() => expect(annotate).toHaveBeenCalledWith("1"));
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("right-click copy targets that screenshot and deletion waits for confirmation", async () => {
@@ -95,7 +106,7 @@ describe("history opens annotation and uses a context menu", () => {
       if (command === "copy_snapshot") { copied(invokeArgs(args).id); return "已复制"; }
       if (command === "delete_snapshots") { deleted(invokeArgs(args).ids); return [snapshots[1]]; }
     });
-    const tile = await screen.findByRole("button", { name: "标注：Alpha" });
+    const tile = await screen.findByRole("button", { name: "查看：Alpha" });
     fireEvent.contextMenu(tile, { clientX: 80, clientY: 100 });
     fireEvent.click(screen.getByRole("menuitem", { name: "复制" }));
     await waitFor(() => expect(copied).toHaveBeenCalledWith("1"));
@@ -111,7 +122,7 @@ describe("history opens annotation and uses a context menu", () => {
   it("canceling right-click deletion preserves the current multi-selection", async () => {
     const deleted = vi.fn();
     renderHistory((command) => { if (command === "delete_snapshots") deleted(); });
-    fireEvent.contextMenu(await screen.findByRole("button", { name: "标注：Alpha" }));
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "查看：Alpha" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "多选" }));
     fireEvent.contextMenu(screen.getByRole("button", { name: "选择：Beta" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
@@ -127,7 +138,7 @@ describe("history opens annotation and uses a context menu", () => {
     renderHistory((command, args) => {
       if (command === "delete_snapshots") { deleted(invokeArgs(args).ids); return []; }
     });
-    fireEvent.contextMenu(await screen.findByRole("button", { name: "标注：Alpha" }));
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "查看：Alpha" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "多选" }));
     fireEvent.click(screen.getByRole("button", { name: "选择：Beta" }));
     fireEvent.contextMenu(screen.getByRole("button", { name: "选择：Alpha" }));
@@ -141,7 +152,7 @@ describe("history opens annotation and uses a context menu", () => {
 
   it("Shift+F10 opens the same keyboard-operable menu and Escape restores focus", async () => {
     renderHistory();
-    const tile = await screen.findByRole("button", { name: "标注：Alpha" });
+    const tile = await screen.findByRole("button", { name: "查看：Alpha" });
     tile.focus();
     const user = userEvent.setup();
     await user.keyboard("{Shift>}{F10}{/Shift}");
@@ -155,7 +166,7 @@ describe("history opens annotation and uses a context menu", () => {
 
   it("the context menu stays inside the window near the bottom-right corner", async () => {
     renderHistory();
-    const tile = await screen.findByRole("button", { name: "标注：Alpha" });
+    const tile = await screen.findByRole("button", { name: "查看：Alpha" });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       return this.getAttribute("role") === "menu" ? new DOMRect(0, 0, 220, 100) : new DOMRect();
     });
@@ -172,7 +183,7 @@ describe("history opens annotation and uses a context menu", () => {
     renderHistory((command) => {
       if (command === "delete_snapshots") throw new Error("无法删除快照");
     }, { notify });
-    fireEvent.contextMenu(await screen.findByRole("button", { name: "标注：Alpha" }));
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "查看：Alpha" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "多选" }));
     fireEvent.click(screen.getByRole("button", { name: "全选 2 项" }));
     fireEvent.click(screen.getByRole("button", { name: "删除 2 项" }));
@@ -198,9 +209,9 @@ describe("history selection under a filter", () => {
       </AppContext.Provider>,
     );
 
-    await screen.findByRole("button", { name: "标注：Alpha" });
+    await screen.findByRole("button", { name: "查看：Alpha" });
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Alpha" } });
-    fireEvent.contextMenu(screen.getByRole("button", { name: "标注：Alpha" }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "查看：Alpha" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "多选" }));
     expect(await screen.findByText("已选 1 项")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "全不选" }));
@@ -224,7 +235,7 @@ describe("history selection under a filter", () => {
 
     const tile = (label: string) => screen.getByRole("button", { name: `选择：${label}` });
 
-    fireEvent.contextMenu(await screen.findByRole("button", { name: "标注：Alpha" }));
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "查看：Alpha" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "多选" }));
     fireEvent.click(tile("Beta"));
     expect(await screen.findByText("已选 2 项")).toBeTruthy();
@@ -262,12 +273,14 @@ describe("history mixes recordings into the timeline", () => {
     await screen.findByRole("button", { name: "播放：Gamma" });
     expect(document.querySelector(".tile video")).toBeTruthy();
     expect(document.querySelectorAll(".tile-main img").length).toBe(2);
-    expect(screen.getByRole("button", { name: "标注：Alpha" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "查看：Alpha" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "播放：Gamma" }));
     const player = screen.getByRole("dialog");
     expect(within(player).getByLabelText("Gamma")).toHaveProperty("controls", true);
-    expect(within(player).getByText("1 / 1")).toBeTruthy();
-    expect(within(player).getByRole("button", { name: "下一张" })).toHaveProperty("disabled", true);
+    // 查看器现在混排截图与录屏：录屏最新排第一，共 3 项，可翻到下一张截图
+    expect(within(player).getByText("1 / 3")).toBeTruthy();
+    expect(within(player).getByRole("button", { name: "下一张" })).toHaveProperty("disabled", false);
+    expect(within(player).queryByRole("button", { name: "标注" })).toBeNull();
   });
 
   it("deletes a recording through delete_recordings, not delete_snapshots", async () => {

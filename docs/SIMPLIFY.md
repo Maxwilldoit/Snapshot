@@ -417,6 +417,16 @@
 
 验证：`npm run check` 全量通过（613 前端、156 Rust 通过 / 1 忽略；i18n、Knip、构建、fmt、Clippy 均过）。浏览器中英文实测：快捷键页无任何 switch；通过预览后端模拟托盘暂停/恢复，暂停时 6 个键位框全部禁用、提示语正确（中/英），恢复后提示消失、键位可编辑。托盘菜单为原生控件，勾选与系统启动项写入待实机验证，见设备登记三十三。证据在 `/tmp/snapshot-menubar-qa/`。
 
+## 48. 「照片」式图片查看器：物理引擎驱动的缩放、惯性与过渡（2026-11-17）
+
+按用户规范完整复刻 macOS「照片」App 的触控板交互。技术栈自检：Tauri WebView 内 DOM/CSS 渲染，历史页为缩略图网格 + 多图查看器（原 Lightbox 仅静态 contain 显示）。新增纯数学层 `src/lib/photoPhysics.ts`（动态边界 getClampedTransform、指数缩放锚点补偿、对数橡皮筋、临界阻尼弹簧解析解、惯性指数衰减、5 帧最小二乘速度采样器、双击直线轨迹插值）与组件 `src/components/PhotoViewer.tsx`（统一 rAF 物理状态机：gesture / momentum / spring / zoom / page / hero 六相位，任何动画中新输入零延迟打断接管）。
+
+交互全集：ctrl+wheel 捏合以光标为锚指数缩放（触控板细腻信号直映射，离散滚轮降权限幅 ±15%）；双指平移带惯性滑行与撞边橡皮筋回弹；双击 >1.05 复位、否则以双击点为锚沿直线放大 2.5x（对数缩放进度驱动，锚点像素逐帧共线）；英雄展开/关闭走 FLIP + 弹簧 + 遮罩透明度与圆角同步过渡（缩略图 cover 裁切区 ↔ 全屏 contain）；1x 捏至 <0.82 或下拉超阈值退场（遮罩随缩放/位移实时淡出），否则弹回；1x 横向拖出邻图（固定 24px 间距），松手按 30% 视口距离或甩动速度决定翻页，切走后旧图缩放静默复位。录屏元数据后到时重算基准并居中，保留原生播放控件。Safari gesture 事件拦截防重复；stage 设 overscroll-behavior:none / touch-action:none；wheel 全部 passive:false。
+
+入口调整：历史点击截图改为打开查看器（原直接进标注），标注入口移到查看器页头按钮与右键菜单；查看器混排截图与录屏。渲染只用 translate3d+scale、transform-origin 0 0，坐标一律 getBoundingClientRect 相对视口；高频输入只写 DOM transform 不触发 React 渲染。键盘 ←/→/Esc/Ctrl+C/Enter 保留；reduced-motion 时全部直接落位。删除旧 Lightbox 与 motion.ts 中不再使用的 growFrom/shrinkTo。契约快照逐字一致。
+
+验证：`npm run check` 全量通过（640 前端、156 Rust 通过 / 1 忽略）；photoPhysics 14 项单测（锚点不变性、限幅、弹簧无过冲、速度回归、直线共线）+ PhotoViewer 17 项受控 rAF 时钟测试（展开中途打断、捏合退场、翻页阈值、双击直线、复制/标注/录屏、reduced-motion）。浏览器 CDP 实测：捏合锚点像素误差 <0.01px、甩动惯性滑行后收在界内、双击 2.5x 直线轨迹、翻页 24px 间距与回弹、下拉/内捏退场遮罩淡出、录屏居中播放、中英文界面。证据在 `/tmp/snapshot-photos-viewer-qa/`。真机触控板手感待补验，见设备登记三十四。
+
 ## 暂缓事项与原因
 
 - **截图策略迁移**：已在第 40 批按用户要求收敛为固定「复制 + 存历史」，`afterCapture` 字段删除、老值忽略，无迁移步骤。
