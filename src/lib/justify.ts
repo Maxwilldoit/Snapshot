@@ -10,6 +10,10 @@ const MAX_PER_ROW = 9;
 /** 历史墙缩放档位对应的目标行高（px）。最小档触发紧邻模式。 */
 export const ZOOM_ROW_HEIGHTS = [44, 64, 92, 128, 172, 228, 300] as const;
 export const DEFAULT_ZOOM = 3;
+/** 捏合缩放是连续的：行高在上下限之间任意取值 */
+export const ZOOM_MIN = ZOOM_ROW_HEIGHTS[0];
+export const ZOOM_MAX = ZOOM_ROW_HEIGHTS[ZOOM_ROW_HEIGHTS.length - 1];
+export const DEFAULT_ZOOM_HEIGHT: number = ZOOM_ROW_HEIGHTS[DEFAULT_ZOOM];
 /** 行高低于该值时缩略图无缝紧邻（同「照片」缩到最小的效果） */
 const FLUSH_ROW_HEIGHT = 56;
 

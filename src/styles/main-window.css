@@ -238,9 +238,6 @@ html[data-surface="app"] .mw .tile.is-narrow .tile-main img, html[data-surface="
 html[data-surface="app"] .jgrid.is-flush .tile { border-radius: 0; box-shadow: none; }
 html[data-surface="app"] .jgrid.is-flush .tile.is-selected { box-shadow: inset 0 0 0 3px var(--accent); }
 html[data-surface="app"] .jgrid.is-flush .tile-app, html[data-surface="app"] .jgrid.is-flush .tile-duration { display: none; }
-/* 工具栏缩放：滑杆两端是缩小/放大按钮 */
-html[data-surface="app"] .history-zoom { display: inline-flex; align-items: center; gap: 2px; }
-html[data-surface="app"] .history-zoom .range { width: 88px; }
 /* 来源应用图标：浅底衬托，深色截图上也看得清；取不到就不渲染（没有类型图标顶替） */
 html[data-surface="app"] .mw .tile-app { position: absolute; left: 5px; bottom: 5px; width: 18px; height: 18px; padding: 1px; border-radius: 4px; object-fit: contain; background: rgba(255, 255, 255, 0.88); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
 html[data-surface="app"] .mw .tile-duration { position: absolute; right: 5px; bottom: 5px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 10px; line-height: 14px; pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }

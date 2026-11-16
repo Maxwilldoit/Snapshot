@@ -32,10 +32,6 @@ export const coreEnglish: Record<string, string> = {
   "正在读取设置…": "Loading settings…",
   "{count} 个冲突": "1 conflict|{count} conflicts",
 
-  "缩放": "Zoom",
-  "缩小": "Zoom Out",
-  "放大": "Zoom In",
-
   "昨天": "Yesterday",
   "颜色": "Color",
 

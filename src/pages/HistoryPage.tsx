@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCheck, FolderOpen, ImageMinus, ImagePlus, Trash2, X } from "lucide-react";
+import { CheckCheck, FolderOpen, Trash2, X } from "lucide-react";
 import {
   annotateSnapshot,
   copySnapshot,
@@ -15,7 +15,7 @@ import { formatBytes, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
 import { JustifiedGrid } from "../components/JustifiedGrid";
-import { DEFAULT_ZOOM, ZOOM_ROW_HEIGHTS } from "../lib/justify";
+import { DEFAULT_ZOOM_HEIGHT, ZOOM_MIN, ZOOM_MAX } from "../lib/justify";
 import { Lightbox } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
@@ -33,9 +33,15 @@ type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y
 
 const ZOOM_KEY = "snapshot-history-zoom";
 
+/** 存的可能是旧版档位（0–6）或新版行高（px）；档位换算成对应行高 */
 function readZoom(): number {
   const stored = Number(localStorage.getItem(ZOOM_KEY));
-  return Number.isInteger(stored) && stored >= 0 && stored < ZOOM_ROW_HEIGHTS.length ? stored : DEFAULT_ZOOM;
+  if (!Number.isFinite(stored) || stored <= 0) return DEFAULT_ZOOM_HEIGHT;
+  if (stored < ZOOM_MIN) {
+    const heights = [44, 64, 92, 128, 172, 228, 300];
+    return heights[Math.min(heights.length - 1, Math.round(stored))] ?? DEFAULT_ZOOM_HEIGHT;
+  }
+  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, stored));
 }
 
 /** 历史：截图点开标注，录屏点开播放；右键进入多选、复制或确认删除。 */
@@ -65,11 +71,42 @@ export function HistoryPage() {
     void annotateSnapshot(item.id).catch((error) => notify(errorText(error), "error"));
   }, [notify]);
 
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const [scrollNode, setScrollNode] = useState<HTMLDivElement | null>(null);
+
   const changeZoom = useCallback((next: number) => {
-    const clamped = Math.max(0, Math.min(ZOOM_ROW_HEIGHTS.length - 1, next));
+    const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next));
     setZoom(clamped);
-    localStorage.setItem(ZOOM_KEY, String(clamped));
+    localStorage.setItem(ZOOM_KEY, String(Math.round(clamped)));
   }, []);
+
+  // 触控板捏合缩放（浏览器把捏合报成 ctrl+wheel）；普通滚动不受影响。
+  // 指数映射让每次捏合的手感一致；行高连续变化，同「照片」。
+  useEffect(() => {
+    const node = scrollNode;
+    if (!node) return;
+    let accumulated = 0;
+    let frame: number | null = null;
+    const apply = () => {
+      frame = null;
+      if (accumulated === 0) return;
+      const next = zoomRef.current * Math.exp(-accumulated * 0.01);
+      accumulated = 0;
+      changeZoom(next);
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      accumulated += event.deltaY;
+      if (frame === null) frame = window.requestAnimationFrame(apply);
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      node.removeEventListener("wheel", onWheel);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, [changeZoom, scrollNode]);
 
   const refresh = useCallback(async () => {
     try {
@@ -306,39 +343,6 @@ export function HistoryPage() {
     </Toolbar>
   ) : (
     <Toolbar title={t("历史")}>
-      <span className="history-zoom">
-        <button
-          type="button"
-          className="tb-btn"
-          aria-label={t("缩小")}
-          title={t("缩小")}
-          disabled={zoom === 0}
-          onClick={() => changeZoom(zoom - 1)}
-        >
-          <ImageMinus aria-hidden="true" />
-        </button>
-        <input
-          className="range"
-          type="range"
-          min={0}
-          max={ZOOM_ROW_HEIGHTS.length - 1}
-          step={1}
-          value={zoom}
-          aria-label={t("缩放")}
-          aria-valuetext={`${zoom + 1}/${ZOOM_ROW_HEIGHTS.length}`}
-          onChange={(event) => changeZoom(Number(event.target.value))}
-        />
-        <button
-          type="button"
-          className="tb-btn"
-          aria-label={t("放大")}
-          title={t("放大")}
-          disabled={zoom === ZOOM_ROW_HEIGHTS.length - 1}
-          onClick={() => changeZoom(zoom + 1)}
-        >
-          <ImagePlus aria-hidden="true" />
-        </button>
-      </span>
       <SearchField value={query} onChange={setQuery} label={t("搜索截图")} />
       <button type="button" className="tb-btn" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
         <FolderOpen aria-hidden="true" />
@@ -419,7 +423,7 @@ export function HistoryPage() {
     <div className="mw-page history-page">
       {toolbar}
       <div className="history-body">
-        <div className="mw-scroll history-scroll" role="region" aria-label={t("历史")} tabIndex={0}>{body}</div>
+        <div className="mw-scroll history-scroll" ref={setScrollNode} role="region" aria-label={t("历史")} tabIndex={0}>{body}</div>
       </div>
 
       {contextMenu && (

@@ -1,21 +1,22 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { aspectOf, justify, zoomGap, ZOOM_ROW_HEIGHTS, DEFAULT_ZOOM } from "../lib/justify";
+import { aspectOf, justify, zoomGap, ZOOM_MIN, ZOOM_MAX, DEFAULT_ZOOM_HEIGHT } from "../lib/justify";
 
-/** 一组截图排成两端对齐的几行（同「照片」）。容器宽度或缩放档位变了就重排 */
+/** 一组截图排成两端对齐的几行（同「照片」）。容器宽度或目标行高变了就重排 */
 export function JustifiedGrid<T>({
   items,
   size,
   render,
-  zoom = DEFAULT_ZOOM,
+  zoom = DEFAULT_ZOOM_HEIGHT,
 }: {
   items: T[];
   size: (item: T) => { width: number; height: number };
   render: (item: T, box: { width: number; height: number }) => ReactNode;
+  /** 目标行高（px），捏合缩放在 ZOOM_MIN–ZOOM_MAX 间连续取值 */
   zoom?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  const target = ZOOM_ROW_HEIGHTS[Math.max(0, Math.min(ZOOM_ROW_HEIGHTS.length - 1, zoom))];
+  const target = Math.round(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom)));
   const gap = zoomGap(target);
 
   useLayoutEffect(() => {
