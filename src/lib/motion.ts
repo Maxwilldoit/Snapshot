@@ -15,7 +15,25 @@ export const DURATION = { press: 100, fade: 180, open: 320, exit: 160, theme: 52
 const EASE_OUT = "cubic-bezier(0.2, 0, 0, 1)";
 
 export function motionReduced(): boolean {
-  return document.documentElement.dataset.motion === "reduced";
+  if (document.documentElement.dataset.motion === "reduced") return true;
+  if (document.documentElement.dataset.motion === "full") return false;
+  return (
+    typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/** 跟随系统「减弱动态效果」同步更新根元素的 data-motion 属性。 */
+export function watchSystemMotion(): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+  const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const apply = () => {
+    document.documentElement.dataset.motion = media.matches ? "reduced" : "full";
+  };
+  apply();
+  media.addEventListener("change", apply);
+  return () => media.removeEventListener("change", apply);
 }
 
 type ViewTransitionLike = { finished: Promise<void>; skipTransition?: () => void };

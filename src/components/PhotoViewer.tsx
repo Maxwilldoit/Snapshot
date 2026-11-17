@@ -25,7 +25,7 @@ import {
 
 /** 相邻两张图之间的固定间距（「照片」App 的翻页黑边） */
 const PAGE_GAP = 24;
-/** 松手判定：距最后一次手势输入超过这个毫秒数就进入惯性/回弹 */
+/** 松手判定：距最后一次滚轮手势输入超过这个毫秒数就进入惯性/回弹 */
 const GESTURE_IDLE_MS = 110;
 /** 弹簧固有角频率：约 150ms 落定，接近系统回弹手感 */
 const OMEGA = 26;
@@ -37,14 +37,27 @@ const DISMISS_SCALE = 0.82;
 const DISMISS_DRAG_PX = 140;
 /** 甩动翻页的速度阈值（px/s） */
 const FLING_VX = 550;
+/** 滚轮越界原始位移封顶，保证松手或反向滑动立即响应 */
+const RAW_OVERSCROLL_CAP = 420;
 
-/** 列表里这张缩略图此刻在哪（可能已滚出视野，找不到就淡出） */
+const SCALE_SOFT_MIN = 0.55;
+const SCALE_SOFT_MAX = 1.35;
+
+/** 列表里这张缩略图此刻在可视区内的矩形（已滚出滚动容器视野则返回 null，退场改为直接收起） */
 function thumbRect(id: string): DOMRect | null {
   const safe = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
   const node = document.querySelector<HTMLElement>(`[data-thumb-id="${safe}"]`);
   if (!node) return null;
   const rect = (node.querySelector<HTMLElement>(".tile-preview") ?? node).getBoundingClientRect();
-  return rect.width ? rect : null;
+  if (!rect.width) return null;
+  const scroller = node.closest<HTMLElement>(".history-scroll");
+  if (scroller) {
+    const bounds = scroller.getBoundingClientRect();
+    if (bounds.height > 0 && (rect.bottom <= bounds.top || rect.top >= bounds.bottom)) {
+      return null;
+    }
+  }
+  return rect;
 }
 
 /** 缩略图完整显示：FLIP 从格位内实际的图片边界出发，横竖图都不拉伸。 */
@@ -54,6 +67,8 @@ function containedImageRect(thumb: DOMRect, item: MediaItem): DOMRect {
   const h = (item.height || thumb.height) * scale;
   return new DOMRect(thumb.left + (thumb.width - w) / 2, thumb.top + (thumb.height - h) / 2, w, h);
 }
+
+type WheelAxis = "page" | "dismiss" | "pan" | null;
 
 type EnginePhase =
   | { kind: "idle" }
@@ -69,7 +84,11 @@ type Engine = {
   base: { w: number; h: number };
   maxScale: number;
   cur: Transform;
+  /** 连续滚轮手势期间未经橡皮筋压缩的原始坐标，避免每帧重复阻尼产生渐近死锁 */
+  raw: Transform;
   pageX: number;
+  rawPageX: number;
+  wheelAxis: WheelAxis;
   phase: EnginePhase;
   tracker: VelocityTracker;
   raf: number;
@@ -80,6 +99,18 @@ type Engine = {
 
 function fitTransform(view: { w: number; h: number }, base: { w: number; h: number }): Transform {
   return { scale: 1, tx: (view.w - base.w) / 2, ty: (view.h - base.h) / 2 };
+}
+
+/** 下拉退场跟手（同「照片」）：位移基本 1:1，只在很远处轻微减速 */
+function dismissDrag(overflow: number) {
+  return overflow <= 240 ? overflow * 0.9 : 216 + rubberClamp(overflow - 240, 0, 0, 160);
+}
+
+/** 邻页的显示尺寸：同当前视口做 contain 适配 */
+function fitBoxFor(item: MediaItem, view: { w: number; h: number }): { width: number; height: number } | null {
+  if (!view.w || !view.h || !item.width || !item.height) return null;
+  const scale = Math.min(view.w / item.width, view.h / item.height, 1);
+  return { width: Math.max(1, Math.round(item.width * scale)), height: Math.max(1, Math.round(item.height * scale)) };
 }
 
 /**
@@ -97,6 +128,8 @@ export function PhotoViewer({
   onClose: () => void;
 }) {
   const [currentId, setCurrentId] = useState(startId);
+  /** 舞台实时宽度：保证窗口缩放但图片适应框未变时，相邻面板间距仍同步重算 */
+  const [stageWidth, setStageWidth] = useState(0);
   /** 每张已量过的显示尺寸（含录屏元数据重算）；渲染直接读它，避免布局后再补一帧 */
   const [boxes, setBoxes] = useState<Record<string, { width: number; height: number }>>({});
   /** 录屏真实尺寸：记录里只有 16:9 占位，元数据读到后重算基准 */
@@ -110,6 +143,7 @@ export function PhotoViewer({
   const paneRefs = useRef(new Map<string, HTMLDivElement>());
   const mediaRefs = useRef(new Map<string, HTMLElement>());
   const rootRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const closingRef = useRef(false);
   const openedRef = useRef(false);
   const indexRef = useRef(0);
@@ -119,18 +153,49 @@ export function PhotoViewer({
     const dims = item.kind === "recording" ? videoDims[item.id] : undefined;
     return dims ? { ...item, width: dims.width, height: dims.height } : item;
   });
-  const index = Math.max(0, displayRecords.findIndex((item) => item.id === currentId));
+  const foundIndex = displayRecords.findIndex((item) => item.id === currentId);
+  const index = Math.max(0, foundIndex);
   indexRef.current = index;
   const record = displayRecords[index];
   const isRecording = record?.kind === "recording";
   const neighbors = [displayRecords[index - 1], record, displayRecords[index + 1]].filter(Boolean) as MediaItem[];
+
+  useEffect(() => {
+    if (foundIndex < 0 && displayRecords[0] && displayRecords[0].id !== currentId) {
+      setCurrentId(displayRecords[0].id);
+    }
+  }, [foundIndex, displayRecords, currentId]);
+
+  // 切页后暂停退到相邻槽位的录屏，防止离屏继续播放声音
+  useEffect(() => {
+    for (const [id, node] of mediaRefs.current) {
+      if (id !== currentId && node instanceof HTMLVideoElement && !node.paused) {
+        node.pause();
+      }
+    }
+  }, [currentId]);
+
+  // 打开查看器时接管焦点，关闭卸载时归还到当前缩略图（或打开前的焦点元素）
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    stageRef.current?.focus({ preventScroll: true });
+    return () => {
+      const activeId = currentIdRef.current;
+      const safe = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(activeId) : activeId;
+      const target = document.querySelector<HTMLElement>(`[data-thumb-id="${safe}"]`) ?? previousFocusRef.current;
+      target?.focus({ preventScroll: true });
+    };
+  }, []);
 
   const engineRef = useRef<Engine>({
     view: { w: 0, h: 0 },
     base: { w: 0, h: 0 },
     maxScale: 8,
     cur: { scale: 1, tx: 0, ty: 0 },
+    raw: { scale: 1, tx: 0, ty: 0 },
     pageX: 0,
+    rawPageX: 0,
+    wheelAxis: null,
     phase: { kind: "idle" },
     tracker: new VelocityTracker(),
     raf: 0,
@@ -172,6 +237,10 @@ export function PhotoViewer({
   recordsRef.current = displayRecords;
   const paintRef = useRef(paint);
   paintRef.current = paint;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const commitPageRef = useRef<(next: number) => void>(() => {});
+  const settleRef = useRef<(now: number, immediate: boolean) => void>(() => {});
 
   const stopAnimation = useCallback(() => {
     const engine = engineRef.current;
@@ -179,7 +248,7 @@ export function PhotoViewer({
     engine.raf = 0;
   }, []);
 
-  /** 统一的 rAF 循环：任何相位都在这里推进；新输入直接改 phase 即可零延迟接管 */
+  /** 统一的 rAF 循环：任何相位都在这里推进；指针按住期间不结算，滚轮停止后自动落定 */
   const kick = useCallback(() => {
     const engine = engineRef.current;
     if (engine.raf) return;
@@ -204,22 +273,25 @@ export function PhotoViewer({
       };
 
       if (phase.kind === "gesture") {
+        // 指针按住静止时绝不提前结算；仅在无指针按住的滚轮/触控板手势停顿后结算
+        if (dragRef.current) return;
         if (now - phase.last > GESTURE_IDLE_MS) {
-          // wheel 手势没有显式松手：空闲后走同一套结算（退场/翻页/惯性/回弹）
           settleRef.current(now, false);
+          return;
         }
+        engine.raf = requestAnimationFrame(frame);
+        return;
       } else if (phase.kind === "momentum") {
         const bounds = boundsFor(engine.cur.scale, view, base);
         const stepX = momentumStep(phase.vx, dtMs);
         const stepY = momentumStep(phase.vy, dtMs);
         let tx = engine.cur.tx + stepX.delta;
         let ty = engine.cur.ty + stepY.delta;
-        let vx = stepX.v;
-        let vy = stepY.v;
+        const vx = stepX.v;
+        const vy = stepY.v;
         const hitX = tx < bounds.minTx || tx > bounds.maxTx;
         const hitY = ty < bounds.minTy || ty > bounds.maxTy;
         if (hitX || hitY) {
-          // 撞边：坐标与剩余速度无缝交给临界阻尼弹簧（橡皮筋回弹）
           if (hitX) tx = rubberClamp(tx, bounds.minTx, bounds.maxTx, 60);
           if (hitY) ty = rubberClamp(ty, bounds.minTy, bounds.maxTy, 60);
           engine.cur = { ...engine.cur, tx, ty };
@@ -234,7 +306,6 @@ export function PhotoViewer({
       } else if (phase.kind === "spring") {
         const sx = springStep(engine.cur.tx - phase.target.tx, phase.vx, dt, OMEGA);
         const sy = springStep(engine.cur.ty - phase.target.ty, phase.vy, dt, OMEGA);
-        // 缩放在对数域弹（指数手势的自然延伸）
         const logX = Math.log(engine.cur.scale / phase.target.scale);
         const sv = springStep(logX, phase.vs / Math.max(engine.cur.scale, 1e-4), dt, OMEGA);
         const scale = phase.target.scale * Math.exp(sv.x);
@@ -250,7 +321,6 @@ export function PhotoViewer({
           engine.phase = { kind: "spring", vx: sx.v, vy: sy.v, vs: sv.v * scale, target: phase.target };
         }
       } else if (phase.kind === "zoom") {
-        // 直线轨迹：弹簧只推进缩放进度 p，tx/ty 每帧由锚点约束反推
         const step = springStep(phase.p - 1, phase.vp, dt, OMEGA);
         const p = 1 + step.x;
         const scale = phase.start.scale * Math.exp(Math.log(phase.target.scale / phase.start.scale) * p);
@@ -300,17 +370,13 @@ export function PhotoViewer({
     engine.raf = requestAnimationFrame(frame);
   }, [paint]);
 
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const commitPageRef = useRef<(next: number) => void>(() => {});
-
   /** 立即打断任何动画，从当前呈现值接管（零跳帧） */
   const interrupt = useCallback(() => {
     const engine = engineRef.current;
     stopAnimation();
     engine.dismissing = false;
+    engine.wheelAxis = null;
     if (engine.phase.kind === "page" && engine.phase.commit !== null) {
-      // 翻页动画被打断：先落定目标页再继续手势
       const commit = engine.phase.commit;
       engine.pageX = engine.phase.to;
       engine.phase = { kind: "idle" };
@@ -339,18 +405,18 @@ export function PhotoViewer({
       engine.maxScale = maxScaleFor(engine.base, { w: record.width, h: record.height });
       if (changed) {
         const phase = engine.phase;
-        // 视口/图片尺寸变化：把当前变换重新投影进合法域（不打断进行中的手势）
         if (phase.kind === "idle" || phase.kind === "spring") {
           engine.cur = getClampedTransform(engine.cur.scale, engine.cur.tx, engine.cur.ty, view, engine.base, engine.maxScale);
+          engine.raw = { ...engine.cur };
           if (engine.phase.kind === "spring") engine.phase = { kind: "idle" };
         } else if (phase.kind === "hero") {
-          // 英雄动画途中基准变了（录屏元数据后到）：终点换成新基准的居中位，起点不动
           engine.phase = { ...phase, to: fitTransform(view, engine.base) };
         } else if (phase.kind === "zoom") {
           engine.phase = { ...phase, target: getClampedTransform(phase.target.scale, phase.target.tx, phase.target.ty, view, engine.base, engine.maxScale) };
         }
         paint();
       }
+      setStageWidth((prev) => (prev === view.w ? prev : view.w));
       setBoxes((current) => current[record.id]?.width === next.width && current[record.id]?.height === next.height
         ? current
         : { ...current, [record.id]: next });
@@ -376,6 +442,7 @@ export function PhotoViewer({
     const thumb = thumbRect(startId);
     if (!thumb || motionReduced()) {
       engine.cur = target;
+      engine.raw = { ...target };
       paint();
       return;
     }
@@ -386,12 +453,13 @@ export function PhotoViewer({
       ty: cover.top - stageRect.top,
     };
     engine.cur = from;
+    engine.raw = { ...target };
     engine.phase = { kind: "hero", mode: "open", from, to: target, p: 0, vp: 0, radiusFrom: 4, radiusTo: 6 };
     paint();
     kick();
   }, [boxes, record, startId, kick, paint]);
 
-  /** 关闭：弹簧飞回缩略图（继承当前位置），找不到缩略图就淡出 */
+  /** 关闭：弹簧飞回可视缩略图（继承当前位置），缩略图已滚出视野或减弱动态效果时直接收起 */
   const close = useCallback(() => {
     if (closingRef.current) return;
     closingRef.current = true;
@@ -417,8 +485,7 @@ export function PhotoViewer({
     kick();
   }, [stopAnimation, kick]);
 
-  /** 翻页落定：换当前图并把物理状态复位到新图的 1x（旧图缩放静默丢弃）。
-   *  基准尺寸同步重算：翻页动画期间 measure 闭包还拿着旧图，不能等 effect。 */
+  /** 翻页落定：换当前图并把物理状态复位到新图的 1x（旧图缩放静默丢弃）。 */
   const commitPage = useCallback((next: number) => {
     const item = recordsRef.current[next];
     if (!item) return;
@@ -429,12 +496,14 @@ export function PhotoViewer({
       engine.maxScale = maxScaleFor(engine.base, { w: item.width, h: item.height });
     }
     engine.pageX = 0;
+    engine.rawPageX = 0;
+    engine.wheelAxis = null;
     engine.cur = fitTransform(engine.view, engine.base);
+    engine.raw = { ...engine.cur };
     engine.tracker.clear();
     setCurrentId(item.id);
     setCopyError(null);
     setCopyMessage(null);
-    // React 提交后（新 img 挂载、ref 就位）再上屏一次
     requestAnimationFrame(() => paintRef.current());
   }, []);
   commitPageRef.current = commitPage;
@@ -467,6 +536,7 @@ export function PhotoViewer({
       const zoomed = zoomAnchored(start, Math.log(oneToOne / start.scale), cx, cy);
       target = getClampedTransform(zoomed.scale, zoomed.tx, zoomed.ty, engine.view, engine.base, engine.maxScale);
     }
+    engine.raw = { ...target };
     if (motionReduced()) {
       engine.cur = target;
       paint();
@@ -505,108 +575,122 @@ export function PhotoViewer({
       return { x: clientX - rect.left, y: clientY - rect.top };
     };
 
-    const beginGesture = (now: number) => {
+    const beginWheelGesture = (now: number) => {
       if (!interrupt()) return false;
+      engine.raw = { ...engine.cur };
+      engine.rawPageX = engine.pageX;
+      engine.wheelAxis = null;
+      engine.tracker.clear();
       engine.phase = { kind: "gesture", last: now };
       return true;
     };
 
-    const pushSample = (now: number) => {
+    const pushWheelSample = (now: number) => {
       engine.tracker.push({ t: now, tx: engine.cur.tx, ty: engine.cur.ty, scale: engine.cur.scale });
-      if (engine.phase.kind === "gesture") engine.phase = { kind: "gesture", last: now };
-      paint(); // 输入当帧立即上屏，不等下一个 rAF（跟手）
+      engine.phase = { kind: "gesture", last: now };
+      paint();
       kick();
     };
 
-    const applyPan = (dx: number, dy: number, now: number) => {
-      const { view, base, maxScale, cur } = engine;
-      const bounds = boundsFor(clamp(cur.scale, 1, maxScale), view, base);
-      // 1x 时纵向拖动触发退场手势；横向留给翻页
-      const atFit = cur.scale <= 1.001;
-      let tx = cur.tx + dx;
-      let ty = cur.ty + dy;
-      if (atFit && dy > 0 && Math.abs(dy) >= Math.abs(dx) * 0.5) {
-        engine.dismissing = true;
-        ty = bounds.maxTy + dismissDrag(ty - bounds.maxTy);
-        tx = rubberClamp(tx, bounds.minTx, bounds.maxTx);
-      } else {
-        tx = rubberClamp(tx, bounds.minTx, bounds.maxTx);
-        ty = rubberClamp(ty, bounds.minTy, bounds.maxTy);
-        if (atFit) handlePagingDrag(tx, bounds, dx, now);
-      }
-      engine.cur = { ...cur, tx, ty };
-      pushSample(now);
-    };
-
-    // 下拉退场跟手（同「照片」）：位移基本 1:1，只在很远处轻微减速
-    const dismissDrag = (overflow: number) => (overflow <= 240 ? overflow * 0.9 : 216 + rubberClamp(overflow - 240, 0, 0, 160));
-
-    /** 1x（或已到水平边缘）继续横向拖：拖出相邻图片，间距固定 24px */
-    const handlePagingDrag = (tx: number, bounds: { minTx: number; maxTx: number }, dx: number, now: number) => {
-      const overLeft = tx > bounds.maxTx; // 往右拖 → 上一张
-      const overRight = tx < bounds.minTx; // 往左拖 → 下一张
-      if (!overLeft && !overRight) return;
-      const dir = overLeft ? -1 : 1;
-      const hasNext = Boolean(recordsRef.current[indexRef.current + dir]);
-      engine.cur = { ...engine.cur, tx: clamp(tx, bounds.minTx, bounds.maxTx) };
-      if (hasNext) {
-        engine.pageX = rubberClamp(engine.pageX + dx, -(engine.view.w + PAGE_GAP), engine.view.w + PAGE_GAP);
-      } else {
-        engine.pageX = rubberClamp(engine.pageX + dx, -80, 80);
-      }
-      void now;
-    };
-
     const onWheel = (event: WheelEvent) => {
-      if (closingRef.current) return;
+      if (closingRef.current || dragRef.current) return;
       event.preventDefault();
       event.stopPropagation();
       const now = performance.now();
-      if (engine.phase.kind !== "gesture" && !beginGesture(now)) return;
-      const { view, base, maxScale, cur } = engine;
+      if (engine.phase.kind !== "gesture" && !beginWheelGesture(now)) return;
+      const { view, base, maxScale } = engine;
+
       if (event.ctrlKey || event.metaKey) {
-        // 捏合缩放：光标锚点不变 + 指数映射；越界走软边界
+        // 捏合缩放：基于未阻尼原始坐标推进，保证光标锚点精确不变（<1x 亦不向左上角漂移）
         const notched = isNotchedZoom(event);
         const delta = zoomDeltaOf(event.deltaY, event.deltaMode, notched);
         const { x: cx, y: cy } = pointIn(event.clientX, event.clientY);
-        const next = zoomAnchored(cur, delta, cx, cy);
+        const next = zoomAnchored(engine.raw, delta, cx, cy);
         const scale = clamp(next.scale, SCALE_SOFT_MIN, maxScale * SCALE_SOFT_MAX);
-        const ratio = scale / cur.scale;
-        let tx = cx - (cx - cur.tx) * ratio;
-        let ty = cy - (cy - cur.ty) * ratio;
-        const bounds = boundsFor(clamp(scale, 1, maxScale), view, base);
-        tx = rubberClamp(tx, bounds.minTx, bounds.maxTx);
-        ty = rubberClamp(ty, bounds.minTy, bounds.maxTy);
-        engine.cur = { scale, tx, ty };
-        engine.dismissing = scale < 1;
-        pushSample(now);
-      } else {
-        const dx = -event.deltaX;
-        const dy = -event.deltaY;
-        if (cur.scale <= 1.001 && Math.abs(dx) > Math.abs(dy)) {
-          // 1x 横向：翻页手势
-          const dir = dx < 0 ? 1 : -1;
+        const ratio = scale / engine.raw.scale;
+        const rawTx = cx - (cx - engine.raw.tx) * ratio;
+        const rawTy = cy - (cy - engine.raw.ty) * ratio;
+        engine.raw = { scale, tx: rawTx, ty: rawTy };
+
+        if (scale < 1) {
+          engine.cur = { scale, tx: rawTx, ty: rawTy };
+          engine.dismissing = true;
+        } else {
+          const bounds = boundsFor(clamp(scale, 1, maxScale), view, base);
+          engine.cur = {
+            scale,
+            tx: rubberClamp(rawTx, bounds.minTx, bounds.maxTx),
+            ty: rubberClamp(rawTy, bounds.minTy, bounds.maxTy),
+          };
+          engine.dismissing = false;
+        }
+        pushWheelSample(now);
+        return;
+      }
+
+      const dx = -event.deltaX;
+      const dy = -event.deltaY;
+      if (engine.cur.scale <= 1.001) {
+        if (engine.wheelAxis === null && (dx !== 0 || dy !== 0)) {
+          if (Math.abs(dx) > Math.abs(dy)) engine.wheelAxis = "page";
+          else if (dy > 0) engine.wheelAxis = "dismiss";
+          else engine.wheelAxis = "pan";
+        }
+        if (engine.wheelAxis === "page") {
+          engine.rawPageX = clamp(engine.rawPageX + dx, -(view.w + PAGE_GAP + RAW_OVERSCROLL_CAP), view.w + PAGE_GAP + RAW_OVERSCROLL_CAP);
+          const dir = engine.rawPageX < 0 ? 1 : -1;
           const hasNext = Boolean(recordsRef.current[indexRef.current + dir]);
           const limit = hasNext ? view.w + PAGE_GAP : 80;
-          engine.pageX = rubberClamp(engine.pageX + dx, -limit, limit);
+          engine.pageX = rubberClamp(engine.rawPageX, -limit, limit);
           engine.tracker.push({ t: now, tx: engine.pageX, ty: 0, scale: 1 });
-          if (engine.phase.kind === "gesture") engine.phase = { kind: "gesture", last: now };
+          engine.phase = { kind: "gesture", last: now };
           paint();
           kick();
-        } else {
-          applyPan(dx, dy, now);
+          return;
         }
+        const bounds = boundsFor(1, view, base);
+        engine.raw = {
+          ...engine.raw,
+          tx: clamp(engine.raw.tx + dx, bounds.minTx - RAW_OVERSCROLL_CAP, bounds.maxTx + RAW_OVERSCROLL_CAP),
+          ty: clamp(engine.raw.ty + dy, bounds.minTy - RAW_OVERSCROLL_CAP, bounds.maxTy + 480),
+        };
+        if (engine.raw.ty > bounds.maxTy) {
+          engine.dismissing = true;
+          engine.cur = {
+            ...engine.cur,
+            tx: rubberClamp(engine.raw.tx, bounds.minTx, bounds.maxTx),
+            ty: bounds.maxTy + dismissDrag(engine.raw.ty - bounds.maxTy),
+          };
+        } else {
+          engine.dismissing = false;
+          engine.cur = {
+            ...engine.cur,
+            tx: rubberClamp(engine.raw.tx, bounds.minTx, bounds.maxTx),
+            ty: rubberClamp(engine.raw.ty, bounds.minTy, bounds.maxTy),
+          };
+        }
+        pushWheelSample(now);
+      } else {
+        const bounds = boundsFor(clamp(engine.cur.scale, 1, maxScale), view, base);
+        const rawTx = clamp(engine.raw.tx + dx, bounds.minTx - RAW_OVERSCROLL_CAP, bounds.maxTx + RAW_OVERSCROLL_CAP);
+        const rawTy = clamp(engine.raw.ty + dy, bounds.minTy - RAW_OVERSCROLL_CAP, bounds.maxTy + RAW_OVERSCROLL_CAP);
+        engine.raw = { ...engine.raw, tx: rawTx, ty: rawTy };
+        engine.cur = {
+          ...engine.cur,
+          tx: rubberClamp(rawTx, bounds.minTx, bounds.maxTx),
+          ty: rubberClamp(rawTy, bounds.minTy, bounds.maxTy),
+        };
+        pushWheelSample(now);
       }
     };
 
-    // Safari 的 gesture 事件与 ctrl+wheel 重复上报：拦下来只阻止默认，不叠加缩放
     const onGesture = (event: Event) => event.preventDefault();
 
     const onPointerDown = (event: PointerEvent) => {
-      if (closingRef.current || event.button !== 0) return;
-      if ((event.target as HTMLElement).closest("video")) return; // 录屏控件自己处理
+      // 已有活跃指针拖拽时忽略第二根手指，防止覆盖捕获并导致结算错位
+      if (closingRef.current || event.button !== 0 || dragRef.current !== null) return;
+      if ((event.target as HTMLElement).closest("video")) return;
       if (!interrupt()) return;
-      // jsdom / 旧 WebView 没有指针捕获：拖拽仍靠 stage 上的 move/up 监听兜底
       try { stage.setPointerCapture(event.pointerId); } catch { /* unsupported */ }
       dragRef.current = {
         id: event.pointerId,
@@ -640,7 +724,6 @@ export function PhotoViewer({
         engine.tracker.push({ t: now, tx: engine.pageX, ty: 0, scale: 1 });
         engine.phase = { kind: "gesture", last: now };
         paint();
-        kick();
         return;
       }
       let tx = drag.tx + dx;
@@ -657,7 +740,6 @@ export function PhotoViewer({
       engine.tracker.push({ t: now, tx, ty, scale: engine.cur.scale });
       engine.phase = { kind: "gesture", last: now };
       paint();
-      kick();
     };
 
     const endDrag = (event: PointerEvent) => {
@@ -671,7 +753,6 @@ export function PhotoViewer({
         engine.phase = { kind: "idle" };
         return;
       }
-      // 松手：立刻按当前速度进入结算（不等空闲计时）
       settleGesture(performance.now(), true);
     };
 
@@ -680,12 +761,11 @@ export function PhotoViewer({
       const { view, base, maxScale, cur } = engine;
       const { vx, vy, vScale } = engine.tracker.velocity(now, immediate ? 160 : GESTURE_IDLE_MS + 40);
       const atFit = cur.scale <= 1.001;
-      // 捏合/下拉退场
+      engine.wheelAxis = null;
       if ((engine.dismissing || cur.scale < 1) && (cur.scale < DISMISS_SCALE || cur.ty - (view.h - base.h) / 2 > DISMISS_DRAG_PX)) {
         close();
         return;
       }
-      // 翻页：距离超 30% 或甩动速度过阈值
       if (atFit && Math.abs(engine.pageX) > 1) {
         const width = view.w + PAGE_GAP;
         const dir = engine.pageX < 0 ? 1 : -1;
@@ -693,6 +773,7 @@ export function PhotoViewer({
         const fling = dir === 1 ? vx < -FLING_VX : vx > FLING_VX;
         const passed = Math.abs(engine.pageX) > view.w * 0.3 || fling;
         const commit = passed && recordsRef.current[next] ? next : null;
+        engine.rawPageX = 0;
         engine.phase = motionReduced()
           ? { kind: "idle" }
           : { kind: "page", from: engine.pageX, to: commit !== null ? -dir * width : 0, v: vx, commit };
@@ -704,13 +785,13 @@ export function PhotoViewer({
         return;
       }
       engine.dismissing = false;
-      // 缩放越界 → 弹簧回合法域；平移越界 → 弹簧收回；界内有速度 → 惯性
       const legalScale = clamp(cur.scale, 1, maxScale);
       if (cur.scale < 1 || cur.scale > maxScale) {
         const ratio = legalScale / cur.scale;
         const cx = view.w / 2;
         const cy = view.h / 2;
         const target = getClampedTransform(legalScale, cx - (cx - cur.tx) * ratio, cy - (cy - cur.ty) * ratio, view, base, maxScale);
+        engine.raw = { ...target };
         engine.phase = motionReduced() ? { kind: "idle" } : { kind: "spring", vx, vy, vs: vScale, target };
         if (motionReduced()) { engine.cur = target; paint(); } else kick();
         return;
@@ -718,6 +799,7 @@ export function PhotoViewer({
       const bounds = boundsFor(cur.scale, view, base);
       const outside = cur.tx < bounds.minTx - 0.5 || cur.tx > bounds.maxTx + 0.5 || cur.ty < bounds.minTy - 0.5 || cur.ty > bounds.maxTy + 0.5;
       const target = getClampedTransform(cur.scale, cur.tx, cur.ty, view, base, maxScale);
+      engine.raw = { ...target };
       if (!outside && cur.scale > 1.001 && (Math.abs(vx) > MOMENTUM_MIN_V || Math.abs(vy) > MOMENTUM_MIN_V) && !motionReduced()) {
         engine.phase = { kind: "momentum", vx, vy };
         kick();
@@ -755,35 +837,53 @@ export function PhotoViewer({
       stage.removeEventListener("pointercancel", endDrag);
       stage.removeEventListener("dblclick", onDoubleClick);
     };
-  }, [record, interrupt, kick, paint, zoomAtPoint, close]);
+  }, [record, interrupt, kick, paint, zoomAtPoint, close, commitPage]);
 
-  const settleRef = useRef<(now: number, immediate: boolean) => void>(() => {});
-
-  // 空闲检测：wheel 手势没有显式松手事件，用计时器在停止输入后结算
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const engine = engineRef.current;
-      if (engine.phase.kind === "gesture" && !dragRef.current && performance.now() - engine.phase.last > GESTURE_IDLE_MS) {
-        settleRef.current(performance.now(), false);
-      }
-    }, 40);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  // 键盘：← → 翻页，Esc 返回，Ctrl/Cmd+C 复制，Enter/空格 双击式缩放（可访问性）
+  // 模态键盘处理：Tab 焦点循环在查看器内，屏蔽背景快捷键，视频聚焦时保留原生快进快退
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Tab" && rootRef.current) {
+        const focusable = [...rootRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), video[controls], [tabindex="0"]',
+        )];
+        if (focusable.length > 0) {
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          const active = document.activeElement as HTMLElement | null;
+          if (!active || !rootRef.current.contains(active)) {
+            event.preventDefault();
+            first.focus({ preventScroll: true });
+          } else if (event.shiftKey && active === first) {
+            event.preventDefault();
+            last.focus({ preventScroll: true });
+          } else if (!event.shiftKey && active === last) {
+            event.preventDefault();
+            first.focus({ preventScroll: true });
+          }
+        }
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      const inVideo = (event.target as HTMLElement | null)?.tagName === "VIDEO";
       if (event.key === "Escape") {
         event.preventDefault();
         close();
-      } else if (event.key === "ArrowLeft") step(-1);
-      else if (event.key === "ArrowRight") step(1);
-      else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+      } else if (event.key === "ArrowLeft" && !inVideo) {
+        event.preventDefault();
+        step(-1);
+      } else if (event.key === "ArrowRight" && !inVideo) {
+        event.preventDefault();
+        step(1);
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
         if (isRecording) return;
         event.preventDefault();
         void copy();
       } else if (event.key === "Enter" || event.key === " ") {
-        if ((event.target as HTMLElement).tagName === "BUTTON" || (event.target as HTMLElement).tagName === "VIDEO") return;
+        if ((event.target as HTMLElement | null)?.tagName === "BUTTON" || inVideo) return;
         event.preventDefault();
         const engine = engineRef.current;
         zoomAtPoint(engine.view.w / 2, engine.view.h / 2);
@@ -792,15 +892,15 @@ export function PhotoViewer({
         zoomAtPoint(engine.view.w / 2, engine.view.h / 2);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [close, copy, step, isRecording, zoomAtPoint]);
 
   useEffect(() => () => stopAnimation(), [stopAnimation]);
 
   if (!record) return null;
 
-  const width = engineRef.current.view.w + PAGE_GAP;
+  const width = (stageWidth || engineRef.current.view.w) + PAGE_GAP;
 
   return createPortal(
     <div
@@ -829,7 +929,7 @@ export function PhotoViewer({
         <div className="lightbox-stage photo-stage" ref={stageRef} tabIndex={0} aria-label={t("放大查看：{appName}", { appName: record.appName })}>
           <div className="photo-strip" ref={stripRef}>
             {neighbors.map((item) => {
-              const slot = displayRecords.findIndex((r) => r.id === item.id) - index; // -1 0 1
+              const slot = displayRecords.findIndex((r) => r.id === item.id) - index;
               const itemBox = boxes[item.id] ?? fitBoxFor(item, engineRef.current.view);
               return (
                 <div
@@ -892,13 +992,3 @@ export function PhotoViewer({
     document.body,
   );
 }
-
-/** 邻页的显示尺寸：同当前视口做 contain 适配 */
-function fitBoxFor(item: MediaItem, view: { w: number; h: number }): { width: number; height: number } | null {
-  if (!view.w || !view.h || !item.width || !item.height) return null;
-  const scale = Math.min(view.w / item.width, view.h / item.height, 1);
-  return { width: Math.max(1, Math.round(item.width * scale)), height: Math.max(1, Math.round(item.height * scale)) };
-}
-
-const SCALE_SOFT_MIN = 0.55;
-const SCALE_SOFT_MAX = 1.35;
