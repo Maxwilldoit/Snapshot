@@ -19,7 +19,7 @@ use image::RgbaImage;
 use std::{path::Path, process::Command};
 
 pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
-pub(crate) use clipboard::sample as clipboard_sample;
+pub(crate) use clipboard::{sample as clipboard_sample, supported as clipboard_history_supported};
 pub(crate) use icon::png_for_app_name as app_icon_for_name;
 pub(crate) use icon::png_for_pid as app_icon_png;
 pub(crate) use icon::{png_for_app_id as app_icon_for_id, stable_id_for_pid as app_stable_id};

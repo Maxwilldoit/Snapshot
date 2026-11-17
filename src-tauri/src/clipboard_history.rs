@@ -1,17 +1,19 @@
 //! 剪贴板历史：macOS / Linux 上始终开启，后台每秒看一眼系统剪贴板，把新复制的文字和图片
 //! 存进应用数据目录（索引 clipboard-history.json + 图片 clipboard-history/<id>.png）。
-//! 密码管理器标记为敏感的内容（Concealed / transient）跳过。
-//! 删除单条或清空都立即落盘；Windows 采样恒空，等于没有这个功能。
+//! 密码管理器标记为敏感的内容（Concealed / transient / x-kde-passwordManagerHint）跳过。
+//! 删除单条或清空都立即原子落盘；不支持的平台不启动后台轮询线程。
 
 use super::*;
+use image::ImageReader;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::io::Cursor;
 
 /// 最多保留的条数；超出后从最旧的一端连同图片文件一起删。
 const MAX_ENTRIES: usize = 500;
 /// 单条文字上限（字符数）；再长的复制多半是数据导出，不适合当历史条目。
 const MAX_TEXT_CHARS: usize = 100_000;
-/// 单张图片像素上限（宽 × 高），约 8K 截图；再大的跳过，避免解码占满内存。
+/// 单张图片像素上限（宽 × 高），约 8K 截图；解码前先按文件头尺寸拦截，避免占满内存。
 const MAX_IMAGE_PIXELS: u64 = 40_000_000;
 const POLL_INTERVAL: Duration = Duration::from_millis(1000);
 
@@ -27,7 +29,7 @@ pub(crate) struct ClipboardHistoryEntry {
     /// 图片原始宽高；文字条目为 0
     pub(crate) width: u32,
     pub(crate) height: u32,
-    /// 内容哈希：去重、以及判断「当前剪贴板还是这条」
+    /// 内容哈希：文字按 UTF-8 字节，图片按标准 RGBA 像素与尺寸计算，跨 PNG/TIFF 编码一致
     pub(crate) hash: String,
 }
 
@@ -38,14 +40,27 @@ pub(crate) struct ClipboardHistory {
     counter: u64,
 }
 
-/// 平台采样结果。marker 用来判断剪贴板变没变（macOS changeCount；Linux 用内容哈希）。
+#[cfg_attr(target_os = "windows", allow(dead_code))]
+pub(crate) enum RawClipboardImage {
+    /// PNG / TIFF 等编码字节（仅在剪贴板变化后由 macOS 平台层读取）
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Encoded(Vec<u8>),
+    /// 已解码的原始 RGBA 像素（Linux X11 arboard 返回值）
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Rgba {
+        width: u32,
+        height: u32,
+        bytes: Vec<u8>,
+    },
+}
+
+/// 平台采样结果。marker 相同时平台层直接返回 None，不做任何内存拷贝或图像编解码。
 pub(crate) struct Sample {
     pub(crate) marker: String,
     /// 密码管理器等标记的敏感内容：跳过，不读也不存
     pub(crate) concealed: bool,
     pub(crate) text: Option<String>,
-    /// 已编码的 PNG 字节
-    pub(crate) png: Option<Vec<u8>>,
+    pub(crate) image: Option<RawClipboardImage>,
 }
 
 impl ClipboardHistory {
@@ -58,6 +73,27 @@ impl ClipboardHistory {
             entries,
             counter: 0,
         }
+    }
+
+    fn is_head_hash(&self, hash: &str) -> bool {
+        self.entries.first().is_some_and(|head| head.hash == hash)
+    }
+
+    /// 若已有同哈希条目则挪到首位并先原子写盘，写盘成功后再提交内存态。
+    fn promote_existing(&mut self, hash: &str) -> Result<Option<ClipboardHistoryEntry>, String> {
+        let Some(position) = self.entries.iter().position(|item| item.hash == hash) else {
+            return Ok(None);
+        };
+        if position == 0 {
+            return Ok(None);
+        }
+        let mut next = self.entries.clone();
+        let mut existing = next.remove(position);
+        existing.created_at = now_millis();
+        next.insert(0, existing.clone());
+        write_json_atomic(&self.path, &next)?;
+        self.entries = next;
+        Ok(Some(existing))
     }
 
     fn push(
@@ -85,42 +121,49 @@ impl ClipboardHistory {
             fs::write(self.dir.join(format!("{}.png", entry.id)), bytes)
                 .map_err(|error| error.to_string())?;
         }
-        self.entries.insert(0, entry.clone());
-        while self.entries.len() > MAX_ENTRIES {
-            if let Some(old) = self.entries.pop() {
-                if old.kind == "image" {
-                    let _ = fs::remove_file(self.dir.join(format!("{}.png", old.id)));
-                }
+
+        let mut next = Vec::with_capacity(self.entries.len().min(MAX_ENTRIES) + 1);
+        next.push(entry.clone());
+        next.extend(self.entries.iter().cloned());
+        let evicted: Vec<_> = if next.len() > MAX_ENTRIES {
+            next.drain(MAX_ENTRIES..).collect()
+        } else {
+            Vec::new()
+        };
+
+        if let Err(error) = write_json_atomic(&self.path, &next) {
+            if png.is_some() {
+                let _ = fs::remove_file(self.dir.join(format!("{}.png", entry.id)));
+            }
+            return Err(error);
+        }
+
+        self.entries = next;
+        for old in evicted {
+            if old.kind == "image" {
+                let _ = fs::remove_file(self.dir.join(format!("{}.png", old.id)));
             }
         }
-        match write_json_atomic(&self.path, &self.entries) {
-            Ok(()) => Ok(entry),
-            Err(error) => {
-                self.entries.remove(0);
-                if png.is_some() {
-                    let _ = fs::remove_file(self.dir.join(format!("{}.png", entry.id)));
-                }
-                Err(error)
-            }
-        }
+        Ok(entry)
     }
 
     fn remove(&mut self, ids: &[String]) -> Result<(), String> {
         let (removed, kept): (Vec<_>, Vec<_>) = self
             .entries
-            .drain(..)
+            .iter()
+            .cloned()
             .partition(|item| ids.contains(&item.id));
+        if removed.is_empty() {
+            return Ok(());
+        }
+        // 先写新索引，成功后再提交内存并清理旧图片文件，保证写盘失败时内存与磁盘一致。
+        write_json_atomic(&self.path, &kept)?;
+        self.entries = kept;
         for item in &removed {
             if item.kind == "image" {
                 let _ = fs::remove_file(self.dir.join(format!("{}.png", item.id)));
             }
         }
-        if let Err(error) = write_json_atomic(&self.path, &kept) {
-            // 写盘失败把条目放回原位，文件已删的图片条目不复活（读图时会报缺失）
-            self.entries = kept;
-            return Err(error);
-        }
-        self.entries = kept;
         Ok(())
     }
 }
@@ -130,8 +173,55 @@ pub(crate) fn hash_bytes(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// 后台轮询：内容没变（marker 相同）不做任何事；平台不支持时采样恒空。
+/// 图片统一按原始 RGBA 像素与宽高计算哈希，保证 PNG（带色彩配置元数据）与 arboard TIFF 重编码后哈希一致。
+pub(crate) fn hash_rgba(width: u32, height: u32, rgba: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(width.to_le_bytes());
+    hasher.update(height.to_le_bytes());
+    hasher.update(rgba);
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn decode_bounded_image(raw: &RawClipboardImage) -> Option<RgbaImage> {
+    match raw {
+        RawClipboardImage::Encoded(bytes) => {
+            let reader = ImageReader::new(Cursor::new(bytes))
+                .with_guessed_format()
+                .ok()?;
+            let (width, height) = reader.into_dimensions().ok()?;
+            if width == 0 || height == 0 || u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS
+            {
+                return None;
+            }
+            image::load_from_memory(bytes)
+                .ok()
+                .map(|img| img.to_rgba8())
+        }
+        RawClipboardImage::Rgba {
+            width,
+            height,
+            bytes,
+        } => {
+            if *width == 0
+                || *height == 0
+                || u64::from(*width) * u64::from(*height) > MAX_IMAGE_PIXELS
+            {
+                return None;
+            }
+            RgbaImage::from_raw(*width, *height, bytes.clone())
+        }
+    }
+}
+
+/// 后台轮询：不支持剪贴板历史的平台直接退出，不创建空转线程；支持平台在内容未变时零拷贝返回。
 pub(crate) fn start(app: AppHandle) {
+    if !os::clipboard_history_supported() {
+        return;
+    }
     thread::spawn(move || {
         let mut last_marker = String::new();
         loop {
@@ -139,7 +229,7 @@ pub(crate) fn start(app: AppHandle) {
             let Some(state) = app.try_state::<AppState>() else {
                 continue;
             };
-            let Some(sample) = os::clipboard_sample() else {
+            let Some(sample) = os::clipboard_sample(&last_marker) else {
                 continue;
             };
             if sample.marker == last_marker {
@@ -161,57 +251,53 @@ fn capture_sample(
     state: &AppState,
     sample: &Sample,
 ) -> Result<Option<ClipboardHistoryEntry>, String> {
-    let mut history = state.clipboard_history.lock();
     if let Some(text) = sample.text.as_deref() {
         let trimmed = text.trim();
         if trimmed.is_empty() || text.chars().count() > MAX_TEXT_CHARS {
             return Ok(None);
         }
         let hash = hash_bytes(text.as_bytes());
-        if history
-            .entries
-            .first()
-            .is_some_and(|head| head.hash == hash)
-        {
+        let mut history = state.clipboard_history.lock();
+        if history.is_head_hash(&hash) {
             return Ok(None);
         }
-        // 同一内容再次复制：挪到最前并更新时间，而不是存重复条目
-        if let Some(position) = history.entries.iter().position(|item| item.hash == hash) {
-            let mut existing = history.entries.remove(position);
-            existing.created_at = now_millis();
-            history.entries.insert(0, existing.clone());
-            write_json_atomic(&history.path, &history.entries)?;
-            return Ok(Some(existing));
+        if let Some(promoted) = history.promote_existing(&hash)? {
+            return Ok(Some(promoted));
         }
         return history
             .push("text", text.to_string(), 0, 0, hash, None)
             .map(Some);
     }
-    if let Some(png) = sample.png.as_deref() {
-        let hash = hash_bytes(png);
-        if history
-            .entries
-            .first()
-            .is_some_and(|head| head.hash == hash)
+
+    if let Some(raw_image) = sample.image.as_ref() {
+        // 解码与 PNG 压缩全部放在互斥锁之外，避免阻塞主线程列表读取与 media:// 图片加载。
+        let Some(rgba) = decode_bounded_image(raw_image) else {
+            return Ok(None);
+        };
+        let (width, height) = (rgba.width(), rgba.height());
+        let hash = hash_rgba(width, height, rgba.as_raw());
         {
+            let mut history = state.clipboard_history.lock();
+            if history.is_head_hash(&hash) {
+                return Ok(None);
+            }
+            if let Some(promoted) = history.promote_existing(&hash)? {
+                return Ok(Some(promoted));
+            }
+        }
+        let png = crate::capture::encode_png(&rgba)?;
+        let mut history = state.clipboard_history.lock();
+        if history.is_head_hash(&hash) {
             return Ok(None);
         }
-        if let Some(position) = history.entries.iter().position(|item| item.hash == hash) {
-            let mut existing = history.entries.remove(position);
-            existing.created_at = now_millis();
-            history.entries.insert(0, existing.clone());
-            write_json_atomic(&history.path, &history.entries)?;
-            return Ok(Some(existing));
+        if let Some(promoted) = history.promote_existing(&hash)? {
+            return Ok(Some(promoted));
         }
-        let image = image::load_from_memory(png).map_err(|error| error.to_string())?;
-        if u64::from(image.width()) * u64::from(image.height()) > MAX_IMAGE_PIXELS {
-            return Ok(None);
-        }
-        let (width, height) = (image.width(), image.height());
         return history
-            .push("image", String::new(), width, height, hash, Some(png))
+            .push("image", String::new(), width, height, hash, Some(&png))
             .map(Some);
     }
+
     Ok(None)
 }
 
@@ -226,32 +312,31 @@ pub(crate) async fn delete_clipboard_history(
     ids: Vec<String>,
 ) -> Result<Vec<ClipboardHistoryEntry>, String> {
     on_worker(app, move |app, state| {
-        let mut history = state.clipboard_history.lock();
-        history.remove(&ids)?;
-        let entries = history.entries.clone();
-        drop(history);
+        let entries = {
+            let mut history = state.clipboard_history.lock();
+            history.remove(&ids)?;
+            history.entries.clone()
+        };
         let _ = app.emit("clipboard-history-changed", ());
         Ok(entries)
     })
     .await
 }
 
-/// 把一条历史重新放回剪贴板。图片从存的 PNG 解码后走现有 copy_image；
-/// 文字直接 set_text。放回去的内容与最新条目哈希一致时，轮询不会记重复。
+/// 把一条历史重新放回剪贴板。图片与文字写回后因采用标准像素/文本哈希，下次轮询会自动去重。
 #[tauri::command]
 pub(crate) async fn copy_clipboard_history(app: AppHandle, id: String) -> Result<(), String> {
     on_worker(app, move |_app, state| {
-        let entry = {
+        let (entry, dir) = {
             let history = state.clipboard_history.lock();
-            history.entries.iter().find(|item| item.id == id).cloned()
+            (
+                history.entries.iter().find(|item| item.id == id).cloned(),
+                history.dir.clone(),
+            )
         };
         let entry = entry.ok_or("这条剪贴板记录已被删除")?;
         if entry.kind == "image" {
-            let path = state
-                .clipboard_history
-                .lock()
-                .dir
-                .join(format!("{}.png", entry.id));
+            let path = dir.join(format!("{}.png", entry.id));
             let bytes = fs::read(&path).map_err(|_| "记录的图片文件已丢失".to_string())?;
             let image = image::load_from_memory(&bytes)
                 .map_err(|error| format!("无法读取记录的图片：{error}"))?
@@ -267,21 +352,24 @@ pub(crate) async fn copy_clipboard_history(app: AppHandle, id: String) -> Result
     .await
 }
 
-/// media:// 协议取历史图片：先在索引里按 id 找到条目，再读文件。
+/// media:// 协议取历史图片：先在锁内定位路径，释放锁后再读磁盘文件。
 pub(crate) fn read_image(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
-    let history = state.clipboard_history.lock();
-    let entry = history
-        .entries
-        .iter()
-        .find(|item| item.id == id && item.kind == "image");
-    let entry = entry.ok_or("记录不存在")?;
-    fs::read(history.dir.join(format!("{}.png", entry.id)))
-        .map_err(|_| "记录的图片文件已丢失".to_string())
+    let path = {
+        let history = state.clipboard_history.lock();
+        let entry = history
+            .entries
+            .iter()
+            .find(|item| item.id == id && item.kind == "image")
+            .ok_or("记录不存在")?;
+        history.dir.join(format!("{}.png", entry.id))
+    };
+    fs::read(path).map_err(|_| "记录的图片文件已丢失".to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::ImageEncoder;
     use std::sync::atomic::AtomicUsize;
 
     struct TestDir(PathBuf);
@@ -311,28 +399,72 @@ mod tests {
     fn text_push_dedupes_and_moves_repeats_to_front() {
         let dir = TestDir::new();
         let mut history = dir.history();
+        let h1 = hash_bytes(b"one");
         history
-            .push("text", "one".into(), 0, 0, hash_bytes(b"one"), None)
+            .push("text", "one".into(), 0, 0, h1.clone(), None)
             .unwrap();
         history
             .push("text", "two".into(), 0, 0, hash_bytes(b"two"), None)
             .unwrap();
         assert_eq!(history.entries.len(), 2);
         assert_eq!(history.entries[0].text, "two");
-        // 重载后条目仍在
+        let promoted = history.promote_existing(&h1).unwrap().unwrap();
+        assert_eq!(promoted.text, "one");
+        assert_eq!(history.entries[0].text, "one");
         let reloaded = dir.history();
         assert_eq!(reloaded.entries.len(), 2);
+        assert_eq!(reloaded.entries[0].text, "one");
+    }
+
+    #[test]
+    fn canonical_pixel_hash_matches_across_png_and_tiff_encodings() {
+        let original = RgbaImage::from_fn(4, 3, |x, y| {
+            image::Rgba([x as u8 * 40, y as u8 * 60, 128, 255])
+        });
+        let png = crate::capture::encode_png(&original).unwrap();
+        let mut tiff = Vec::new();
+        image::codecs::tiff::TiffEncoder::new(Cursor::new(&mut tiff))
+            .write_image(
+                original.as_raw(),
+                original.width(),
+                original.height(),
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+        assert_ne!(hash_bytes(&png), hash_bytes(&tiff));
+        let from_png = decode_bounded_image(&RawClipboardImage::Encoded(png)).unwrap();
+        let from_tiff = decode_bounded_image(&RawClipboardImage::Encoded(tiff)).unwrap();
+        assert_eq!(
+            hash_rgba(from_png.width(), from_png.height(), from_png.as_raw()),
+            hash_rgba(from_tiff.width(), from_tiff.height(), from_tiff.as_raw()),
+        );
+    }
+
+    #[test]
+    fn oversized_dimensions_are_rejected_without_panicking() {
+        let rejected = decode_bounded_image(&RawClipboardImage::Rgba {
+            width: 10_000,
+            height: 5_000,
+            bytes: Vec::new(),
+        });
+        assert!(rejected.is_none());
     }
 
     #[test]
     fn remove_deletes_image_files_and_keeps_the_rest() {
         let dir = TestDir::new();
         let mut history = dir.history();
-        let png =
-            crate::capture::encode_png(&RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255])))
-                .unwrap();
+        let img = RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255]));
+        let png = crate::capture::encode_png(&img).unwrap();
         let image_entry = history
-            .push("image", String::new(), 2, 2, hash_bytes(&png), Some(&png))
+            .push(
+                "image",
+                String::new(),
+                2,
+                2,
+                hash_rgba(2, 2, img.as_raw()),
+                Some(&png),
+            )
             .unwrap();
         let text_entry = history
             .push("text", "keep".into(), 0, 0, hash_bytes(b"keep"), None)
@@ -345,6 +477,35 @@ mod tests {
         assert!(!image_path.exists());
         assert_eq!(history.entries.len(), 1);
         assert_eq!(history.entries[0].id, text_entry.id);
+    }
+
+    #[test]
+    fn failed_remove_preserves_memory_entries_and_image_file() {
+        let dir = TestDir::new();
+        let mut history = dir.history();
+        let img = RgbaImage::from_pixel(2, 2, image::Rgba([9, 8, 7, 255]));
+        let png = crate::capture::encode_png(&img).unwrap();
+        let image_entry = history
+            .push(
+                "image",
+                String::new(),
+                2,
+                2,
+                hash_rgba(2, 2, img.as_raw()),
+                Some(&png),
+            )
+            .unwrap();
+        let image_path = history.dir.join(format!("{}.png", image_entry.id));
+        // 把索引路径指向一个已存在的目录，强制原子写盘失败
+        let bad_dir = dir.0.join("unwritable-index-dir");
+        fs::create_dir_all(&bad_dir).unwrap();
+        history.path = bad_dir;
+
+        assert!(history
+            .remove(std::slice::from_ref(&image_entry.id))
+            .is_err());
+        assert_eq!(history.entries.len(), 1);
+        assert!(image_path.exists());
     }
 
     #[test]

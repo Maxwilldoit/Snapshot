@@ -206,9 +206,15 @@ pub(crate) fn finalize_capture(
     );
     trace.mark_capture_ready();
 
-    // 截图固定「复制 + 存历史」；存失败不报错，在成功提示里说明。
+    // 截图固定「复制 + 存历史」；存失败不阻断剪贴板，但写入活动错误方便排查目录权限问题。
     let record =
-        snapshots::store_snapshot_traced(state, &image, app_name, app_id.clone(), &trace).ok();
+        match snapshots::store_snapshot_traced(state, &image, app_name, app_id.clone(), &trace) {
+            Ok(record) => Some(record),
+            Err(error) => {
+                activity::record_error(app, app_name, &error);
+                None
+            }
+        };
     let archived = record.is_some();
     if archived {
         let _ = app.emit("snapshots-changed", ());
