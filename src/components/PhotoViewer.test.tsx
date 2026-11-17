@@ -83,67 +83,67 @@ function wheel(stage: HTMLElement, init: Partial<WheelEvent> & { deltaY: number 
   return event;
 }
 
-describe("英雄展开与关闭", () => {
-  it("从竖图格位内实际图片边界展开，关闭仍返回同一边界", () => {
+describe("Quick Look 原位进退场与手势接管", () => {
+  it("打开时从居中 95% 原位轻快微缩放渐显至 100%，关闭时原位轻缩淡出", () => {
     const onClose = vi.fn();
-    setupTauriMock();
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      if (this.classList.contains("photo-stage")) return new DOMRect(100, 50, 800, 600);
-      if (this.classList.contains("tile-preview")) return new DOMRect(180, 400, 80, 160);
-      return new DOMRect(140, 400, 160, 160);
-    });
-    render(<>
-      <button data-thumb-id="portrait"><span className="tile-preview" /></button>
-      <PhotoViewer records={[{ ...records[0], id: "portrait", width: 100, height: 200 }]} startId="portrait" onClose={onClose} />
-    </>);
+    renderViewer("first", onClose);
     const start = transformOf(media());
-    expect(start.scale).toBeCloseTo(0.8, 5);
-    expect(start.tx).toBe(80);
-    expect(start.ty).toBe(350);
-    pump(120);
+    // 原位居中微缩放（95%），不做跨屏飞行
+    expect(start.scale).toBeCloseTo(0.95, 5);
+    expect(Number(media().style.opacity)).toBe(0);
+    pump(15); // > 160ms
+    const settled = transformOf(media());
+    expect(settled.scale).toBe(1);
+    expect(settled.tx).toBe(300);
+    expect(settled.ty).toBe(250);
+    expect(media().style.opacity).toBe("");
+
     fireEvent.click(screen.getByRole("button", { name: "返回" }));
-    pump(200);
-    const end = transformOf(media());
-    expect(end.tx).toBeCloseTo(start.tx, 0);
-    expect(end.ty).toBeCloseTo(start.ty, 0);
-    expect(end.scale).toBeCloseTo(start.scale, 2);
+    pump(3);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(transformOf(media()).scale).toBeLessThan(1);
+    pump(15); // > 140ms
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("从缩略图矩形长春到全屏适配，结束后落在合法的 1x 居中", () => {
-    renderViewer();
-    const start = transformOf(media());
-    // 原比例缩略图：200x100 适应 160x80 → scale 0.8，宽 160 高 80
-    expect(start.scale).toBeCloseTo(0.8, 5);
-    expect(start.tx).toBeCloseTo(40, 5); // 140 - 100
-    pump(120);
-    const end = transformOf(media());
-    expect(end.scale).toBe(1);
-    expect(end.tx).toBe(300); // (800-200)/2
-    expect(end.ty).toBe(250); // (600-100)/2
-  });
-
-  it("展开动画进行到一半时捏合输入立即接管，无跳变", () => {
+  it("进场动画进行到一半时捏合输入立即接管，无跳变且不残留半透明", () => {
     const stage = renderViewer();
-    pump(3);
+    pump(4);
     const mid = transformOf(media());
-    expect(mid.scale).toBeGreaterThan(0.8);
+    expect(mid.scale).toBeGreaterThan(0.95);
     expect(mid.scale).toBeLessThan(1);
     wheel(stage, { deltaY: -10, ctrlKey: true });
     const after = transformOf(media());
-    // 从当前呈现值连续放大，而不是跳回起点或终点
+    expect(media().style.opacity).toBe("");
     expect(after.scale).toBeGreaterThan(mid.scale);
     expect(after.scale).toBeLessThan(mid.scale * 1.5);
     pump(200);
   });
 
-  it("Esc 弹簧飞回缩略图后调用 onClose", async () => {
+  it("macOS WKWebView 原生 GestureEvent 双指捏合可连续放大并在松手时立即结算", () => {
+    const stage = renderViewer();
+    pump(20);
+    const startEvt = new Event("gesturestart", { bubbles: true, cancelable: true });
+    Object.defineProperty(startEvt, "scale", { value: 1 });
+    act(() => { stage.dispatchEvent(startEvt); });
+
+    const changeEvt = new Event("gesturechange", { bubbles: true, cancelable: true });
+    Object.defineProperties(changeEvt, { scale: { value: 1.8 }, clientX: { value: 500 }, clientY: { value: 350 } });
+    act(() => { stage.dispatchEvent(changeEvt); });
+    expect(transformOf(media()).scale).toBeCloseTo(1.8, 3);
+
+    act(() => { stage.dispatchEvent(new Event("gestureend", { bubbles: true, cancelable: true })); });
+    pump(50);
+    expect(transformOf(media()).scale).toBeCloseTo(1.8, 2);
+  });
+
+  it("Esc 原位淡出完成后调用 onClose", async () => {
     const onClose = vi.fn();
     renderViewer("first", onClose);
-    pump(120);
+    pump(20);
     await userEvent.setup().keyboard("{Escape}");
-    expect(onClose).not.toHaveBeenCalled(); // 还在飞
-    pump(200);
+    expect(onClose).not.toHaveBeenCalled();
+    pump(20);
     expect(onClose).toHaveBeenCalledOnce();
   });
 });

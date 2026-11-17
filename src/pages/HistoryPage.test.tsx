@@ -68,18 +68,34 @@ function renderHistory(handler: (command: string, args?: Parameters<typeof invok
 }
 
 describe("history opens the photo viewer and uses a context menu", () => {
-  it("keeps dates in one continuous grid without date headings or day wrappers", async () => {
+  it("groups items by day with justified rows and supports macOS GestureEvent pinch-to-zoom", async () => {
     const mixedDates = [
-      { ...snapshots[0], createdAt: new Date(2026, 10, 17).getTime(), width: 1200, height: 600 },
-      { ...snapshots[1], createdAt: new Date(2025, 8, 1).getTime(), width: 600, height: 1200 },
+      { ...snapshots[0], createdAt: new Date(2026, 10, 17, 10).getTime(), width: 1200, height: 600 },
+      { ...snapshots[1], createdAt: new Date(2025, 8, 1, 10).getTime(), width: 600, height: 1200 },
     ];
     setupTauriMock((command) => command === "list_snapshots" ? mixedDates : command === "list_recordings" ? [] : undefined);
     const { container } = render(<AppContext.Provider value={context}><HistoryPage /></AppContext.Provider>);
     await screen.findByRole("button", { name: "查看：Alpha" });
-    const tiles = [...container.querySelectorAll(".history-grid > .shot .tile-main")];
-    expect(tiles.map((tile) => tile.getAttribute("data-thumb-id"))).toEqual(["1", "2"]);
-    expect(container.querySelector(".history-grid .day, .day-title, .day-label")).toBeNull();
-    expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual(["历史"]);
+    const daySections = [...container.querySelectorAll("section.day")];
+    expect(daySections).toHaveLength(2);
+    expect(container.querySelectorAll(".day-title").length).toBe(2);
+    const firstShot = container.querySelector<HTMLElement>(".shot .tile")!;
+    const beforeHeight = Number.parseInt(firstShot.style.height, 10);
+
+    // 模拟 macOS WKWebView 原生触控板 GestureEvent 双指张开放大 1.5x
+    const scroller = container.querySelector<HTMLElement>(".history-scroll")!;
+    const startEvt = new Event("gesturestart", { bubbles: true, cancelable: true });
+    Object.defineProperty(startEvt, "scale", { value: 1 });
+    scroller.dispatchEvent(startEvt);
+    const changeEvt = new Event("gesturechange", { bubbles: true, cancelable: true });
+    Object.defineProperties(changeEvt, { scale: { value: 1.5 }, clientX: { value: 200 }, clientY: { value: 150 } });
+    scroller.dispatchEvent(changeEvt);
+    scroller.dispatchEvent(new Event("gestureend", { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      const afterHeight = Number.parseInt(container.querySelector<HTMLElement>(".shot .tile")!.style.height, 10);
+      expect(afterHeight).toBeGreaterThan(beforeHeight);
+    });
   });
 
   it("clicking a screenshot opens the viewer; markup runs from its header button", async () => {
