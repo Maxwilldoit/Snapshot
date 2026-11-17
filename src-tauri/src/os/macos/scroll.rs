@@ -8,12 +8,13 @@ use objc2_foundation::NSObjectProtocol;
 use tauri::WebviewWindow;
 
 /// 对窗口里已存在的 WKWebView 视图树生效；必须在主线程调用。
-pub(crate) fn disable_scroll_bounce(window: &WebviewWindow) {
+fn disable_scroll_bounce(window: &WebviewWindow) {
     let _ = window.with_webview(|webview| {
-        // SAFETY: with_webview 在主线程回调；inner() 是 Tauri 持有的 WKWebView。
+        // SAFETY: with_webview 在主线程回调；判空后转换 Tauri 持有的 WKWebView。
         unsafe {
-            let view = &*webview.inner().cast::<NSView>();
-            disable_bounce_in(view);
+            if let Some(view) = webview.inner().cast::<NSView>().as_ref() {
+                disable_bounce_in(view);
+            }
         }
     });
 }

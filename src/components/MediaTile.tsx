@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { appIconUrl, appNameIconUrl, recordingUrl, thumbUrl } from "../lib/media";
 import { formatClock, formatDuration } from "../lib/format";
 import { useI18n } from "../lib/i18n";
@@ -8,7 +8,7 @@ import type { MediaItem } from "../lib/mediaTimeline";
  * 历史网格的统一格位：横图、竖图与长截图都按原比例完整居中显示。
  * 来源图标、时长和悬停时间贴着图片边缘；点击预览，右键或 Shift+F10 打开菜单。
  */
-export function MediaTile({
+export const MediaTile = memo(function MediaTile({
   item,
   selecting = false,
   selected = false,
@@ -99,4 +99,4 @@ export function MediaTile({
       </button>
     </div>
   );
-}
+});

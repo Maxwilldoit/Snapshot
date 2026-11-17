@@ -9,6 +9,8 @@
  * - 尊重 reduced-motion：直接按缩放后的步长瞬移，不做逐帧动画。
  */
 
+import { motionReduced } from "./motion";
+
 /** 每格滚轮走的像素 */
 export const WHEEL_STEP_PX = 48;
 /** 一格的名义增量：把不同设备的 delta 归一成「格数」 */
@@ -19,6 +21,8 @@ const MAX_PENDING_SCREENS = 2;
 const SETTLE_MS = 70;
 /** 余量小于该像素数时直接落定，避免长尾抖动 */
 const EPSILON_PX = 0.5;
+
+const NAV_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 
 export function wheelNotches(delta: number, mode: number): number {
   if (mode === 1) return delta / 3; // 常见滚轮一格为三行，归一后约 48px
@@ -33,8 +37,10 @@ export function wheelStep(delta: number, mode: number, viewport: number): number
 }
 
 /** 判定一次 wheel 是否走定速通道：鼠标滚轮（行/页/大颗粒像素）才拦。 */
-export function isNotchedWheel(event: Pick<WheelEvent, "deltaMode" | "deltaY" | "deltaX" | "ctrlKey" | "shiftKey">): boolean {
-  if (event.ctrlKey || event.shiftKey) return false; // 缩放与横向滚动交给原生
+export function isNotchedWheel(
+  event: Pick<WheelEvent, "deltaMode" | "deltaY" | "deltaX" | "ctrlKey" | "shiftKey"> & { metaKey?: boolean },
+): boolean {
+  if (event.ctrlKey || event.metaKey || event.shiftKey) return false; // 缩放与横向滚动交给页面/原生
   if (event.deltaY === 0) return false;
   if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return false;
   if (event.deltaMode !== 0) return true; // 行 / 页模式一定是滚轮
@@ -44,17 +50,26 @@ export function isNotchedWheel(event: Pick<WheelEvent, "deltaMode" | "deltaY" | 
 
 type Scrollable = HTMLElement;
 
-/** 从事件目标向上找最近的竖向可滚动容器；到 stopAt 为止。 */
-function findWheelScroller(target: EventTarget | null, stopAt: HTMLElement): HTMLElement | null {
+/** 从事件目标向上找最近的竖向可滚动容器；内层容器已在同向边界且未锁死 overscroll 时继续向上寻找。 */
+function findWheelScroller(target: EventTarget | null, stopAt: HTMLElement, deltaY: number): HTMLElement | null {
   let node = target instanceof Element ? target : null;
+  let fallback: HTMLElement | null = null;
   while (node && node !== stopAt.parentElement) {
     if (node instanceof HTMLElement && node.scrollHeight > node.clientHeight + 1) {
-      const overflowY = getComputedStyle(node).overflowY;
-      if (overflowY === "auto" || overflowY === "scroll") return node;
+      const style = getComputedStyle(node);
+      const overflowY = style.overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") {
+        const max = node.scrollHeight - node.clientHeight;
+        const canScroll = (deltaY > 0 && node.scrollTop < max - EPSILON_PX)
+          || (deltaY < 0 && node.scrollTop > EPSILON_PX);
+        const trapped = style.overscrollBehaviorY === "contain" || style.overscrollBehaviorY === "none";
+        if (canScroll || trapped) return node;
+        if (!fallback) fallback = node;
+      }
     }
     node = node.parentElement;
   }
-  return null;
+  return fallback;
 }
 
 /**
@@ -66,7 +81,6 @@ export function installWheelPace(root: HTMLElement): () => void {
   let pending = 0;
   let raf = 0;
   let last = 0;
-  const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const settle = (now: number) => {
     raf = 0;
@@ -74,8 +88,7 @@ export function installWheelPace(root: HTMLElement): () => void {
     if (!target || pending === 0) return;
     const dt = Math.min(now - last, 64);
     last = now;
-    const max = target.scrollHeight - target.clientHeight;
-    // 朝边界滚时把余量裁掉，不在墙上积累「欠账」
+    const max = Math.max(0, target.scrollHeight - target.clientHeight);
     if ((pending > 0 && target.scrollTop >= max - EPSILON_PX) || (pending < 0 && target.scrollTop <= EPSILON_PX)) {
       pending = 0;
       return;
@@ -83,22 +96,23 @@ export function installWheelPace(root: HTMLElement): () => void {
     const share = 1 - Math.exp(-dt / SETTLE_MS);
     let step = pending * share;
     if (Math.abs(pending) - Math.abs(step) < EPSILON_PX) step = pending;
-    // 至少走 1px，防止指数趋近在低刷新率下停滞
     if (step !== 0 && Math.abs(step) < 1) step = Math.sign(step) * Math.min(1, Math.abs(pending));
-    target.scrollTop = Math.max(0, Math.min(max, target.scrollTop + step));
+    const prevTop = target.scrollTop;
+    target.scrollTop = Math.max(0, Math.min(max, prevTop + step));
     pending -= step;
     if (pending !== 0) raf = requestAnimationFrame(settle);
   };
 
   const onWheel = (event: WheelEvent) => {
     if (event.defaultPrevented || !isNotchedWheel(event)) return;
-    const target = findWheelScroller(event.target, root);
+    const target = findWheelScroller(event.target, root, event.deltaY);
     if (!target) return;
     event.preventDefault();
     const step = wheelStep(event.deltaY, event.deltaMode, target.clientHeight);
     if (step === 0) return;
-    if (reduced) {
-      target.scrollTop += step;
+    const max = Math.max(0, target.scrollHeight - target.clientHeight);
+    if (motionReduced()) {
+      target.scrollTop = Math.max(0, Math.min(max, target.scrollTop + step));
       return;
     }
     if (target !== scroller) {
@@ -108,12 +122,18 @@ export function installWheelPace(root: HTMLElement): () => void {
       pending = 0;
     }
     const cap = Math.max(target.clientHeight * MAX_PENDING_SCREENS, WHEEL_STEP_PX);
-    pending = Math.max(-cap, Math.min(cap, pending + step));
+    // 按当前剩余可滚空间即时截断余量，避免撞墙积累「欠账」吞掉紧随其后的反向滚动
+    const minRemain = -target.scrollTop;
+    const maxRemain = max - target.scrollTop;
+    pending = Math.max(Math.max(-cap, minRemain), Math.min(Math.min(cap, maxRemain), pending + step));
+    if (Math.abs(pending) < EPSILON_PX) {
+      pending = 0;
+      return;
+    }
     if (!raf) {
       last = performance.now();
-      // 首帧立即释放约 1/4，让手指一动画面就动
       const head = pending * 0.25;
-      target.scrollTop += head;
+      target.scrollTop = Math.max(0, Math.min(max, target.scrollTop + head));
       pending -= head;
       if (pending !== 0) raf = requestAnimationFrame(settle);
     }
@@ -126,10 +146,9 @@ export function installWheelPace(root: HTMLElement): () => void {
       pending = 0;
     }
   };
-  // 原生滚动条拖动、点击轨道与切换页面均优先于滚轮余量。
   const onPointerDown = () => cancelFor(scroller);
-  const onKeyDown = () => {
-    if (scroller) cancelFor(scroller);
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (scroller && NAV_KEYS.has(event.key)) cancelFor(scroller);
   };
   root.addEventListener("wheel", onWheel, { capture: true, passive: false });
   root.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });

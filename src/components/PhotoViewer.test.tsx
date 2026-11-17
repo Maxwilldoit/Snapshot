@@ -401,4 +401,88 @@ describe("操作与可访问性", () => {
     expect(transformOf(media()).scale).toBe(1);
     void stage;
   });
+
+  it("触控板连续小步下拉能突破 140px 阈值并退场关闭，不再陷入递归阻尼死锁", () => {
+    const onClose = vi.fn();
+    const stage = renderViewer("first", onClose);
+    pump(120);
+    // 每次仅下拉 12px（旧逻辑渐近上限仅 108px < 140px），连续 15 帧共 180px
+    for (let i = 0; i < 15; i++) wheel(stage, { deltaY: -12 });
+    expect(transformOf(media()).ty - 250).toBeGreaterThan(140);
+    pump(300);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("偏离中心捏合缩小到 1x 以下时保持光标锚点不向左上角漂移", () => {
+    const stage = renderViewer();
+    pump(120);
+    const before = transformOf(media());
+    // 取图片左边缘附近作为捏合锚点（stage left=100, top=50 → stage 内坐标 cx=320, cy=270）
+    const cx = 320;
+    const cy = 270;
+    const contentX = (cx - before.tx) / before.scale;
+    const contentY = (cy - before.ty) / before.scale;
+    wheel(stage, { deltaY: 10, ctrlKey: true, clientX: 100 + cx, clientY: 50 + cy });
+    wheel(stage, { deltaY: 10, ctrlKey: true, clientX: 100 + cx, clientY: 50 + cy });
+    const after = transformOf(media());
+    expect(after.scale).toBeLessThan(1);
+    expect(after.tx + contentX * after.scale).toBeCloseTo(cx, 2);
+    expect(after.ty + contentY * after.scale).toBeCloseTo(cy, 2);
+  });
+
+  it("鼠标按住下拉超过 140px 后静止超过 110ms 不会中途提前关闭，松手才触发关闭", () => {
+    const onClose = vi.fn();
+    const stage = renderViewer("first", onClose);
+    pump(120);
+    fireEvent.pointerDown(stage, { pointerId: 7, button: 0, clientX: 500, clientY: 200 });
+    fireEvent.pointerMove(stage, { pointerId: 7, clientX: 500, clientY: 380 });
+    // 按住静止 320ms（超过 GESTURE_IDLE_MS = 110ms）
+    pump(20);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.pointerUp(stage, { pointerId: 7, clientX: 500, clientY: 380 });
+    pump(200);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("从按钮焦点打开时立即接管焦点，拉宽窗口同步重排邻图槽位，切页自动暂停录屏", () => {
+    let resizeCb: (() => void) | undefined;
+    let stageW = 800;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: () => void) { resizeCb = cb; }
+      observe() {}
+      disconnect() {}
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("photo-stage")) return new DOMRect(100, 50, stageW, 600);
+      if (this.hasAttribute("data-thumb-id")) return new DOMRect(140, 400, 160, 80);
+      return new DOMRect(0, 0, 0, 0);
+    });
+    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    Object.defineProperty(HTMLMediaElement.prototype, "paused", { configurable: true, get: () => false });
+
+    setupTauriMock();
+    render(<>
+      <button data-thumb-id="rec">缩略图按钮</button>
+      <PhotoViewer
+        records={[
+          { ...records[0], id: "rec", kind: "recording", fileName: "rec.mp4" },
+          records[1],
+        ]}
+        startId="rec"
+        onClose={() => {}}
+      />
+    </>);
+    const stage = document.querySelector<HTMLElement>(".photo-stage")!;
+    expect(document.activeElement).toBe(stage);
+
+    stageW = 1000;
+    act(() => resizeCb?.());
+    const nextPane = document.querySelectorAll<HTMLElement>(".photo-pane")[1];
+    expect(nextPane.style.transform).toContain("translate3d(1024px,");
+
+    pump(120);
+    fireEvent.click(screen.getByRole("button", { name: "下一张" }));
+    pump(200);
+    expect(pauseSpy).toHaveBeenCalled();
+  });
 });

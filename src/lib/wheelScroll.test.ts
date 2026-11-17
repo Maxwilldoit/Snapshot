@@ -20,8 +20,9 @@ describe("isNotchedWheel", () => {
     expect(isNotchedWheel(wheel(0))).toBe(false);
   });
 
-  it("缩放（ctrl）、横向（shift 或 deltaX 为主）不拦", () => {
+  it("缩放（ctrl/meta）、横向（shift 或 deltaX 为主）不拦", () => {
     expect(isNotchedWheel(wheel(100, 0, { ctrlKey: true }))).toBe(false);
+    expect(isNotchedWheel(wheel(100, 0, { metaKey: true }))).toBe(false);
     expect(isNotchedWheel(wheel(100, 0, { shiftKey: true }))).toBe(false);
     expect(isNotchedWheel(wheel(40, 0, { deltaX: 200 }))).toBe(false);
   });
@@ -65,6 +66,27 @@ describe("wheel animation handoff", () => {
       while (harness.frames.size && count++ < 300) harness.frame();
       expect(harness.frames.size).toBe(0);
       expect(harness.root.scrollTop).toBeCloseTo(wheelStep(101, 0, 600), 5);
+    } finally { harness.dispose(); }
+  });
+
+  it("does not accumulate wall debt at top/bottom and hands off when nested scroller hits boundary", () => {
+    const harness = wheelHarness();
+    const inner = document.createElement("div");
+    inner.style.overflowY = "auto";
+    Object.defineProperties(inner, { clientHeight: { value: 200 }, scrollHeight: { value: 400 } });
+    inner.scrollTop = 200; // 已到底
+    harness.root.append(inner);
+    try {
+      // 在顶部继续向上滚，不应积累负向余量吞掉紧随其后的向下滚
+      harness.wheel(-120);
+      harness.wheel(100);
+      expect(harness.root.scrollTop).toBeGreaterThan(0);
+
+      // 内层已滚到底部时向下滚应穿透驱动外层滚动容器
+      while (harness.frames.size) harness.frame();
+      const beforeOuter = harness.root.scrollTop;
+      inner.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true }));
+      expect(harness.root.scrollTop).toBeGreaterThan(beforeOuter);
     } finally { harness.dispose(); }
   });
 });

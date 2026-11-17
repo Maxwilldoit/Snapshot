@@ -18,14 +18,16 @@ use crate::capture::Area;
 use image::RgbaImage;
 use std::{path::Path, process::Command};
 
-pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
-pub(crate) use clipboard::sample as clipboard_sample;
+pub(crate) use autostart::{
+    apply_launch_on_boot as apply_autostart, available as autostart_available,
+};
+pub(crate) use clipboard::{sample as clipboard_sample, supported as clipboard_history_supported};
 pub(crate) use icon::png_for_app_name as app_icon_for_name;
 pub(crate) use icon::png_for_pid as app_icon_png;
 pub(crate) use icon::{png_for_app_id as app_icon_for_id, stable_id_for_pid as app_stable_id};
 pub(crate) use permissions::require_screen_capture_access;
 pub(crate) use recorder::{start_recording, Recording};
-pub(crate) use scroll::{disable_scroll_bounce, refresh_scroll_bounce};
+pub(crate) use scroll::refresh_scroll_bounce;
 pub(crate) use window::{capture_window_image, list_windows};
 
 /// 本平台支持的全局快捷键动作，顺序即设置页的显示顺序

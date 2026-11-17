@@ -15,6 +15,7 @@ import { formatBytes } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
 import { DEFAULT_PHOTO_SIZE, PHOTO_SIZE_MIN, PHOTO_SIZE_MAX, PHOTO_SIZES, photoGridGap } from "../lib/gallery";
+import { isNotchedZoom, zoomDeltaOf } from "../lib/photoPhysics";
 import { PhotoViewer } from "../components/PhotoViewer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
@@ -71,37 +72,80 @@ export function HistoryPage() {
 
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  const persistTimerRef = useRef<number | null>(null);
   const [scrollNode, setScrollNode] = useState<HTMLDivElement | null>(null);
 
-  const changeZoom = useCallback((next: number) => {
-    const clamped = Math.max(PHOTO_SIZE_MIN, Math.min(PHOTO_SIZE_MAX, next));
-    setZoom(clamped);
-    localStorage.setItem(ZOOM_KEY, String(Math.round(clamped)));
+  const scheduleZoomPersist = useCallback((value: number) => {
+    if (persistTimerRef.current !== null) window.clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = window.setTimeout(() => {
+      persistTimerRef.current = null;
+      localStorage.setItem(ZOOM_KEY, String(Math.round(value)));
+    }, 150);
   }, []);
 
-  // 触控板捏合缩放（浏览器把捏合报成 ctrl+wheel）；普通滚动不受影响。
-  // 指数映射让每次捏合的手感一致；行高连续变化，同「照片」。
+  useEffect(() => () => {
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current);
+      localStorage.setItem(ZOOM_KEY, String(Math.round(zoomRef.current)));
+    }
+  }, []);
+
+  const changeZoom = useCallback((next: number, clientY?: number) => {
+    const clamped = Math.max(PHOTO_SIZE_MIN, Math.min(PHOTO_SIZE_MAX, next));
+    const prev = zoomRef.current;
+    if (Math.abs(clamped - prev) < 0.25) return;
+    const scroller = scrollNode;
+    const prevHeight = scroller?.scrollHeight ?? 0;
+    const prevTop = scroller?.scrollTop ?? 0;
+    const anchorOffset = scroller && typeof clientY === "number"
+      ? Math.max(0, Math.min(scroller.clientHeight, clientY - scroller.getBoundingClientRect().top))
+      : (scroller?.clientHeight ?? 0) / 2;
+
+    zoomRef.current = clamped;
+    setZoom(clamped);
+    scheduleZoomPersist(clamped);
+
+    if (scroller && prevHeight > 0) {
+      window.requestAnimationFrame(() => {
+        const nextHeight = scroller.scrollHeight;
+        if (nextHeight > 0 && nextHeight !== prevHeight) {
+          const ratio = nextHeight / prevHeight;
+          scroller.scrollTop = Math.max(0, (prevTop + anchorOffset) * ratio - anchorOffset);
+        }
+      });
+    }
+  }, [scheduleZoomPersist, scrollNode]);
+
+  // 触控板捏合与 Ctrl/Cmd+滚轮缩放；普通滚动不受影响。
+  // 归一鼠标滚轮刻度并按光标行锚定滚动位置，同「照片」。
   useEffect(() => {
     const node = scrollNode;
     if (!node) return;
-    let accumulated = 0;
+    let accumulatedLog = 0;
+    let lastClientY = 0;
     let frame: number | null = null;
     const apply = () => {
       frame = null;
-      if (accumulated === 0) return;
-      const next = zoomRef.current * Math.exp(-accumulated * 0.01);
-      accumulated = 0;
-      changeZoom(next);
+      if (accumulatedLog === 0) return;
+      const next = zoomRef.current * Math.exp(accumulatedLog);
+      accumulatedLog = 0;
+      changeZoom(next, lastClientY);
     };
     const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
+      if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      accumulated += event.deltaY;
+      lastClientY = event.clientY;
+      accumulatedLog += zoomDeltaOf(event.deltaY, event.deltaMode, isNotchedZoom(event));
       if (frame === null) frame = window.requestAnimationFrame(apply);
     };
+    const onGesture = (event: Event) => event.preventDefault();
     node.addEventListener("wheel", onWheel, { passive: false });
+    node.addEventListener("gesturestart", onGesture, { passive: false });
+    node.addEventListener("gesturechange", onGesture, { passive: false });
     return () => {
       node.removeEventListener("wheel", onWheel);
+      node.removeEventListener("gesturestart", onGesture);
+      node.removeEventListener("gesturechange", onGesture);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
   }, [changeZoom, scrollNode]);
@@ -185,15 +229,26 @@ export function HistoryPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [selecting, previewId, confirming, contextMenu, exitSelecting]);
 
-  function toggle(id: string, range: boolean) {
+  const anchorRef = useRef(anchor);
+  anchorRef.current = anchor;
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
+  const selectingRef = useRef(selecting);
+  selectingRef.current = selecting;
+
+  const toggle = useCallback((id: string, range: boolean) => {
+    const currentAnchor = anchorRef.current;
+    const list = filteredRef.current;
+    let usedRange = false;
     setSelected((current) => {
       const next = new Set(current);
-      if (range && anchor) {
-        const from = filtered.findIndex((item) => item.id === anchor);
-        const to = filtered.findIndex((item) => item.id === id);
+      if (range && currentAnchor) {
+        const from = list.findIndex((item) => item.id === currentAnchor);
+        const to = list.findIndex((item) => item.id === id);
         if (from >= 0 && to >= 0) {
+          usedRange = true;
           const [start, end] = from < to ? [from, to] : [to, from];
-          filtered.slice(start, end + 1).forEach((item) => next.add(item.id));
+          list.slice(start, end + 1).forEach((item) => next.add(item.id));
           return next;
         }
       }
@@ -201,13 +256,23 @@ export function HistoryPage() {
       else next.add(id);
       return next;
     });
-    setAnchor(id);
-  }
+    if (!usedRange) setAnchor(id);
+  }, []);
 
-  function open(item: MediaItem, event: React.MouseEvent) {
-    if (selecting) toggle(item.id, event.shiftKey);
-    else setPreviewId(item.id);
-  }
+  const open = useCallback((item: MediaItem, event: React.MouseEvent) => {
+    if (selectingRef.current) {
+      toggle(item.id, event.shiftKey);
+    } else if (event.shiftKey) {
+      setSelecting(true);
+      toggle(item.id, false);
+    } else {
+      setPreviewId(item.id);
+    }
+  }, [toggle]);
+
+  const openContextMenu = useCallback((item: MediaItem, menuAnchor: HTMLElement, point: { x: number; y: number }) => {
+    setContextMenu({ item, anchor: menuAnchor, point });
+  }, []);
 
   function selectItem(item: MediaItem) {
     setSelecting(true);
@@ -393,7 +458,7 @@ export function HistoryPage() {
               selecting={selecting}
               selected={selected.has(item.id)}
               onOpen={open}
-              onMenu={(item, anchor, point) => setContextMenu({ item, anchor, point })}
+              onMenu={openContextMenu}
             />
           </figure>
         ))}

@@ -22,7 +22,7 @@ use std::{path::Path, process::Command};
 
 pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
 pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
-pub(crate) use clipboard::sample as clipboard_sample;
+pub(crate) use clipboard::{sample as clipboard_sample, supported as clipboard_history_supported};
 pub(crate) use scrolling::capture_scrolling_window;
 pub(crate) use window::restore_minimized;
 
@@ -105,6 +105,10 @@ pub(crate) fn open_folder(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("无法打开文件管理器：{error}"))
 }
 
+pub(crate) fn autostart_available() -> bool {
+    autostart::autostart_capability().is_ok()
+}
+
 pub(crate) fn capabilities() -> PlatformCapabilities {
     // 滚动长截图要 X11，翻页靠 xdotool；纯 Wayland 做不了，没装 xdotool 也做不了
     let scrolling = if session::is_wayland_session() || session::x11_display().is_none() {
@@ -121,6 +125,10 @@ pub(crate) fn capabilities() -> PlatformCapabilities {
         autostart: CapabilityStatus::probe(autostart::autostart_capability()),
         scrolling: Some(scrolling),
         include_cursor: CapabilityStatus::yes(),
-        clipboard_history: CapabilityStatus::yes(),
+        clipboard_history: if clipboard::supported() {
+            CapabilityStatus::yes()
+        } else {
+            CapabilityStatus::no()
+        },
     }
 }

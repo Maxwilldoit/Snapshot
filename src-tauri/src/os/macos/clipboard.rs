@@ -1,21 +1,32 @@
 //! 系统剪贴板采样：NSPasteboard.changeCount 判断有没有新复制；
+//! 未变化时立即返回 None（零解码、零分配），并包裹在 autoreleasepool 中防止后台线程泄漏临时对象。
 //! 密码管理器写入的 Concealed / Transient 类型标记为敏感，跳过不读。
 
-use crate::clipboard_history::Sample;
+use crate::clipboard_history::{RawClipboardImage, Sample};
+use objc2::rc::autoreleasepool;
 use objc2_app_kit::{
     NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeString, NSPasteboardTypeTIFF,
 };
 use objc2_foundation::NSString;
 
-pub(crate) fn sample() -> Option<Sample> {
-    // NSPasteboard 的读取线程安全（AppKit 文档明确允许后台读）；
-    // 类型常量是 extern static，Rust 侧按约定用 unsafe 取用。
-    unsafe { read_sample() }
+/// 原始图像字节保护上限（256 MB），防止异常超大剪贴板对象一次性拷入堆内存。
+const MAX_RAW_IMAGE_BYTES: usize = 256 * 1024 * 1024;
+
+pub(crate) fn supported() -> bool {
+    true
 }
 
-unsafe fn read_sample() -> Option<Sample> {
+pub(crate) fn sample(last_marker: &str) -> Option<Sample> {
+    // 裸线程没有 CFRunLoop 自动清理池，每轮采样显式包裹 autoreleasepool 释放 AppKit 临时对象。
+    autoreleasepool(|_| unsafe { read_sample(last_marker) })
+}
+
+unsafe fn read_sample(last_marker: &str) -> Option<Sample> {
     let pasteboard = NSPasteboard::generalPasteboard();
     let marker = pasteboard.changeCount().to_string();
+    if marker == last_marker {
+        return None;
+    }
     let types = pasteboard.types()?;
     let concealed = types.containsObject(&NSString::from_str("org.nspasteboard.ConcealedType"))
         || types.containsObject(&NSString::from_str("org.nspasteboard.TransientType"));
@@ -24,38 +35,56 @@ unsafe fn read_sample() -> Option<Sample> {
             marker,
             concealed: true,
             text: None,
-            png: None,
+            image: None,
         });
     }
     if types.containsObject(NSPasteboardTypeString) {
-        let text = pasteboard
-            .stringForType(NSPasteboardTypeString)?
-            .to_string();
-        return Some(Sample {
-            marker,
-            concealed: false,
-            text: Some(text),
-            png: None,
-        });
+        if let Some(raw) = pasteboard.stringForType(NSPasteboardTypeString) {
+            let text = raw.to_string();
+            if !text.trim().is_empty() {
+                return Some(Sample {
+                    marker,
+                    concealed: false,
+                    text: Some(text),
+                    image: None,
+                });
+            }
+        }
     }
-    let png = if types.containsObject(NSPasteboardTypePNG) {
-        pasteboard.dataForType(NSPasteboardTypePNG)?.to_vec()
+    let encoded = if types.containsObject(NSPasteboardTypePNG) {
+        let data = pasteboard.dataForType(NSPasteboardTypePNG)?;
+        if data.len() > MAX_RAW_IMAGE_BYTES {
+            return Some(Sample {
+                marker,
+                concealed: false,
+                text: None,
+                image: None,
+            });
+        }
+        data.to_vec()
     } else if types.containsObject(NSPasteboardTypeTIFF) {
-        let tiff = pasteboard.dataForType(NSPasteboardTypeTIFF)?.to_vec();
-        let image = image::load_from_memory(&tiff).ok()?.to_rgba8();
-        crate::capture::encode_png(&image).ok()?
+        let data = pasteboard.dataForType(NSPasteboardTypeTIFF)?;
+        if data.len() > MAX_RAW_IMAGE_BYTES {
+            return Some(Sample {
+                marker,
+                concealed: false,
+                text: None,
+                image: None,
+            });
+        }
+        data.to_vec()
     } else {
         return Some(Sample {
             marker,
             concealed: false,
             text: None,
-            png: None,
+            image: None,
         });
     };
     Some(Sample {
         marker,
         concealed: false,
         text: None,
-        png: Some(png),
+        image: Some(RawClipboardImage::Encoded(encoded)),
     })
 }

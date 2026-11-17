@@ -14,6 +14,7 @@ export const shortcutsEnglish: Record<string, string> = {
   "开机时静默启动": "Open quietly at login",
 
   "快照保存位置已更改": "Screenshot folder changed",
+  "已恢复默认快照位置": "Screenshot folder reset to default",
   "录像保存位置已更改": "Recording folder changed",
   "当前环境不支持选择目录": "Choosing folders isn’t supported here.",
   "图像格式": "Image format",

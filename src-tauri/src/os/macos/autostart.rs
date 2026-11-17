@@ -74,18 +74,29 @@ pub fn apply_launch_on_boot(enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// 轻量检查 `~/Library/LaunchAgents`（或其最近的已存在父目录）是否可写，不在启动阶段创建探测文件。
+pub(crate) fn available() -> bool {
+    let dir = agents_dir();
+    let mut cursor = Some(dir.as_path());
+    while let Some(path) = cursor {
+        if let Ok(meta) = fs::metadata(path) {
+            return meta.is_dir() && !meta.permissions().readonly();
+        }
+        cursor = path.parent();
+    }
+    false
+}
+
 /// 探测 `~/Library/LaunchAgents` 是否可写（给能力面板用）。
 pub fn autostart_capability() -> Result<(), String> {
-    let dir = agents_dir();
-    fs::create_dir_all(&dir).map_err(|error| {
-        format!("无法创建 ~/Library/LaunchAgents（{error}）；仍可保存偏好，但系统自启项写不进去")
-    })?;
-    let probe = dir.join(".snapshot-autostart-write-probe");
-    fs::write(&probe, b"ok").map_err(|error| {
-        format!("无法写入 ~/Library/LaunchAgents（{error}）；仍可保存偏好，但系统自启项写不进去")
-    })?;
-    let _ = fs::remove_file(&probe);
-    Ok(())
+    if available() {
+        Ok(())
+    } else {
+        Err(
+            "无法写入 ~/Library/LaunchAgents（权限不足）；仍可保存偏好，但系统自启项写不进去"
+                .into(),
+        )
+    }
 }
 
 #[cfg(test)]

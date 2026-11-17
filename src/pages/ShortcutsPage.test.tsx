@@ -211,7 +211,31 @@ describe("global shortcut editing", () => {
     await user.keyboard("{Delete}");
     expect(save).not.toHaveBeenCalled();
 
-    fireEvent.blur(row);
+    // 纯键盘按 Tab 可正常移出焦点并确认清空，不再被 preventDefault 困在按钮内
+    await user.tab();
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(save.mock.calls[0][0]).toMatchObject({
+      shortcuts: [
+        { action: "snapshot", accelerator: null },
+        { action: "record", accelerator: null },
+      ],
+    });
+    expect(await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：未设置" })).toBeTruthy();
+  });
+
+  it("commits a Delete-pending clear immediately when pressing Enter", async () => {
+    const save = vi.fn((args: Record<string, unknown>) => structuredClone({
+      ...base,
+      shortcuts: args.shortcuts as ShortcutBinding[],
+    }));
+    const { user } = await renderApp((command, payload) => {
+      if (command === "save_shortcuts") return save(invokeArgs(payload));
+      return undefined;
+    });
+
+    const row = screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" });
+    row.focus();
+    await user.keyboard("{Enter}{Delete}{Enter}");
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     expect(save.mock.calls[0][0]).toMatchObject({
       shortcuts: [
