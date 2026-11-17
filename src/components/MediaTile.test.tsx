@@ -20,8 +20,6 @@ const renderTile = (media: MediaItem) =>
   render(
     <MediaTile
       item={media}
-      boxWidth={200}
-      boxHeight={100}
       onOpen={() => {}}
       onMenu={() => {}}
     />,
@@ -55,7 +53,7 @@ describe("历史格子的来源应用角标", () => {
   it("格子只有一个主入口，没有悬停操作或圆形复选框，支持右键和键盘菜单", () => {
     setupTauriMock();
     const onOpen = vi.fn(), onMenu = vi.fn();
-    const { container } = render(<MediaTile item={item()} boxWidth={200} boxHeight={100} onOpen={onOpen} onMenu={onMenu} />);
+    const { container } = render(<MediaTile item={item()} onOpen={onOpen} onMenu={onMenu} />);
     const tile = screen.getByRole("button", { name: "查看：Google Chrome" });
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(container.querySelector(".tile-check, .tile-actions")).toBeNull();

@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { fileNameOf, formatBytes, normalizeKey, shortcutKeys } from "./format";
+import { fileNameOf, formatBytes, formatCalendarDate, normalizeKey, shortcutKeys } from "./format";
 
 describe("format helpers", () => {
+  it.each([
+    [new Date(2026, 10, 17), new Date(2026, 10, 17), "zh", "11月17日"],
+    [new Date(2026, 10, 16), new Date(2026, 10, 17), "zh", "11月16日"],
+    [new Date(2025, 11, 31), new Date(2026, 0, 1), "zh", "2025年12月31日"],
+    [new Date(2026, 10, 17), new Date(2026, 10, 17), "en", "Nov 17"],
+    [new Date(2025, 11, 31), new Date(2026, 0, 1), "en", "Dec 31, 2025"],
+  ] as const)("formats a preview calendar date for %s with year relative to %s (%s)", (date, now, language, expected) => {
+    expect(formatCalendarDate(date.getTime(), now.getTime(), language)).toBe(expected);
+  });
+
   it("keeps the current zero-byte and large-file labels", () => {
     expect(formatBytes(0)).toBe("1 KB");
     expect(formatBytes(1024 * 1024 * 1024)).toBe("1024.0 MB");

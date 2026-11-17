@@ -1,4 +1,4 @@
-import { getActiveLanguage } from "./i18n";
+import { getActiveLanguage, type Language } from "./i18n";
 
 export function fileNameOf(path: string | null): string {
   if (!path) return "";
@@ -62,8 +62,22 @@ function startOfDay(timestamp: number): number {
   return date.getTime();
 }
 
+/** 实际月日，非本年才带年份；预览使用日历日期，不替换成「今天 / 昨天」。 */
+export function formatCalendarDate(timestamp: number, now = Date.now(), language: Language = getActiveLanguage()): string {
+  const date = new Date(timestamp);
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  if (language === "en") {
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      ...(sameYear ? {} : { year: "numeric" }),
+    });
+  }
+  return `${sameYear ? "" : `${date.getFullYear()}年`}${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
 /** 今天 / 昨天 / 9 月 21 日 / 2025 年 12 月 3 日 */
-export function dayLabel(timestamp: number, now = Date.now()): string {
+function dayLabel(timestamp: number, now = Date.now()): string {
   const days = Math.round((startOfDay(now) - startOfDay(timestamp)) / 86_400_000);
   if (getActiveLanguage() === "en") {
     if (days === 0) return "Today";

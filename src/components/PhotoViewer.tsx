@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { recordingUrl, snapshotUrl } from "../lib/media";
 import { annotateSnapshot, copySnapshot } from "../lib/backend";
 import { errorText } from "../app/context";
-import { formatBytes, formatClock, formatDuration, dayLabel } from "../lib/format";
+import { formatBytes, formatClock, formatDuration, formatCalendarDate } from "../lib/format";
 import { motionReduced } from "../lib/motion";
 import { useI18n } from "../lib/i18n";
 import type { MediaItem } from "../lib/mediaTimeline";
@@ -43,24 +43,15 @@ function thumbRect(id: string): DOMRect | null {
   const safe = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
   const node = document.querySelector<HTMLElement>(`[data-thumb-id="${safe}"]`);
   if (!node) return null;
-  const rect = node.getBoundingClientRect();
+  const rect = (node.querySelector<HTMLElement>(".tile-preview") ?? node).getBoundingClientRect();
   return rect.width ? rect : null;
 }
 
-/** 缩略图是 cover 裁切：算出「整张图」在缩略图坐标系里的假想矩形（FLIP 起点） */
-function coverImageRect(thumb: DOMRect, item: MediaItem): DOMRect {
-  const narrow = thumb.width < 48; // 紧邻密排里的窄图是 contain，不裁切
-  const ratio = item.width && item.height ? item.width / item.height : thumb.width / thumb.height;
-  if (narrow) {
-    const scale = Math.min(thumb.width / (item.width || 1), thumb.height / (item.height || 1));
-    const w = (item.width || thumb.width) * scale;
-    const h = (item.height || thumb.height) * scale;
-    return new DOMRect(thumb.left + (thumb.width - w) / 2, thumb.top + (thumb.height - h) / 2, w, h);
-  }
-  const scale = Math.max(thumb.width / (item.width || 1), thumb.height / (item.height || 1));
+/** 缩略图完整显示：FLIP 从格位内实际的图片边界出发，横竖图都不拉伸。 */
+function containedImageRect(thumb: DOMRect, item: MediaItem): DOMRect {
+  const scale = Math.min(thumb.width / (item.width || 1), thumb.height / (item.height || 1));
   const w = (item.width || thumb.width) * scale;
   const h = (item.height || thumb.height) * scale;
-  void ratio;
   return new DOMRect(thumb.left + (thumb.width - w) / 2, thumb.top + (thumb.height - h) / 2, w, h);
 }
 
@@ -113,7 +104,7 @@ export function PhotoViewer({
   const [isClosing, setIsClosing] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const stageRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const paneRefs = useRef(new Map<string, HTMLDivElement>());
@@ -371,7 +362,7 @@ export function PhotoViewer({
     return () => observer.disconnect();
   }, [record, paint]);
 
-  /** 英雄展开：从缩略图 cover 裁切区长春到全屏 contain（弹簧 + 遮罩渐入 + 圆角过渡） */
+  /** 英雄展开：从缩略图的实际图片边界展开至预览适应区域（弹簧 + 遮罩渐入 + 圆角过渡） */
   useLayoutEffect(() => {
     const box = record ? boxes[record.id] : undefined;
     if (!box || openedRef.current || !record) return;
@@ -388,7 +379,7 @@ export function PhotoViewer({
       paint();
       return;
     }
-    const cover = coverImageRect(thumb, record);
+    const cover = containedImageRect(thumb, record);
     const from: Transform = {
       scale: cover.width / engine.base.w,
       tx: cover.left - stageRect.left,
@@ -415,7 +406,7 @@ export function PhotoViewer({
       return;
     }
     const stageRect = stage.getBoundingClientRect();
-    const cover = coverImageRect(thumb, item);
+    const cover = containedImageRect(thumb, item);
     const to: Transform = {
       scale: cover.width / engine.base.w,
       tx: cover.left - stageRect.left,
@@ -889,8 +880,12 @@ export function PhotoViewer({
         {copyMessage && <span role="status">{copyMessage}</span>}
         <span className="mono lightbox-meta">
           {isRecording
-            ? `${record.durationMs != null ? `${formatDuration(record.durationMs)} · ` : ""}${formatBytes(record.sizeBytes)} · MP4 · ${dayLabel(record.createdAt)} ${formatClock(record.createdAt)}`
-            : `${record.width} × ${record.height} · ${formatBytes(record.sizeBytes)} · ${record.fileName.split(".").pop()?.toUpperCase()} · ${dayLabel(record.createdAt)} ${formatClock(record.createdAt)}`}
+            ? `${record.durationMs != null ? `${formatDuration(record.durationMs)} · ` : ""}${formatBytes(record.sizeBytes)} · MP4`
+            : `${record.width} × ${record.height} · ${formatBytes(record.sizeBytes)} · ${record.fileName.split(".").pop()?.toUpperCase()}`}
+          {" · "}
+          <time dateTime={new Date(record.createdAt).toISOString()}>
+            {formatCalendarDate(record.createdAt, Date.now(), language)} {formatClock(record.createdAt)}
+          </time>
         </span>
       </div>
     </div>,

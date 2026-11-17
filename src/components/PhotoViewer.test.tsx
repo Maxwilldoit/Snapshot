@@ -84,10 +84,36 @@ function wheel(stage: HTMLElement, init: Partial<WheelEvent> & { deltaY: number 
 }
 
 describe("英雄展开与关闭", () => {
+  it("从竖图格位内实际图片边界展开，关闭仍返回同一边界", () => {
+    const onClose = vi.fn();
+    setupTauriMock();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("photo-stage")) return new DOMRect(100, 50, 800, 600);
+      if (this.classList.contains("tile-preview")) return new DOMRect(180, 400, 80, 160);
+      return new DOMRect(140, 400, 160, 160);
+    });
+    render(<>
+      <button data-thumb-id="portrait"><span className="tile-preview" /></button>
+      <PhotoViewer records={[{ ...records[0], id: "portrait", width: 100, height: 200 }]} startId="portrait" onClose={onClose} />
+    </>);
+    const start = transformOf(media());
+    expect(start.scale).toBeCloseTo(0.8, 5);
+    expect(start.tx).toBe(80);
+    expect(start.ty).toBe(350);
+    pump(120);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    pump(200);
+    const end = transformOf(media());
+    expect(end.tx).toBeCloseTo(start.tx, 0);
+    expect(end.ty).toBeCloseTo(start.ty, 0);
+    expect(end.scale).toBeCloseTo(start.scale, 2);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("从缩略图矩形长春到全屏适配，结束后落在合法的 1x 居中", () => {
     renderViewer();
     const start = transformOf(media());
-    // 缩略图 cover：200x100 的图盖满 160x80 → scale 0.8，宽 160 高 80
+    // 原比例缩略图：200x100 适应 160x80 → scale 0.8，宽 160 高 80
     expect(start.scale).toBeCloseTo(0.8, 5);
     expect(start.tx).toBeCloseTo(40, 5); // 140 - 100
     pump(120);
@@ -284,6 +310,22 @@ describe("翻页", () => {
 });
 
 describe("操作与可访问性", () => {
+  it("预览下方显示实际月日，同年省略年份、跨年显示年份，录屏沿用相同规则", () => {
+    setupTauriMock();
+    vi.spyOn(Date, "now").mockReturnValue(new Date(2026, 10, 17, 12).getTime());
+    render(<PhotoViewer records={[
+      { ...records[0], createdAt: new Date(2026, 10, 17, 9, 11).getTime() },
+      { ...records[1], kind: "recording", createdAt: new Date(2025, 11, 31, 22, 19).getTime() },
+    ]} startId="first" onClose={() => {}} />);
+    pump(120);
+    const date = () => document.querySelector(".lightbox-meta time")!;
+    expect(date().textContent).toBe("11月17日 09:11");
+    expect(date().getAttribute("datetime")).toBe(new Date(2026, 10, 17, 9, 11).toISOString());
+    fireEvent.click(screen.getByRole("button", { name: "下一张" }));
+    pump(200);
+    expect(date().textContent).toBe("2025年12月31日 22:19");
+  });
+
   it("Ctrl/Cmd+C 复制当前图片，切换后复制新的图片", async () => {
     const copied: string[] = [];
     setupTauriMock((command, args) => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { CheckCheck, FolderOpen, Trash2, X } from "lucide-react";
 import {
   annotateSnapshot,
@@ -11,11 +11,10 @@ import {
   onSnapshotsChanged,
   openSnapshotsDir,
 } from "../lib/backend";
-import { formatBytes, groupByDay } from "../lib/format";
+import { formatBytes } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
-import { JustifiedGrid } from "../components/JustifiedGrid";
-import { DEFAULT_ZOOM_HEIGHT, ZOOM_MIN, ZOOM_MAX } from "../lib/justify";
+import { DEFAULT_PHOTO_SIZE, PHOTO_SIZE_MIN, PHOTO_SIZE_MAX, PHOTO_SIZES, photoGridGap } from "../lib/gallery";
 import { PhotoViewer } from "../components/PhotoViewer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
@@ -36,12 +35,11 @@ const ZOOM_KEY = "snapshot-history-zoom";
 /** 存的可能是旧版档位（0–6）或新版行高（px）；档位换算成对应行高 */
 function readZoom(): number {
   const stored = Number(localStorage.getItem(ZOOM_KEY));
-  if (!Number.isFinite(stored) || stored <= 0) return DEFAULT_ZOOM_HEIGHT;
-  if (stored < ZOOM_MIN) {
-    const heights = [44, 64, 92, 128, 172, 228, 300];
-    return heights[Math.min(heights.length - 1, Math.round(stored))] ?? DEFAULT_ZOOM_HEIGHT;
+  if (!Number.isFinite(stored) || stored <= 0) return DEFAULT_PHOTO_SIZE;
+  if (stored < PHOTO_SIZE_MIN) {
+    return PHOTO_SIZES[Math.min(PHOTO_SIZES.length - 1, Math.round(stored))] ?? DEFAULT_PHOTO_SIZE;
   }
-  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, stored));
+  return Math.max(PHOTO_SIZE_MIN, Math.min(PHOTO_SIZE_MAX, stored));
 }
 
 /** 历史：点开「照片」式查看器（截图可再进标注），录屏点开播放；右键进入多选、标注、复制或确认删除。 */
@@ -76,7 +74,7 @@ export function HistoryPage() {
   const [scrollNode, setScrollNode] = useState<HTMLDivElement | null>(null);
 
   const changeZoom = useCallback((next: number) => {
-    const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next));
+    const clamped = Math.max(PHOTO_SIZE_MIN, Math.min(PHOTO_SIZE_MAX, next));
     setZoom(clamped);
     localStorage.setItem(ZOOM_KEY, String(Math.round(clamped)));
   }, []);
@@ -171,7 +169,6 @@ export function HistoryPage() {
     const all = items ?? [];
     return needle ? all.filter((item) => item.appName.toLowerCase().includes(needle)) : all;
   }, [items, query]);
-  const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
 
   const exitSelecting = useCallback(() => {
     setSelecting(false);
@@ -377,42 +374,29 @@ export function HistoryPage() {
       </p>
     );
   } else {
-    // 逐个入场只数前十几格：再往后已经在屏幕外，等也白等
-    let order = 0;
+    const gap = photoGridGap(zoom);
     body = (
-      <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
-        {groups.map((group) => {
-          return (
-            <section className="day" key={group.key} aria-label={group.label}>
-              <div className="day-label">
-                <h2 className="day-title">{group.label}</h2>
-              </div>
-              <JustifiedGrid
-                items={group.items}
-                size={(item) => item}
-                zoom={zoom}
-                render={(item, box) => (
-                  <figure
-                    key={item.id}
-                    data-flip-key={item.id}
-                    style={{ ...stagger(order++), width: box.width }}
-                    className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
-                  >
-                    <MediaTile
-                      item={item}
-                      boxWidth={box.width}
-                      boxHeight={box.height}
-                      selecting={selecting}
-                      selected={selected.has(item.id)}
-                      onOpen={open}
-                      onMenu={(item, anchor, point) => setContextMenu({ item, anchor, point })}
-                    />
-                  </figure>
-                )}
-              />
-            </section>
-          );
-        })}
+      <div
+        className={`history-grid ${gap === 0 ? "is-flush" : ""} ${selecting ? "is-selecting" : ""}`}
+        ref={listRef}
+        style={{ "--photo-size": `${zoom}px`, "--photo-gap": `${gap}px` } as CSSProperties}
+      >
+        {filtered.map((item, index) => (
+          <figure
+            key={item.id}
+            data-flip-key={item.id}
+            style={stagger(index)}
+            className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
+          >
+            <MediaTile
+              item={item}
+              selecting={selecting}
+              selected={selected.has(item.id)}
+              onOpen={open}
+              onMenu={(item, anchor, point) => setContextMenu({ item, anchor, point })}
+            />
+          </figure>
+        ))}
       </div>
     );
   }

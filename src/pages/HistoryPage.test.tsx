@@ -68,6 +68,20 @@ function renderHistory(handler: (command: string, args?: Parameters<typeof invok
 }
 
 describe("history opens the photo viewer and uses a context menu", () => {
+  it("keeps dates in one continuous grid without date headings or day wrappers", async () => {
+    const mixedDates = [
+      { ...snapshots[0], createdAt: new Date(2026, 10, 17).getTime(), width: 1200, height: 600 },
+      { ...snapshots[1], createdAt: new Date(2025, 8, 1).getTime(), width: 600, height: 1200 },
+    ];
+    setupTauriMock((command) => command === "list_snapshots" ? mixedDates : command === "list_recordings" ? [] : undefined);
+    const { container } = render(<AppContext.Provider value={context}><HistoryPage /></AppContext.Provider>);
+    await screen.findByRole("button", { name: "查看：Alpha" });
+    const tiles = [...container.querySelectorAll(".history-grid > .shot .tile-main")];
+    expect(tiles.map((tile) => tile.getAttribute("data-thumb-id"))).toEqual(["1", "2"]);
+    expect(container.querySelector(".history-grid .day, .day-title, .day-label")).toBeNull();
+    expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual(["历史"]);
+  });
+
   it("clicking a screenshot opens the viewer; markup runs from its header button", async () => {
     const annotate = vi.fn();
     renderHistory((command, args) => {
@@ -272,7 +286,7 @@ describe("history mixes recordings into the timeline", () => {
     // 录屏比两张截图都新，排在最前；封面是 video，截图仍是 img
     await screen.findByRole("button", { name: "播放：Gamma" });
     expect(document.querySelector(".tile video")).toBeTruthy();
-    expect(document.querySelectorAll(".tile-main img").length).toBe(2);
+    expect(document.querySelectorAll(".tile-preview > img:not(.tile-app)").length).toBe(2);
     expect(screen.getByRole("button", { name: "查看：Alpha" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "播放：Gamma" }));
     const player = screen.getByRole("dialog");

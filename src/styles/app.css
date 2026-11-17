@@ -249,7 +249,6 @@
 .history-page { display: flex; flex-direction: column; height: calc(100vh - var(--titlebar-h)); padding: 10px 32px 0 20px; }
 .history-bar { display: flex; align-items: center; gap: 16px; min-height: 32px; flex: 0 0 auto; }
 .history-scroll { flex: 1 1 auto; min-height: 0; margin-top: 14px; overflow-y: auto; overscroll-behavior: none; padding-bottom: 24px; }
-.history-groups { display: flex; flex-direction: column; }
 .day { display: grid; grid-template-columns: 76px minmax(0, 1fr); padding: 14px 0 16px; border-top: 1px solid var(--rule); }
 .day-label { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .day-title { margin: 0; font-size: var(--text-small); line-height: 18px; font-weight: 600; }
