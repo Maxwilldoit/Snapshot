@@ -266,7 +266,8 @@ let clipboardHistory = demo
   : [];
 
 const idleRecording = { active: false, target: null, startedAt: null };
-const noFileManager = "预览模式下不会打开文件管理器";
+const defaultSnapshotDir = () => (demo ? "D:\\Dropbox\\工作\\2026\\截图归档\\应用快照\\原始文件" : "~/Pictures/Snapshot");
+const defaultRecordingDir = "~/Downloads";
 
 /** 改设置的命令在预览里也要「生效」，页面才能照常来回切换 */
 function update(patch: Partial<Settings>): Settings {
@@ -383,12 +384,15 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       await new Promise((resolve) => setTimeout(resolve, 600));
       return `【预览模式：未调用模型】\n\n${String(args.text).trim()}`;
     case "open_snapshots_dir":
-    case "open_recordings_dir":
-      return noFileManager;
     case "get_snapshot_dir":
-      return demo ? "D:\\Dropbox\\工作\\2026\\截图归档\\应用快照\\原始文件" : "~/Pictures/Snapshot";
+      return settings.saveDir || defaultSnapshotDir();
+    case "open_recordings_dir":
     case "get_recording_dir":
-      return "~/Downloads";
+      return settings.recordingDir || defaultRecordingDir;
+    case "set_app_language":
+      return undefined;
+    case "launchpad_state":
+      return { apps: [], order: [], folders: [] };
     case "list_snapshots":
       return structuredClone(snapshots);
     case "list_recordings":

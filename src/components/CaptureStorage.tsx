@@ -85,6 +85,9 @@ export function SnapshotStorageRows() {
             {snapshotPath ? middleTruncatePath(snapshotPath, 30) : t("正在读取路径…")}
           </button>
           <button type="button" className="link" onClick={() => void pickDir("saveDir")}>{t("更改")}</button>
+          {settings.saveDir && (
+            <button type="button" className="link" onClick={() => void update({ saveDir: "" }, t("已恢复默认快照位置"))}>{t("恢复默认")}</button>
+          )}
         </span>
       </div>
     </>

@@ -94,10 +94,19 @@ function ShortcutsPanel() {
       }
       return;
     }
+    // 放行未带控制修饰键的 Tab / Shift+Tab，让键盘用户能够正常移出焦点触发 onBlur 提交清空或退出录制
+    const modifiers = pressedModifiers(event);
+    if (event.key === "Tab" && modifiers.every((mod) => mod === "Shift")) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     if (event.key === "Escape") {
       stopRecording();
+      return;
+    }
+    if (pendingClear === action && (event.key === "Enter" || event.key === " ")) {
+      commitPendingClear(action);
       return;
     }
     if (event.key === "Delete" || event.key === "Backspace") {
@@ -106,7 +115,6 @@ function ShortcutsPanel() {
       setRejected(null);
       return;
     }
-    const modifiers = pressedModifiers(event);
     if (MODIFIERS.includes(event.key)) {
       setHeld(modifiers);
       setPendingClear(null);

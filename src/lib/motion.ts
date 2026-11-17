@@ -173,10 +173,15 @@ export function useFlip(container: RefObject<HTMLElement | null>) {
     const root = container.current;
     before.current = null;
     if (!snapshot || !root || motionReduced()) return;
-    root.querySelectorAll<HTMLElement>("[data-flip-key]").forEach((node) => {
+    const viewH = window.innerHeight || 800;
+    const nodes = root.querySelectorAll<HTMLElement>("[data-flip-key]");
+    const limitViewport = nodes.length > 120;
+    nodes.forEach((node) => {
       const previous = snapshot.get(node.dataset.flipKey!);
       if (!previous || typeof node.animate !== "function") return;
       const now = node.getBoundingClientRect();
+      if (limitViewport && now.bottom < -viewH && previous.bottom < -viewH) return;
+      if (limitViewport && now.top > viewH * 2 && previous.top > viewH * 2) return;
       const dx = previous.left - now.left;
       const dy = previous.top - now.top;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
@@ -191,9 +196,14 @@ export function useFlip(container: RefObject<HTMLElement | null>) {
     capture() {
       const root = container.current;
       if (!root) return;
+      const viewH = window.innerHeight || 800;
+      const nodes = root.querySelectorAll<HTMLElement>("[data-flip-key]");
+      const limitViewport = nodes.length > 120;
       const map = new Map<string, DOMRect>();
-      root.querySelectorAll<HTMLElement>("[data-flip-key]").forEach((node) => {
-        map.set(node.dataset.flipKey!, node.getBoundingClientRect());
+      nodes.forEach((node) => {
+        const rect = node.getBoundingClientRect();
+        if (limitViewport && (rect.bottom < -viewH || rect.top > viewH * 2)) return;
+        map.set(node.dataset.flipKey!, rect);
       });
       before.current = map;
     },

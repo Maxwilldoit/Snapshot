@@ -6,7 +6,7 @@ Keep existing capabilities and user data compatible while simplifying their pres
 
 ## Map
 
-- `src/app/`: application context, navigation, toolbar, capture controls.
+- `src/app/`: application context, navigation, and toolbar.
 - `src/pages/`: main-window pages. Keep page-specific code with its page.
 - `src/components/`: shared views and accessible controls.
 - `src/windows/`: companion, quick menu, annotation, launchpad, and library windows.
@@ -37,7 +37,7 @@ Use Node 22 (`nvm use`), Rust from `rust-toolchain.toml`, and `npm ci`.
 - Preserve labels, keyboard focus, permission recovery, and actionable errors.
 - Update Chinese and English together. Static scans do not prove dynamically selected text is unused.
 - Do not rename serialized settings, IPC names, window labels, or storage keys during a structural refactor.
-- `afterCapture` is `clipboard | annotate | saveas`. `saveas` always saves to History, even when `autoSaveLocal` is false. Do not introduce a hidden flag that makes a visible Copy selection skip copying.
+- Capturing a screenshot always copies to the clipboard and saves to History. Do not introduce a hidden flag that makes capture skip copying or saving.
 - Companion global scale and per-asset base scale have different scopes. The two autonomy hooks are mutually gated; sharing a caller alone is not a reason to merge them.
 - Preserve all four CI runners. Linux checks cannot compile or validate macOS/Windows adapters.
 
