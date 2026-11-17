@@ -6,14 +6,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SetWindowPos, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER,
 };
 
-#[tauri::command]
-pub(crate) fn set_app_language(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    language: String,
-) -> Result<(), String> {
-    let english = language == "en";
-    super::INTERFACE_ENGLISH.store(english, Ordering::Relaxed);
+pub(crate) fn sync_tray_texts(state: &AppState) -> Result<(), String> {
     if let Some(item) = state.tray_open_item.lock().as_ref() {
         item.set_text(ui_text("打开设置", "Settings…"))
             .map_err(|error| error.to_string())?;
@@ -30,12 +23,26 @@ pub(crate) fn set_app_language(
         item.set_text(ui_text("退出", "Quit Snapshot"))
             .map_err(|error| error.to_string())?;
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn set_app_language(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    language: String,
+) -> Result<(), String> {
+    let english = language == "en";
+    super::INTERFACE_ENGLISH.store(english, Ordering::Relaxed);
+    sync_tray_texts(&state)?;
     let updated = {
         let mut settings = state.settings.lock();
         let changed = settings::sync_builtin_prompt(&mut settings, english);
         if changed {
-            settings::persist_settings(&state.settings_path, &settings)?;
-            Some(settings.clone())
+            let snapshot = settings.clone();
+            drop(settings);
+            settings::persist_settings(&state.settings_path, &snapshot)?;
+            Some(snapshot)
         } else {
             None
         }
@@ -46,23 +53,21 @@ pub(crate) fn set_app_language(
     Ok(())
 }
 
-/// 托盘勾选「开机时静默启动」：先写系统启动项，成功才落盘设置；
-/// 失败时把勾选同步回真实状态，并给出可读的错误。
+/// 托盘勾选「开机时静默启动」：在互斥锁外更新系统启动项并原子落盘，失败时自动回滚系统启动项并同步托盘状态。
 pub(crate) fn toggle_autostart_from_tray(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let result = on_worker(app.clone(), |app, state| {
-            let enabled = {
-                let mut settings = state.settings.lock();
-                let next = !settings.launch_on_boot;
-                // 只在显式改动时写系统启动项；取消即删除。
-                os::apply_autostart(next)?;
-                settings.launch_on_boot = next;
-                settings::persist_settings(&state.settings_path, &settings)?;
-                settings.clone()
-            };
-            settings::emit_settings(app, &enabled);
-            Ok(enabled.launch_on_boot)
+            let target = !state.settings.lock().launch_on_boot;
+            settings::apply_preferences_patch(
+                app,
+                state,
+                settings::PreferencesPatch {
+                    launch_on_boot: Some(target),
+                    ..Default::default()
+                },
+            )
+            .map(|updated| updated.launch_on_boot)
         })
         .await;
         let state = app.state::<AppState>();
@@ -78,8 +83,13 @@ pub(crate) fn toggle_autostart_from_tray(app: &AppHandle) {
                 ui_text("开机启动设置未生效", "Couldn’t change opening at login"),
                 &error,
             );
+            let message = if interface_is_english() {
+                "Couldn’t update your login items. Check permissions for the startup folder or registry and try again.".to_string()
+            } else {
+                error
+            };
             app.dialog()
-                .message(error)
+                .message(message)
                 .title(ui_text(
                     "开机启动设置未生效",
                     "Couldn’t change opening at login",

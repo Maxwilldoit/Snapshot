@@ -252,23 +252,23 @@ fn is_supported_action(action: &str) -> bool {
 }
 
 /// 偏好设置的增量补丁：None 表示未发送，可空字段用 Value 区分"没传"和"显式置空"
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PreferencesPatch {
-    snapshot_format: Option<String>,
-    save_dir: Option<String>,
-    recording_dir: Option<String>,
-    shutter_sound: Option<String>,
-    custom_sound_path: Option<serde_json::Value>,
-    flash_on_capture: Option<bool>,
-    launch_on_boot: Option<bool>,
-    include_cursor: Option<bool>,
-    record_system_audio: Option<bool>,
-    record_microphone: Option<bool>,
-    pet_scale: Option<u32>,
-    pet_wander: Option<bool>,
-    pet_random_actions: Option<bool>,
-    pet_gravity: Option<bool>,
+    pub(crate) snapshot_format: Option<String>,
+    pub(crate) save_dir: Option<String>,
+    pub(crate) recording_dir: Option<String>,
+    pub(crate) shutter_sound: Option<String>,
+    pub(crate) custom_sound_path: Option<serde_json::Value>,
+    pub(crate) flash_on_capture: Option<bool>,
+    pub(crate) launch_on_boot: Option<bool>,
+    pub(crate) include_cursor: Option<bool>,
+    pub(crate) record_system_audio: Option<bool>,
+    pub(crate) record_microphone: Option<bool>,
+    pub(crate) pet_scale: Option<u32>,
+    pub(crate) pet_wander: Option<bool>,
+    pub(crate) pet_random_actions: Option<bool>,
+    pub(crate) pet_gravity: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -626,66 +626,105 @@ pub(crate) async fn save_shortcuts(
     super::shortcuts::save_bindings(app, shortcuts).await
 }
 
+fn apply_patch_fields(target: &mut Settings, prefs: &PreferencesPatch) -> Result<(), String> {
+    if let Some(value) = prefs.snapshot_format.as_ref() {
+        target.snapshot_format = value.clone();
+    }
+    if let Some(value) = prefs.save_dir.as_ref() {
+        target.save_dir = value.clone();
+    }
+    if let Some(value) = prefs.recording_dir.as_ref() {
+        target.recording_dir = value.clone();
+    }
+    if let Some(value) = prefs.shutter_sound.as_ref() {
+        target.shutter_sound = value.clone();
+    }
+    if let Some(value) = prefs.custom_sound_path.as_ref() {
+        // 只能清空或原样回传；换音效要走 import_custom_sound，免得把任意路径塞进媒体协议
+        match value.as_str() {
+            None => target.custom_sound_path = None,
+            Some(path) if target.custom_sound_path.as_deref() == Some(path) => {}
+            Some(_) => return Err("请用「导入」选择音效文件".into()),
+        }
+    }
+    if let Some(value) = prefs.flash_on_capture {
+        target.flash_on_capture = value;
+    }
+    if let Some(value) = prefs.launch_on_boot {
+        target.launch_on_boot = value;
+    }
+    if let Some(value) = prefs.include_cursor {
+        target.include_cursor = value;
+    }
+    if let Some(value) = prefs.record_system_audio {
+        target.record_system_audio = value;
+    }
+    if let Some(value) = prefs.record_microphone {
+        target.record_microphone = value;
+    }
+    if let Some(value) = prefs.pet_scale {
+        target.pet_scale = clamp_pet_scale(value);
+    }
+    if let Some(value) = prefs.pet_wander {
+        target.pet_wander = value;
+    }
+    if let Some(value) = prefs.pet_random_actions {
+        target.pet_random_actions = value;
+    }
+    if let Some(value) = prefs.pet_gravity {
+        target.pet_gravity = value;
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_preferences_patch(
+    app: &AppHandle,
+    state: &AppState,
+    prefs: PreferencesPatch,
+) -> Result<Settings, String> {
+    let (previous_autostart, candidate) = {
+        let current = state.settings.lock();
+        let mut next = current.clone();
+        apply_patch_fields(&mut next, &prefs)?;
+        (current.launch_on_boot, next)
+    };
+
+    let autostart_changed =
+        prefs.launch_on_boot.is_some() && candidate.launch_on_boot != previous_autostart;
+    if autostart_changed {
+        // 只在显式改动时写系统启动项，默认不装；取消即删除。不在锁内执行外部 I/O。
+        os::apply_autostart(candidate.launch_on_boot)?;
+    }
+
+    if let Err(error) = persist_settings(&state.settings_path, &candidate) {
+        if autostart_changed {
+            let _ = os::apply_autostart(previous_autostart);
+        }
+        return Err(error);
+    }
+
+    let committed = {
+        let mut settings = state.settings.lock();
+        let _ = apply_patch_fields(&mut settings, &prefs);
+        settings.clone()
+    };
+
+    if prefs.launch_on_boot.is_some() {
+        if let Some(item) = state.autostart_item.lock().as_ref() {
+            let _ = item.set_checked(committed.launch_on_boot);
+        }
+    }
+    emit_settings(app, &committed);
+    Ok(committed)
+}
+
 #[tauri::command]
 pub(crate) fn save_preferences(
     app: AppHandle,
     state: State<'_, AppState>,
     prefs: PreferencesPatch,
 ) -> Result<Settings, String> {
-    let mut settings = state.settings.lock();
-    if let Some(value) = prefs.snapshot_format {
-        settings.snapshot_format = value;
-    }
-    if let Some(value) = prefs.save_dir {
-        settings.save_dir = value;
-    }
-    if let Some(value) = prefs.recording_dir {
-        settings.recording_dir = value;
-    }
-    if let Some(value) = prefs.shutter_sound {
-        settings.shutter_sound = value;
-    }
-    if let Some(value) = prefs.custom_sound_path {
-        // 只能清空或原样回传；换音效要走 import_custom_sound，免得把任意路径塞进媒体协议
-        match value.as_str() {
-            None => settings.custom_sound_path = None,
-            Some(path) if settings.custom_sound_path.as_deref() == Some(path) => {}
-            Some(_) => return Err("请用「导入」选择音效文件".into()),
-        }
-    }
-    if let Some(value) = prefs.flash_on_capture {
-        settings.flash_on_capture = value;
-    }
-    if let Some(value) = prefs.launch_on_boot {
-        settings.launch_on_boot = value;
-        // 只在显式改动时写系统启动项，默认不装；取消即删除。
-        os::apply_autostart(value)?;
-    }
-    if let Some(value) = prefs.include_cursor {
-        settings.include_cursor = value;
-    }
-    if let Some(value) = prefs.record_system_audio {
-        settings.record_system_audio = value;
-    }
-    if let Some(value) = prefs.record_microphone {
-        settings.record_microphone = value;
-    }
-    if let Some(value) = prefs.pet_scale {
-        settings.pet_scale = clamp_pet_scale(value);
-    }
-    if let Some(value) = prefs.pet_wander {
-        settings.pet_wander = value;
-    }
-    if let Some(value) = prefs.pet_random_actions {
-        settings.pet_random_actions = value;
-    }
-    if let Some(value) = prefs.pet_gravity {
-        settings.pet_gravity = value;
-    }
-    persist_settings(&state.settings_path, &settings)?;
-    let result = settings.clone();
-    emit_settings(&app, &result);
-    Ok(result)
+    apply_preferences_patch(&app, &state, prefs)
 }
 
 const SOUND_EXTENSIONS: [&str; 4] = ["mp3", "wav", "ogg", "m4a"];

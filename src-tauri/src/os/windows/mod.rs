@@ -29,6 +29,10 @@ pub(crate) use own_capture::{capture_own_window, capture_own_window_bounds};
 pub(crate) use pet_visibility::{refresh as refresh_pet_visibility, start as start_pet_visibility};
 pub(crate) use window::{restore_minimized, set_window_region, wait_until_hidden};
 
+pub(crate) fn autostart_available() -> bool {
+    true
+}
+
 /// 本平台支持的全局快捷键动作，顺序即设置页的显示顺序
 pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[
     "snapshot",

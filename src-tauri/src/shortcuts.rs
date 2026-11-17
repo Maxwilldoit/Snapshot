@@ -305,8 +305,20 @@ pub(crate) fn toggle_from_tray(app: &AppHandle) {
                 ui_text("快捷键设置未生效", "Couldn’t change shortcuts"),
                 &error,
             );
+            let message = if interface_is_english() {
+                if error.starts_with("这些快捷键") || error.starts_with("释放快捷键失败")
+                {
+                    "Couldn’t update global shortcuts. Another app may be using one of your keys, or try reopening Snapshot.".to_string()
+                } else if error.starts_with("These shortcuts") {
+                    error
+                } else {
+                    "Couldn’t save shortcut changes. Try again.".to_string()
+                }
+            } else {
+                error
+            };
             app.dialog()
-                .message(error)
+                .message(message)
                 .title(ui_text("快捷键设置未生效", "Couldn’t change shortcuts"))
                 .kind(MessageDialogKind::Error)
                 .show(|_| {});

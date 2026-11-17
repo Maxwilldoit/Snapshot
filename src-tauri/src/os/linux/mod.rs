@@ -105,6 +105,10 @@ pub(crate) fn open_folder(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("无法打开文件管理器：{error}"))
 }
 
+pub(crate) fn autostart_available() -> bool {
+    autostart::autostart_capability().is_ok()
+}
+
 pub(crate) fn capabilities() -> PlatformCapabilities {
     // 滚动长截图要 X11，翻页靠 xdotool；纯 Wayland 做不了，没装 xdotool 也做不了
     let scrolling = if session::is_wayland_session() || session::x11_display().is_none() {

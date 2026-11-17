@@ -149,7 +149,7 @@ pub(crate) fn interface_is_english() -> bool {
 
 /// 界面语言只跟随系统：任何 zh 开头的区域（含港澳台）用简体中文，其余用英文。
 /// 启动时按系统区域初始化，前端挂载后会再按 WebView 区域确认一次。
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn system_locale_is_english() -> bool {
     let locale = std::env::var("LC_ALL")
         .or_else(|_| std::env::var("LC_MESSAGES"))
@@ -157,6 +157,13 @@ fn system_locale_is_english() -> bool {
         .unwrap_or_default()
         .to_lowercase();
     !locale.starts_with("zh")
+}
+
+#[cfg(target_os = "windows")]
+fn system_locale_is_english() -> bool {
+    // Windows GUI 进程不设 LANG 环境变量，直接读当前用户 UI 主语言（0x04 = LANG_CHINESE）。
+    let lang_id = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
+    (lang_id & 0x3ff) != 0x04
 }
 
 #[cfg(target_os = "macos")]
@@ -525,19 +532,24 @@ pub fn run() {
                 }
             }
 
-            let open_settings =
-                MenuItem::with_id(app, "open-settings", "打开设置", true, None::<&str>)?;
+            let open_settings = MenuItem::with_id(
+                app,
+                "open-settings",
+                ui_text("打开设置", "Settings…"),
+                true,
+                None::<&str>,
+            )?;
             let pause_shortcuts = CheckMenuItem::with_id(
                 app,
                 "pause-shortcuts",
-                "暂停全局快捷键",
+                ui_text("暂停全局快捷键", "Pause Shortcuts"),
                 true,
                 settings.shortcuts_paused,
                 None::<&str>,
             )?;
             *state.shortcut_pause_item.lock() = Some(pause_shortcuts.clone());
-            // 开机启动只在托盘提供；系统启动项目录写不进去的平台不显示这一项。
-            let launch_on_boot = if os::capabilities().autostart.available {
+            // 开机启动只在托盘提供；仅做轻量目录检查，不在主线程拉起录制/D-Bus 等重探测。
+            let launch_on_boot = if os::autostart_available() {
                 let item = CheckMenuItem::with_id(
                     app,
                     "launch-on-boot",
@@ -551,9 +563,17 @@ pub fn run() {
             } else {
                 None
             };
-            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let quit = MenuItem::with_id(
+                app,
+                "quit",
+                ui_text("退出", "Quit Snapshot"),
+                true,
+                None::<&str>,
+            )?;
             *state.tray_open_item.lock() = Some(open_settings.clone());
             *state.tray_quit_item.lock() = Some(quit.clone());
+            // 若 WebView 在 setup 期间抢先调用了 set_app_language，补同步一次确保无中英混排。
+            let _ = actions::sync_tray_texts(&state);
             let mut menu_items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
                 vec![&open_settings, &pause_shortcuts];
             if let Some(item) = launch_on_boot.as_ref() {
@@ -624,10 +644,10 @@ pub fn run() {
                         .build(),
                 );
             }
-            // 页面滚动不要橡皮筋：所有配置窗口在创建时关掉 WKWebView 的弹性回弹。
+            // 页面滚动不要橡皮筋：所有非桌宠窗口在创建时关掉 WKWebView 的弹性回弹。
             #[cfg(target_os = "macos")]
             for window in app.webview_windows().values() {
-                os::disable_scroll_bounce(window);
+                os::refresh_scroll_bounce(window);
             }
             if should_show_main_window(started_at_login, tray_available) {
                 if let Some(window) = app.get_webview_window("main") {
