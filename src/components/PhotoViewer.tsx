@@ -23,15 +23,15 @@ import {
   type Transform,
 } from "../lib/photoPhysics";
 
-/** 相邻两张图之间的固定间距（「照片」App 的翻页黑边） */
+/** 相邻两张图之间的固定间距 */
 const PAGE_GAP = 24;
 /** 松手判定：距最后一次滚轮手势输入超过这个毫秒数就进入惯性/回弹 */
 const GESTURE_IDLE_MS = 110;
-/** 弹簧固有角频率：约 150ms 落定，接近系统回弹手感 */
+/** 弹簧固有角频率：约 150ms 落定 */
 const OMEGA = 26;
 /** 惯性速度低于该值（px/s）就交给弹簧收尾 */
 const MOMENTUM_MIN_V = 24;
-/** 捏合退场阈值：松手时缩放低于它就飞回缩略图 */
+/** 捏合退场阈值：松手时缩放低于它就收起查看器 */
 const DISMISS_SCALE = 0.82;
 /** 下拉退场阈值（px） */
 const DISMISS_DRAG_PX = 140;
@@ -39,35 +39,15 @@ const DISMISS_DRAG_PX = 140;
 const FLING_VX = 550;
 /** 滚轮越界原始位移封顶，保证松手或反向滑动立即响应 */
 const RAW_OVERSCROLL_CAP = 420;
+/** Quick Look 风格进退场时长（ms）：原位轻快微缩放 + 淡入淡出，干净不晃眼 */
+const QUICKLOOK_OPEN_MS = 160;
+const QUICKLOOK_CLOSE_MS = 140;
+const QUICKLOOK_SCALE_FROM = 0.95;
 
 const SCALE_SOFT_MIN = 0.55;
 const SCALE_SOFT_MAX = 1.35;
 
-/** 列表里这张缩略图此刻在可视区内的矩形（已滚出滚动容器视野则返回 null，退场改为直接收起） */
-function thumbRect(id: string): DOMRect | null {
-  const safe = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
-  const node = document.querySelector<HTMLElement>(`[data-thumb-id="${safe}"]`);
-  if (!node) return null;
-  const rect = (node.querySelector<HTMLElement>(".tile-preview") ?? node).getBoundingClientRect();
-  if (!rect.width) return null;
-  const scroller = node.closest<HTMLElement>(".history-scroll");
-  if (scroller) {
-    const bounds = scroller.getBoundingClientRect();
-    if (bounds.height > 0 && (rect.bottom <= bounds.top || rect.top >= bounds.bottom)) {
-      return null;
-    }
-  }
-  return rect;
-}
-
-/** 缩略图完整显示：FLIP 从格位内实际的图片边界出发，横竖图都不拉伸。 */
-function containedImageRect(thumb: DOMRect, item: MediaItem): DOMRect {
-  const scale = Math.min(thumb.width / (item.width || 1), thumb.height / (item.height || 1));
-  const w = (item.width || thumb.width) * scale;
-  const h = (item.height || thumb.height) * scale;
-  return new DOMRect(thumb.left + (thumb.width - w) / 2, thumb.top + (thumb.height - h) / 2, w, h);
-}
-
+type GestureEventLike = Event & { scale?: number; clientX?: number; clientY?: number };
 type WheelAxis = "page" | "dismiss" | "pan" | null;
 
 type EnginePhase =
@@ -77,14 +57,20 @@ type EnginePhase =
   | { kind: "spring"; vx: number; vy: number; vs: number; target: Transform }
   | { kind: "zoom"; start: Transform; target: Transform; anchor: { x: number; y: number }; p: number; vp: number }
   | { kind: "page"; from: number; to: number; v: number; commit: number | null }
-  | { kind: "hero"; mode: "open" | "close"; from: Transform; to: Transform; p: number; vp: number; radiusFrom: number; radiusTo: number };
+  | {
+      kind: "quicklook";
+      mode: "open" | "close";
+      start: number;
+      duration: number;
+      anchorTransform: Transform;
+      startBackdrop: number;
+    };
 
 type Engine = {
   view: { w: number; h: number };
   base: { w: number; h: number };
   maxScale: number;
   cur: Transform;
-  /** 连续滚轮手势期间未经橡皮筋压缩的原始坐标，避免每帧重复阻尼产生渐近死锁 */
   raw: Transform;
   pageX: number;
   rawPageX: number;
@@ -93,7 +79,7 @@ type Engine = {
   tracker: VelocityTracker;
   raf: number;
   lastFrame: number;
-  /** 退场手势中：遮罩透明度与图片跟随位移 */
+  mediaOpacity: number;
   dismissing: boolean;
 };
 
@@ -101,12 +87,19 @@ function fitTransform(view: { w: number; h: number }, base: { w: number; h: numb
   return { scale: 1, tx: (view.w - base.w) / 2, ty: (view.h - base.h) / 2 };
 }
 
-/** 下拉退场跟手（同「照片」）：位移基本 1:1，只在很远处轻微减速 */
+function scaleAround(base: Transform, factor: number, cx: number, cy: number): Transform {
+  const scale = base.scale * factor;
+  return {
+    scale,
+    tx: cx - (cx - base.tx) * factor,
+    ty: cy - (cy - base.ty) * factor,
+  };
+}
+
 function dismissDrag(overflow: number) {
   return overflow <= 240 ? overflow * 0.9 : 216 + rubberClamp(overflow - 240, 0, 0, 160);
 }
 
-/** 邻页的显示尺寸：同当前视口做 contain 适配 */
 function fitBoxFor(item: MediaItem, view: { w: number; h: number }): { width: number; height: number } | null {
   if (!view.w || !view.h || !item.width || !item.height) return null;
   const scale = Math.min(view.w / item.width, view.h / item.height, 1);
@@ -114,9 +107,9 @@ function fitBoxFor(item: MediaItem, view: { w: number; h: number }): { width: nu
 }
 
 /**
- * 「照片」App 式图片查看器。DOM 渲染，transform-origin 0 0，
- * 全部交互（捏合缩放、惯性平移、撞边回弹、双击直线放大、翻页、英雄展开/捏合退场）
- * 由一个 rAF 物理状态机驱动；任何动画进行中收到新输入都立即打断接管。
+ * Quick Look 式图片与录屏查看器：
+ * - 打开与关闭采用原位 160ms/140ms 轻快微缩放（95% ↔ 100%）+ 淡入淡出，不做跨屏飞入飞出；
+ * - 查看时完整支持 macOS 原生触控板双指捏合（GestureEvent）、Ctrl/Cmd+滚轮无级缩放、双击定点放大、惯性平移与左右翻页。
  */
 export function PhotoViewer({
   records,
@@ -128,11 +121,8 @@ export function PhotoViewer({
   onClose: () => void;
 }) {
   const [currentId, setCurrentId] = useState(startId);
-  /** 舞台实时宽度：保证窗口缩放但图片适应框未变时，相邻面板间距仍同步重算 */
   const [stageWidth, setStageWidth] = useState(0);
-  /** 每张已量过的显示尺寸（含录屏元数据重算）；渲染直接读它，避免布局后再补一帧 */
   const [boxes, setBoxes] = useState<Record<string, { width: number; height: number }>>({});
-  /** 录屏真实尺寸：记录里只有 16:9 占位，元数据读到后重算基准 */
   const [videoDims, setVideoDims] = useState<Record<string, { width: number; height: number }>>({});
   const [isClosing, setIsClosing] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
@@ -166,7 +156,6 @@ export function PhotoViewer({
     }
   }, [foundIndex, displayRecords, currentId]);
 
-  // 切页后暂停退到相邻槽位的录屏，防止离屏继续播放声音
   useEffect(() => {
     for (const [id, node] of mediaRefs.current) {
       if (id !== currentId && node instanceof HTMLVideoElement && !node.paused) {
@@ -175,7 +164,6 @@ export function PhotoViewer({
     }
   }, [currentId]);
 
-  // 打开查看器时接管焦点，关闭卸载时归还到当前缩略图（或打开前的焦点元素）
   useEffect(() => {
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     stageRef.current?.focus({ preventScroll: true });
@@ -200,34 +188,42 @@ export function PhotoViewer({
     tracker: new VelocityTracker(),
     raf: 0,
     lastFrame: 0,
+    mediaOpacity: 1,
     dismissing: false,
   });
 
-  /** 把物理状态写到 DOM：只动 transform 与遮罩透明度，不触发 React 渲染 */
+  const currentBackdropOf = (engine: Engine) => {
+    let opacity = 1;
+    if (engine.dismissing) {
+      const shrink = clamp((1 - engine.cur.scale) / (1 - DISMISS_SCALE), 0, 1);
+      const drag = clamp((engine.cur.ty - (engine.view.h - engine.base.h) / 2) / DISMISS_DRAG_PX, 0, 1);
+      opacity = 1 - Math.max(shrink, drag) * 0.9;
+    }
+    const phase = engine.phase;
+    if (phase.kind === "quicklook") {
+      opacity = engine.mediaOpacity * phase.startBackdrop;
+    }
+    return opacity;
+  };
+
   const paint = useCallback(() => {
     const engine = engineRef.current;
     const current = currentIdRef.current;
     for (const [id, node] of mediaRefs.current) {
-      // 当前图走物理变换；邻图保持各自的 1x 居中（翻页拖出来时就是就绪状态）
       let transform = engine.cur;
       if (id !== current) {
         const item = recordsRef.current.find((r) => r.id === id);
         const neighborBase = item ? fitBoxFor(item, engine.view) : null;
         transform = fitTransform(engine.view, neighborBase ? { w: neighborBase.width, h: neighborBase.height } : engine.base);
+        node.style.opacity = "";
+      } else {
+        node.style.opacity = engine.mediaOpacity < 0.999 ? engine.mediaOpacity.toFixed(3) : "";
       }
       node.style.transform = `translate3d(${transform.tx}px, ${transform.ty}px, 0) scale(${transform.scale})`;
     }
     if (stripRef.current) stripRef.current.style.transform = `translate3d(${engine.pageX}px, 0, 0)`;
     if (rootRef.current) {
-      let opacity = 1;
-      if (engine.dismissing) {
-        const shrink = clamp((1 - engine.cur.scale) / (1 - DISMISS_SCALE), 0, 1);
-        const drag = clamp((engine.cur.ty - (engine.view.h - engine.base.h) / 2) / DISMISS_DRAG_PX, 0, 1);
-        opacity = 1 - Math.max(shrink, drag) * 0.9;
-      }
-      const phase = engine.phase;
-      if (phase.kind === "hero") opacity = phase.mode === "open" ? phase.p : 1 - phase.p;
-      rootRef.current.style.setProperty("--viewer-backdrop", opacity.toFixed(3));
+      rootRef.current.style.setProperty("--viewer-backdrop", currentBackdropOf(engine).toFixed(3));
     }
   }, []);
 
@@ -248,7 +244,6 @@ export function PhotoViewer({
     engine.raf = 0;
   }, []);
 
-  /** 统一的 rAF 循环：任何相位都在这里推进；指针按住期间不结算，滚轮停止后自动落定 */
   const kick = useCallback(() => {
     const engine = engineRef.current;
     if (engine.raf) return;
@@ -273,7 +268,6 @@ export function PhotoViewer({
       };
 
       if (phase.kind === "gesture") {
-        // 指针按住静止时绝不提前结算；仅在无指针按住的滚轮/触控板手势停顿后结算
         if (dragRef.current) return;
         if (now - phase.last > GESTURE_IDLE_MS) {
           settleRef.current(now, false);
@@ -341,26 +335,32 @@ export function PhotoViewer({
         } else {
           engine.phase = { ...phase, v: step.v };
         }
-      } else if (phase.kind === "hero") {
-        const step = springStep(phase.p - 1, phase.vp, dt, OMEGA);
-        const p = clamp(1 + step.x, 0, 1.2);
-        const eased = clamp(p, 0, 1);
-        engine.cur = {
-          scale: phase.from.scale + (phase.to.scale - phase.from.scale) * eased,
-          tx: phase.from.tx + (phase.to.tx - phase.from.tx) * eased,
-          ty: phase.from.ty + (phase.to.ty - phase.from.ty) * eased,
-        };
-        const pane = mediaRefs.current.get(currentIdRef.current);
-        if (pane) pane.style.borderRadius = `${phase.radiusFrom + (phase.radiusTo - phase.radiusFrom) * eased}px`;
-        if (Math.abs(step.x) < 0.001 && Math.abs(step.v) < 0.03) {
-          engine.cur = phase.to;
-          engine.phase = { kind: "idle" };
-          if (phase.mode === "close") {
+      } else if (phase.kind === "quicklook") {
+        const u = clamp((now - phase.start) / phase.duration, 0, 1);
+        const cx = view.w / 2;
+        const cy = view.h / 2;
+        if (phase.mode === "open") {
+          const eased = 1 - (1 - u) ** 3;
+          const factor = QUICKLOOK_SCALE_FROM + (1 - QUICKLOOK_SCALE_FROM) * eased;
+          engine.cur = scaleAround(phase.anchorTransform, factor, cx, cy);
+          engine.mediaOpacity = eased;
+          if (u >= 1) {
+            engine.cur = phase.anchorTransform;
+            engine.mediaOpacity = 1;
+            engine.phase = { kind: "idle" };
+          }
+        } else {
+          const eased = u * u;
+          const factor = 1 - (1 - QUICKLOOK_SCALE_FROM) * eased;
+          engine.cur = scaleAround(phase.anchorTransform, factor, cx, cy);
+          engine.mediaOpacity = 1 - eased;
+          if (u >= 1) {
+            engine.mediaOpacity = 0;
+            engine.phase = { kind: "idle" };
+            paint();
             onCloseRef.current();
             return;
           }
-        } else {
-          engine.phase = { ...phase, p, vp: step.v };
         }
       }
 
@@ -370,18 +370,18 @@ export function PhotoViewer({
     engine.raf = requestAnimationFrame(frame);
   }, [paint]);
 
-  /** 立即打断任何动画，从当前呈现值接管（零跳帧） */
   const interrupt = useCallback(() => {
     const engine = engineRef.current;
     stopAnimation();
     engine.dismissing = false;
     engine.wheelAxis = null;
+    engine.mediaOpacity = 1;
     if (engine.phase.kind === "page" && engine.phase.commit !== null) {
       const commit = engine.phase.commit;
       engine.pageX = engine.phase.to;
       engine.phase = { kind: "idle" };
       commitPageRef.current(commit);
-    } else if (engine.phase.kind === "hero" && engine.phase.mode === "close") {
+    } else if (engine.phase.kind === "quicklook" && engine.phase.mode === "close") {
       onCloseRef.current();
       return false;
     }
@@ -389,7 +389,6 @@ export function PhotoViewer({
     return true;
   }, [stopAnimation]);
 
-  // 按原图比例算出适应视口的显示尺寸；元素框就是图的框，物理层才有稳定基准
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage || !record) return;
@@ -409,8 +408,8 @@ export function PhotoViewer({
           engine.cur = getClampedTransform(engine.cur.scale, engine.cur.tx, engine.cur.ty, view, engine.base, engine.maxScale);
           engine.raw = { ...engine.cur };
           if (engine.phase.kind === "spring") engine.phase = { kind: "idle" };
-        } else if (phase.kind === "hero") {
-          engine.phase = { ...phase, to: fitTransform(view, engine.base) };
+        } else if (phase.kind === "quicklook" && phase.mode === "open") {
+          engine.phase = { ...phase, anchorTransform: fitTransform(view, engine.base) };
         } else if (phase.kind === "zoom") {
           engine.phase = { ...phase, target: getClampedTransform(phase.target.scale, phase.target.tx, phase.target.ty, view, engine.base, engine.maxScale) };
         }
@@ -428,7 +427,7 @@ export function PhotoViewer({
     return () => observer.disconnect();
   }, [record, paint]);
 
-  /** 英雄展开：从缩略图的实际图片边界展开至预览适应区域（弹簧 + 遮罩渐入 + 圆角过渡） */
+  /** Quick Look 原位进场：居中直接微缩放（95% → 100%）+ 160ms 渐显，无跨屏飞行与弹跳 */
   useLayoutEffect(() => {
     const box = record ? boxes[record.id] : undefined;
     if (!box || openedRef.current || !record) return;
@@ -437,55 +436,56 @@ export function PhotoViewer({
     if (!pane || !stage) return;
     openedRef.current = true;
     const engine = engineRef.current;
-    const stageRect = stage.getBoundingClientRect();
     const target = fitTransform(engine.view, engine.base);
-    const thumb = thumbRect(startId);
-    if (!thumb || motionReduced()) {
+    engine.raw = { ...target };
+    if (motionReduced()) {
       engine.cur = target;
-      engine.raw = { ...target };
+      engine.mediaOpacity = 1;
       paint();
       return;
     }
-    const cover = containedImageRect(thumb, record);
-    const from: Transform = {
-      scale: cover.width / engine.base.w,
-      tx: cover.left - stageRect.left,
-      ty: cover.top - stageRect.top,
+    const cx = engine.view.w / 2;
+    const cy = engine.view.h / 2;
+    engine.cur = scaleAround(target, QUICKLOOK_SCALE_FROM, cx, cy);
+    engine.mediaOpacity = 0;
+    engine.phase = {
+      kind: "quicklook",
+      mode: "open",
+      start: performance.now(),
+      duration: QUICKLOOK_OPEN_MS,
+      anchorTransform: target,
+      startBackdrop: 1,
     };
-    engine.cur = from;
-    engine.raw = { ...target };
-    engine.phase = { kind: "hero", mode: "open", from, to: target, p: 0, vp: 0, radiusFrom: 4, radiusTo: 6 };
     paint();
     kick();
-  }, [boxes, record, startId, kick, paint]);
+  }, [boxes, record, kick, paint]);
 
-  /** 关闭：弹簧飞回可视缩略图（继承当前位置），缩略图已滚出视野或减弱动态效果时直接收起 */
+  /** Quick Look 原位收起：从当前姿态原位 140ms 轻缩淡出 */
   const close = useCallback(() => {
     if (closingRef.current) return;
     closingRef.current = true;
     setIsClosing(true);
     const engine = engineRef.current;
+    const startBackdrop = currentBackdropOf(engine);
     stopAnimation();
-    const stage = stageRef.current;
-    const item = recordsRef.current[indexRef.current];
-    const thumb = item ? thumbRect(item.id) : null;
-    if (!stage || !thumb || !item || motionReduced()) {
+    if (motionReduced() || !stageRef.current) {
       onCloseRef.current();
       return;
     }
-    const stageRect = stage.getBoundingClientRect();
-    const cover = containedImageRect(thumb, item);
-    const to: Transform = {
-      scale: cover.width / engine.base.w,
-      tx: cover.left - stageRect.left,
-      ty: cover.top - stageRect.top,
-    };
     engine.dismissing = false;
-    engine.phase = { kind: "hero", mode: "close", from: { ...engine.cur }, to, p: 0, vp: 0, radiusFrom: 6, radiusTo: 4 };
+    engine.mediaOpacity = 1;
+    engine.phase = {
+      kind: "quicklook",
+      mode: "close",
+      start: performance.now(),
+      duration: QUICKLOOK_CLOSE_MS,
+      anchorTransform: { ...engine.cur },
+      startBackdrop: Math.max(0.15, startBackdrop),
+    };
+    paint();
     kick();
-  }, [stopAnimation, kick]);
+  }, [stopAnimation, paint, kick]);
 
-  /** 翻页落定：换当前图并把物理状态复位到新图的 1x（旧图缩放静默丢弃）。 */
   const commitPage = useCallback((next: number) => {
     const item = recordsRef.current[next];
     if (!item) return;
@@ -498,6 +498,7 @@ export function PhotoViewer({
     engine.pageX = 0;
     engine.rawPageX = 0;
     engine.wheelAxis = null;
+    engine.mediaOpacity = 1;
     engine.cur = fitTransform(engine.view, engine.base);
     engine.raw = { ...engine.cur };
     engine.tracker.clear();
@@ -508,7 +509,6 @@ export function PhotoViewer({
   }, []);
   commitPageRef.current = commitPage;
 
-  /** 按钮/键盘翻页：弹簧把整条横带滑到邻页再落定 */
   const step = useCallback((delta: number) => {
     const next = indexRef.current + delta;
     if (!recordsRef.current[next]) return;
@@ -523,7 +523,6 @@ export function PhotoViewer({
     kick();
   }, [interrupt, commitPage, kick]);
 
-  /** 双击：>1.05 复位；否则以双击点为锚沿直线放大到 2.5x（或 1:1，取小） */
   const zoomAtPoint = useCallback((cx: number, cy: number) => {
     const engine = engineRef.current;
     if (!interrupt()) return;
@@ -564,11 +563,12 @@ export function PhotoViewer({
     void annotateSnapshot(item.id).catch((error) => setCopyError(errorText(error)));
   }, []);
 
-  // 输入拦截：wheel（捏合/平移）、Safari gesture、指针拖拽、双击。全部非 passive。
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || !record) return;
     const engine = engineRef.current;
+    let webkitGestureActive = false;
+    let lastGestureScale = 1;
 
     const pointIn = (clientX: number, clientY: number) => {
       const rect = stage.getBoundingClientRect();
@@ -585,11 +585,36 @@ export function PhotoViewer({
       return true;
     };
 
-    const pushWheelSample = (now: number) => {
+    const pushWheelSample = (now: number, keepRaf = true) => {
       engine.tracker.push({ t: now, tx: engine.cur.tx, ty: engine.cur.ty, scale: engine.cur.scale });
       engine.phase = { kind: "gesture", last: now };
       paint();
-      kick();
+      if (keepRaf) kick();
+    };
+
+    const applyZoomDelta = (delta: number, clientX: number, clientY: number, now: number, keepRaf: boolean) => {
+      const { view, base, maxScale } = engine;
+      const { x: cx, y: cy } = pointIn(clientX, clientY);
+      const next = zoomAnchored(engine.raw, delta, cx, cy);
+      const scale = clamp(next.scale, SCALE_SOFT_MIN, maxScale * SCALE_SOFT_MAX);
+      const ratio = scale / engine.raw.scale;
+      const rawTx = cx - (cx - engine.raw.tx) * ratio;
+      const rawTy = cy - (cy - engine.raw.ty) * ratio;
+      engine.raw = { scale, tx: rawTx, ty: rawTy };
+
+      if (scale < 1) {
+        engine.cur = { scale, tx: rawTx, ty: rawTy };
+        engine.dismissing = true;
+      } else {
+        const bounds = boundsFor(clamp(scale, 1, maxScale), view, base);
+        engine.cur = {
+          scale,
+          tx: rubberClamp(rawTx, bounds.minTx, bounds.maxTx),
+          ty: rubberClamp(rawTy, bounds.minTy, bounds.maxTy),
+        };
+        engine.dismissing = false;
+      }
+      pushWheelSample(now, keepRaf);
     };
 
     const onWheel = (event: WheelEvent) => {
@@ -597,37 +622,17 @@ export function PhotoViewer({
       event.preventDefault();
       event.stopPropagation();
       const now = performance.now();
-      if (engine.phase.kind !== "gesture" && !beginWheelGesture(now)) return;
-      const { view, base, maxScale } = engine;
-
       if (event.ctrlKey || event.metaKey) {
-        // 捏合缩放：基于未阻尼原始坐标推进，保证光标锚点精确不变（<1x 亦不向左上角漂移）
+        if (webkitGestureActive) return;
+        if (engine.phase.kind !== "gesture" && !beginWheelGesture(now)) return;
         const notched = isNotchedZoom(event);
         const delta = zoomDeltaOf(event.deltaY, event.deltaMode, notched);
-        const { x: cx, y: cy } = pointIn(event.clientX, event.clientY);
-        const next = zoomAnchored(engine.raw, delta, cx, cy);
-        const scale = clamp(next.scale, SCALE_SOFT_MIN, maxScale * SCALE_SOFT_MAX);
-        const ratio = scale / engine.raw.scale;
-        const rawTx = cx - (cx - engine.raw.tx) * ratio;
-        const rawTy = cy - (cy - engine.raw.ty) * ratio;
-        engine.raw = { scale, tx: rawTx, ty: rawTy };
-
-        if (scale < 1) {
-          engine.cur = { scale, tx: rawTx, ty: rawTy };
-          engine.dismissing = true;
-        } else {
-          const bounds = boundsFor(clamp(scale, 1, maxScale), view, base);
-          engine.cur = {
-            scale,
-            tx: rubberClamp(rawTx, bounds.minTx, bounds.maxTx),
-            ty: rubberClamp(rawTy, bounds.minTy, bounds.maxTy),
-          };
-          engine.dismissing = false;
-        }
-        pushWheelSample(now);
+        applyZoomDelta(delta, event.clientX, event.clientY, now, true);
         return;
       }
 
+      if (engine.phase.kind !== "gesture" && !beginWheelGesture(now)) return;
+      const { view, base, maxScale } = engine;
       const dx = -event.deltaX;
       const dy = -event.deltaY;
       if (engine.cur.scale <= 1.001) {
@@ -669,7 +674,7 @@ export function PhotoViewer({
             ty: rubberClamp(engine.raw.ty, bounds.minTy, bounds.maxTy),
           };
         }
-        pushWheelSample(now);
+        pushWheelSample(now, true);
       } else {
         const bounds = boundsFor(clamp(engine.cur.scale, 1, maxScale), view, base);
         const rawTx = clamp(engine.raw.tx + dx, bounds.minTx - RAW_OVERSCROLL_CAP, bounds.maxTx + RAW_OVERSCROLL_CAP);
@@ -680,14 +685,43 @@ export function PhotoViewer({
           tx: rubberClamp(rawTx, bounds.minTx, bounds.maxTx),
           ty: rubberClamp(rawTy, bounds.minTy, bounds.maxTy),
         };
-        pushWheelSample(now);
+        pushWheelSample(now, true);
       }
     };
 
-    const onGesture = (event: Event) => event.preventDefault();
+    // macOS WKWebView 原生双指捏合手势驱动锚点无级缩放，松手立即结算
+    const onGestureStart = (event: Event) => {
+      if (closingRef.current || dragRef.current) return;
+      event.preventDefault();
+      const gesture = event as GestureEventLike;
+      const now = performance.now();
+      if (!beginWheelGesture(now)) return;
+      webkitGestureActive = true;
+      lastGestureScale = typeof gesture.scale === "number" && gesture.scale > 0 ? gesture.scale : 1;
+    };
+
+    const onGestureChange = (event: Event) => {
+      if (closingRef.current || !webkitGestureActive) return;
+      event.preventDefault();
+      const gesture = event as GestureEventLike;
+      const scale = gesture.scale;
+      if (typeof scale !== "number" || scale <= 0 || lastGestureScale <= 0) return;
+      const delta = Math.log(scale / lastGestureScale);
+      lastGestureScale = scale;
+      const rect = stage.getBoundingClientRect();
+      const clientX = gesture.clientX ?? (rect.left + rect.width / 2);
+      const clientY = gesture.clientY ?? (rect.top + rect.height / 2);
+      applyZoomDelta(delta, clientX, clientY, performance.now(), false);
+    };
+
+    const onGestureEnd = (event: Event) => {
+      event.preventDefault();
+      if (!webkitGestureActive) return;
+      webkitGestureActive = false;
+      if (!closingRef.current) settleGesture(performance.now(), true);
+    };
 
     const onPointerDown = (event: PointerEvent) => {
-      // 已有活跃指针拖拽时忽略第二根手指，防止覆盖捕获并导致结算错位
       if (closingRef.current || event.button !== 0 || dragRef.current !== null) return;
       if ((event.target as HTMLElement).closest("video")) return;
       if (!interrupt()) return;
@@ -756,7 +790,6 @@ export function PhotoViewer({
       settleGesture(performance.now(), true);
     };
 
-    /** 手势结算：退场 / 翻页 / 惯性 / 回弹 */
     const settleGesture = (now: number, immediate: boolean) => {
       const { view, base, maxScale, cur } = engine;
       const { vx, vy, vScale } = engine.tracker.velocity(now, immediate ? 160 : GESTURE_IDLE_MS + 40);
@@ -818,9 +851,9 @@ export function PhotoViewer({
     };
 
     stage.addEventListener("wheel", onWheel, { passive: false });
-    stage.addEventListener("gesturestart", onGesture, { passive: false });
-    stage.addEventListener("gesturechange", onGesture, { passive: false });
-    stage.addEventListener("gestureend", onGesture, { passive: false });
+    stage.addEventListener("gesturestart", onGestureStart, { passive: false });
+    stage.addEventListener("gesturechange", onGestureChange, { passive: false });
+    stage.addEventListener("gestureend", onGestureEnd, { passive: false });
     stage.addEventListener("pointerdown", onPointerDown);
     stage.addEventListener("pointermove", onPointerMove);
     stage.addEventListener("pointerup", endDrag);
@@ -828,9 +861,9 @@ export function PhotoViewer({
     stage.addEventListener("dblclick", onDoubleClick);
     return () => {
       stage.removeEventListener("wheel", onWheel);
-      stage.removeEventListener("gesturestart", onGesture);
-      stage.removeEventListener("gesturechange", onGesture);
-      stage.removeEventListener("gestureend", onGesture);
+      stage.removeEventListener("gesturestart", onGestureStart);
+      stage.removeEventListener("gesturechange", onGestureChange);
+      stage.removeEventListener("gestureend", onGestureEnd);
       stage.removeEventListener("pointerdown", onPointerDown);
       stage.removeEventListener("pointermove", onPointerMove);
       stage.removeEventListener("pointerup", endDrag);
@@ -839,7 +872,6 @@ export function PhotoViewer({
     };
   }, [record, interrupt, kick, paint, zoomAtPoint, close, commitPage]);
 
-  // 模态键盘处理：Tab 焦点循环在查看器内，屏蔽背景快捷键，视频聚焦时保留原生快进快退
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Tab" && rootRef.current) {

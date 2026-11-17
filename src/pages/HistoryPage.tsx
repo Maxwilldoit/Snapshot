@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CheckCheck, FolderOpen, Trash2, X } from "lucide-react";
 import {
   annotateSnapshot,
@@ -11,10 +11,11 @@ import {
   onSnapshotsChanged,
   openSnapshotsDir,
 } from "../lib/backend";
-import { formatBytes } from "../lib/format";
+import { formatBytes, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
-import { DEFAULT_PHOTO_SIZE, PHOTO_SIZE_MIN, PHOTO_SIZE_MAX, PHOTO_SIZES, photoGridGap } from "../lib/gallery";
+import { JustifiedGrid } from "../components/JustifiedGrid";
+import { DEFAULT_PHOTO_SIZE, PHOTO_SIZE_MIN, PHOTO_SIZE_MAX, PHOTO_SIZES } from "../lib/gallery";
 import { isNotchedZoom, zoomDeltaOf } from "../lib/photoPhysics";
 import { PhotoViewer } from "../components/PhotoViewer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -26,29 +27,69 @@ import { Toolbar } from "../app/Shell";
 import { acceleratorOf } from "../lib/shortcuts";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
-import { mergeTimeline, type MediaItem } from "../lib/mediaTimeline";
+import { mergeTimeline, type MediaItem, type RecordingMeta } from "../lib/mediaTimeline";
 import type { RecordingRecord, SnapshotRecord } from "../types";
 
 type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y: number } };
+type GestureEventLike = Event & { scale?: number; clientX?: number; clientY?: number };
+type ZoomAnchor = {
+  element: HTMLElement | null;
+  clientY: number;
+  relRatio: number;
+  fallbackRatio: number;
+};
 
 const ZOOM_KEY = "snapshot-history-zoom";
 
-/** 存的可能是旧版档位（0–6）或新版行高（px）；档位换算成对应行高 */
+/** 存的可能是旧版档位（0–6）或新版行高（px）；档位换算成对应目标行高 */
 function readZoom(): number {
   const stored = Number(localStorage.getItem(ZOOM_KEY));
   if (!Number.isFinite(stored) || stored <= 0) return DEFAULT_PHOTO_SIZE;
-  if (stored < PHOTO_SIZE_MIN) {
+  if (stored < 10) {
     return PHOTO_SIZES[Math.min(PHOTO_SIZES.length - 1, Math.round(stored))] ?? DEFAULT_PHOTO_SIZE;
   }
   return Math.max(PHOTO_SIZE_MIN, Math.min(PHOTO_SIZE_MAX, stored));
 }
 
-/** 历史：点开「照片」式查看器（截图可再进标注），录屏点开播放；右键进入多选、标注、复制或确认删除。 */
+function captureZoomAnchor(scroller: HTMLElement, clientX: number, clientY: number): ZoomAnchor {
+  const scrollerRect = scroller.getBoundingClientRect();
+  const clampedY = Math.max(scrollerRect.top + 4, Math.min(scrollerRect.bottom - 4, clientY || (scrollerRect.top + scrollerRect.height / 2)));
+  const probeX = clientX > 0 ? clientX : scrollerRect.left + scrollerRect.width / 2;
+  let hit: HTMLElement | null = null;
+  if (typeof document.elementFromPoint === "function") {
+    const raw = document.elementFromPoint(probeX, clampedY);
+    if (raw && scroller.contains(raw)) {
+      hit = raw.closest<HTMLElement>("[data-flip-key], [data-day-key]");
+    }
+  }
+  if (!hit) {
+    const sections = scroller.querySelectorAll<HTMLElement>("[data-day-key]");
+    for (const section of sections) {
+      const box = section.getBoundingClientRect();
+      if (box.bottom >= clampedY) {
+        hit = section;
+        break;
+      }
+    }
+  }
+  if (hit) {
+    const rect = hit.getBoundingClientRect();
+    const relRatio = rect.height > 0 ? (clampedY - rect.top) / rect.height : 0;
+    return { element: hit, clientY: clampedY, relRatio, fallbackRatio: 0 };
+  }
+  const offsetInView = clampedY - scrollerRect.top;
+  const fallbackRatio = scroller.scrollHeight > 0 ? (scroller.scrollTop + offsetInView) / scroller.scrollHeight : 0;
+  return { element: null, clientY: offsetInView, relRatio: 0, fallbackRatio };
+}
+
+/** 历史：按日期分组 + 同行等高自适应拼图；点开 Quick Look 式快速预览，支持触控板连续无级捏合缩放。 */
 export function HistoryPage() {
   const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(null);
   const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
+  const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>({});
+  const metaRef = useRef<Record<string, RecordingMeta>>({});
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(readZoom);
   const [selecting, setSelecting] = useState(false);
@@ -66,13 +107,21 @@ export function HistoryPage() {
   const listRef = useRef<HTMLDivElement>(null);
   const flip = useFlip(listRef);
   const pendingHandled = useRef<string | null>(null);
+
   const annotateItem = useCallback((item: MediaItem) => {
     void annotateSnapshot(item.id).catch((error) => notify(errorText(error), "error"));
   }, [notify]);
 
+  const reportMeta = useCallback((id: string, meta: RecordingMeta) => {
+    if (metaRef.current[id]?.durationMs === meta.durationMs && metaRef.current[id]?.width === meta.width) return;
+    metaRef.current = { ...metaRef.current, [id]: meta };
+    setRecordingMeta(metaRef.current);
+  }, []);
+
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
   const persistTimerRef = useRef<number | null>(null);
+  const zoomAnchorRef = useRef<ZoomAnchor | null>(null);
   const [scrollNode, setScrollNode] = useState<HTMLDivElement | null>(null);
 
   const scheduleZoomPersist = useCallback((value: number) => {
@@ -90,62 +139,97 @@ export function HistoryPage() {
     }
   }, []);
 
-  const changeZoom = useCallback((next: number, clientY?: number) => {
+  const changeZoom = useCallback((next: number, clientX = 0, clientY = 0) => {
     const clamped = Math.max(PHOTO_SIZE_MIN, Math.min(PHOTO_SIZE_MAX, next));
-    const prev = zoomRef.current;
-    if (Math.abs(clamped - prev) < 0.25) return;
-    const scroller = scrollNode;
-    const prevHeight = scroller?.scrollHeight ?? 0;
-    const prevTop = scroller?.scrollTop ?? 0;
-    const anchorOffset = scroller && typeof clientY === "number"
-      ? Math.max(0, Math.min(scroller.clientHeight, clientY - scroller.getBoundingClientRect().top))
-      : (scroller?.clientHeight ?? 0) / 2;
-
+    if (Math.abs(clamped - zoomRef.current) < 0.25) return;
+    if (scrollNode) {
+      zoomAnchorRef.current = captureZoomAnchor(scrollNode, clientX, clientY);
+    }
     zoomRef.current = clamped;
     setZoom(clamped);
     scheduleZoomPersist(clamped);
-
-    if (scroller && prevHeight > 0) {
-      window.requestAnimationFrame(() => {
-        const nextHeight = scroller.scrollHeight;
-        if (nextHeight > 0 && nextHeight !== prevHeight) {
-          const ratio = nextHeight / prevHeight;
-          scroller.scrollTop = Math.max(0, (prevTop + anchorOffset) * ratio - anchorOffset);
-        }
-      });
-    }
   }, [scheduleZoomPersist, scrollNode]);
 
-  // 触控板捏合与 Ctrl/Cmd+滚轮缩放；普通滚动不受影响。
-  // 归一鼠标滚轮刻度并按光标行锚定滚动位置，同「照片」。
+  // 布局提交后、浏览器绘制前同步修正 scrollTop，让双指下的那一行图片零抖动原地缩放
+  useLayoutEffect(() => {
+    const pendingAnchor = zoomAnchorRef.current;
+    zoomAnchorRef.current = null;
+    if (!pendingAnchor || !scrollNode) return;
+    if (pendingAnchor.element && pendingAnchor.element.isConnected) {
+      const rect = pendingAnchor.element.getBoundingClientRect();
+      const currentY = rect.top + pendingAnchor.relRatio * rect.height;
+      scrollNode.scrollTop = Math.max(0, scrollNode.scrollTop + (currentY - pendingAnchor.clientY));
+    } else if (pendingAnchor.fallbackRatio > 0 && scrollNode.scrollHeight > 0) {
+      scrollNode.scrollTop = Math.max(0, pendingAnchor.fallbackRatio * scrollNode.scrollHeight - pendingAnchor.clientY);
+    }
+  }, [zoom, scrollNode]);
+
+  // 同时兼容 macOS WKWebView 原生 GestureEvent 双指捏合与 Windows/Linux/浏览器 Ctrl/Cmd+滚轮无级缩放
   useEffect(() => {
     const node = scrollNode;
     if (!node) return;
     let accumulatedLog = 0;
-    let lastClientY = 0;
+    let lastX = 0;
+    let lastY = 0;
     let frame: number | null = null;
-    const apply = () => {
+    let webkitGestureActive = false;
+    let lastGestureScale = 1;
+
+    const flush = () => {
       frame = null;
       if (accumulatedLog === 0) return;
       const next = zoomRef.current * Math.exp(accumulatedLog);
       accumulatedLog = 0;
-      changeZoom(next, lastClientY);
+      changeZoom(next, lastX, lastY);
     };
+
+    const queueDelta = (deltaLog: number, clientX: number, clientY: number) => {
+      if (!Number.isFinite(deltaLog) || deltaLog === 0) return;
+      lastX = clientX;
+      lastY = clientY;
+      accumulatedLog += deltaLog;
+      if (frame === null) frame = window.requestAnimationFrame(flush);
+    };
+
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      lastClientY = event.clientY;
-      accumulatedLog += zoomDeltaOf(event.deltaY, event.deltaMode, isNotchedZoom(event));
-      if (frame === null) frame = window.requestAnimationFrame(apply);
+      if (webkitGestureActive) return;
+      const delta = zoomDeltaOf(event.deltaY, event.deltaMode, isNotchedZoom(event));
+      queueDelta(delta, event.clientX, event.clientY);
     };
-    const onGesture = (event: Event) => event.preventDefault();
+
+    const onGestureStart = (event: Event) => {
+      event.preventDefault();
+      const gesture = event as GestureEventLike;
+      webkitGestureActive = true;
+      lastGestureScale = typeof gesture.scale === "number" && gesture.scale > 0 ? gesture.scale : 1;
+    };
+
+    const onGestureChange = (event: Event) => {
+      event.preventDefault();
+      const gesture = event as GestureEventLike;
+      const scale = gesture.scale;
+      if (typeof scale !== "number" || scale <= 0 || lastGestureScale <= 0) return;
+      const delta = Math.log(scale / lastGestureScale);
+      lastGestureScale = scale;
+      queueDelta(delta, gesture.clientX ?? 0, gesture.clientY ?? 0);
+    };
+
+    const onGestureEnd = (event: Event) => {
+      event.preventDefault();
+      webkitGestureActive = false;
+    };
+
     node.addEventListener("wheel", onWheel, { passive: false });
-    node.addEventListener("gesturestart", onGesture, { passive: false });
-    node.addEventListener("gesturechange", onGesture, { passive: false });
+    node.addEventListener("gesturestart", onGestureStart, { passive: false });
+    node.addEventListener("gesturechange", onGestureChange, { passive: false });
+    node.addEventListener("gestureend", onGestureEnd, { passive: false });
     return () => {
       node.removeEventListener("wheel", onWheel);
-      node.removeEventListener("gesturestart", onGesture);
-      node.removeEventListener("gesturechange", onGesture);
+      node.removeEventListener("gesturestart", onGestureStart);
+      node.removeEventListener("gesturechange", onGestureChange);
+      node.removeEventListener("gestureend", onGestureEnd);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
   }, [changeZoom, scrollNode]);
@@ -154,11 +238,9 @@ export function HistoryPage() {
     try {
       const snapList = await listSnapshots();
       const snaps = Array.isArray(snapList) ? snapList : [];
-      // 录屏是补充内容：读不到也不该让截图墙整个空掉，单独兜底
       const recList = await listRecordings().catch(() => [] as RecordingRecord[]);
       const recs = Array.isArray(recList) ? recList : [];
-      const next = mergeTimeline(snaps, recs, {});
-      // 第一次加载不算「新来的」；之后多出来的那几格要从顶上挤进来
+      const next = mergeTimeline(snaps, recs, metaRef.current);
       if (known.current) {
         const added = next.filter((item) => !known.current!.has(item.id)).map((item) => item.id);
         if (added.length) setFresh(new Set(added));
@@ -184,7 +266,6 @@ export function HistoryPage() {
     };
   }, [refresh]);
 
-  // 从别处点进来的媒体也打开查看器。
   useEffect(() => {
     if (!pendingPreviewId) {
       pendingHandled.current = null;
@@ -192,7 +273,7 @@ export function HistoryPage() {
     }
     if (snapshots === null || pendingHandled.current === pendingPreviewId) return;
     pendingHandled.current = pendingPreviewId;
-    const items = mergeTimeline(snapshots, recordings, {});
+    const items = mergeTimeline(snapshots, recordings, metaRef.current);
     const item = items.find((item) => item.id === pendingPreviewId);
     if (item) setPreviewId(item.id);
     consumePreviewId();
@@ -205,14 +286,18 @@ export function HistoryPage() {
   }, [fresh]);
 
   const items = useMemo(
-    () => (snapshots === null ? null : mergeTimeline(snapshots, recordings, {})),
-    [snapshots, recordings],
+    () => (snapshots === null ? null : mergeTimeline(snapshots, recordings, recordingMeta)),
+    [snapshots, recordings, recordingMeta],
   );
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const all = items ?? [];
     return needle ? all.filter((item) => item.appName.toLowerCase().includes(needle)) : all;
   }, [items, query]);
+  const groups = useMemo(() => {
+    void language;
+    return groupByDay(filtered, (item) => item.createdAt);
+  }, [filtered, language]);
 
   const exitSelecting = useCallback(() => {
     setSelecting(false);
@@ -290,7 +375,6 @@ export function HistoryPage() {
     if (!ids.length) return false;
     setDeleting(true);
     try {
-      // 先消失再合拢：顺序反了会像是别的条目被删了
       setLeaving(new Set(ids));
       await wait(DURATION.fade);
       const all = items ?? [];
@@ -300,7 +384,7 @@ export function HistoryPage() {
         snapIds.length ? deleteSnapshots(snapIds) : Promise.resolve(snapshots ?? []),
         recIds.length ? deleteRecordings(recIds) : Promise.resolve(recordings),
       ]);
-      const next = mergeTimeline(nextSnaps, nextRecs, {});
+      const next = mergeTimeline(nextSnaps, nextRecs, metaRef.current);
       known.current = new Set(next.map((item) => item.id));
       flip.capture();
       setSnapshots(nextSnaps);
@@ -333,7 +417,6 @@ export function HistoryPage() {
       .catch((error) => notify(errorText(error), "error"));
   }
 
-  // 右键已选项时作用于整批；右键未选项时仅删除该项，取消确认不改变原选择。
   function deleteItem(item: MediaItem) {
     setDeleteIds(selecting && selected.has(item.id) ? [...selected] : [item.id]);
   }
@@ -348,7 +431,6 @@ export function HistoryPage() {
   const previewRecords = filtered.length ? filtered : (items ?? []);
   const allDeleting = total > 0 && deleteIds?.length === total;
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
-  // 退场时文案别跟着变成「删除 0 项」：打开那一刻的文案一直留到对话框淡出
   const confirmDialog = usePresence(
     confirming
       ? {
@@ -369,7 +451,6 @@ export function HistoryPage() {
     );
   }
 
-  // 挑选模式下工具栏只放跟所选有关的操作（像「照片」那样）；数量在标题里，按钮只留图标
   const selectAllLabel = allVisibleSelected ? t("全不选") : t("全选 {count} 项", { count: visibleIds.length });
   const deleteLabel = selected.size > 0 ? t("删除 {count} 项", { count: selected.size }) : t("删除");
   const toolbar = selecting ? (
@@ -387,7 +468,6 @@ export function HistoryPage() {
         aria-label={selectAllLabel}
         title={selectAllLabel}
         onClick={() => {
-          // 全选/全不选都只作用于当前可见的格；被搜索过滤隐藏的已选项保持不变
           if (allVisibleSelected) setSelected(new Set([...selected].filter((id) => !visibleIds.includes(id))));
           else setSelected(new Set([...selected, ...visibleIds]));
         }}
@@ -439,28 +519,39 @@ export function HistoryPage() {
       </p>
     );
   } else {
-    const gap = photoGridGap(zoom);
+    let order = 0;
     body = (
-      <div
-        className={`history-grid ${gap === 0 ? "is-flush" : ""} ${selecting ? "is-selecting" : ""}`}
-        ref={listRef}
-        style={{ "--photo-size": `${zoom}px`, "--photo-gap": `${gap}px` } as CSSProperties}
-      >
-        {filtered.map((item, index) => (
-          <figure
-            key={item.id}
-            data-flip-key={item.id}
-            style={stagger(index)}
-            className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
-          >
-            <MediaTile
-              item={item}
-              selecting={selecting}
-              selected={selected.has(item.id)}
-              onOpen={open}
-              onMenu={openContextMenu}
+      <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
+        {groups.map((group) => (
+          <section className="day" key={group.key} data-day-key={group.key} aria-label={group.label}>
+            <div className="day-label">
+              <h2 className="day-title">{group.label}</h2>
+            </div>
+            <JustifiedGrid
+              items={group.items}
+              targetHeight={zoom}
+              size={(item) => item}
+              render={(item, box) => (
+                <figure
+                  key={item.id}
+                  data-flip-key={item.id}
+                  style={{ ...stagger(order++), width: box.width }}
+                  className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
+                >
+                  <MediaTile
+                    item={item}
+                    boxWidth={box.width}
+                    boxHeight={box.height}
+                    selecting={selecting}
+                    selected={selected.has(item.id)}
+                    onOpen={open}
+                    onMenu={openContextMenu}
+                    onMeta={reportMeta}
+                  />
+                </figure>
+              )}
             />
-          </figure>
+          </section>
         ))}
       </div>
     );

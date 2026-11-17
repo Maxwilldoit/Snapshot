@@ -2,30 +2,38 @@ import { memo, useState } from "react";
 import { appIconUrl, appNameIconUrl, recordingUrl, thumbUrl } from "../lib/media";
 import { formatClock, formatDuration } from "../lib/format";
 import { useI18n } from "../lib/i18n";
-import type { MediaItem } from "../lib/mediaTimeline";
+import type { MediaItem, RecordingMeta } from "../lib/mediaTimeline";
 
 /**
- * 历史网格的统一格位：横图、竖图与长截图都按原比例完整居中显示。
- * 来源图标、时长和悬停时间贴着图片边缘；点击预览，右键或 Shift+F10 打开菜单。
+ * 历史拼图中的一格：按给定 boxWidth × boxHeight 完整铺满同行等高格位。
+ * 普通横竖图严丝合缝铺满圆角卡片；超长滚动截图（is-narrow）居中衬底完整呈现，不裁成细条。
+ * 左下角显示来源应用图标，录屏右下角显示时长，悬停浮出拍摄时间。
  */
 export const MediaTile = memo(function MediaTile({
   item,
+  boxWidth,
+  boxHeight,
   selecting = false,
   selected = false,
   onOpen,
   onMenu,
+  onMeta,
 }: {
   item: MediaItem;
+  boxWidth?: number;
+  boxHeight?: number;
   selecting?: boolean;
   selected?: boolean;
   onOpen: (item: MediaItem, event: React.MouseEvent) => void;
   onMenu: (item: MediaItem, anchor: HTMLElement, point: { x: number; y: number }) => void;
+  onMeta?: (id: string, meta: RecordingMeta) => void;
 }) {
   const { t } = useI18n();
   const [failed, setFailed] = useState(false);
   const [iconFailed, setIconFailed] = useState(false);
   const isRecording = item.kind === "recording";
-  const ratio = item.width > 0 && item.height > 0 ? item.width / item.height : 16 / 9;
+  const rawRatio = item.width > 0 && item.height > 0 ? item.width / item.height : 16 / 9;
+  const narrow = rawRatio < 0.34 || (typeof boxWidth === "number" && boxWidth < 52);
   const label = item.appName;
   const iconSrc = item.appId ? appIconUrl(item.appId, 20) : appNameIconUrl(item.appName, 20);
   const hasIcon = !iconFailed;
@@ -35,9 +43,14 @@ export const MediaTile = memo(function MediaTile({
     onMenu(item, anchor, point ?? { x: box.left + Math.min(20, box.width / 2), y: box.top + Math.min(20, box.height / 2) });
   }
 
+  const sizeStyle = typeof boxWidth === "number" && typeof boxHeight === "number"
+    ? { width: boxWidth, height: boxHeight }
+    : undefined;
+
   return (
     <div
-      className={`tile ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${hasIcon ? "has-app-icon" : ""} ${failed ? "is-failed" : ""}`}
+      className={`tile ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${hasIcon ? "has-app-icon" : ""} ${narrow ? "is-narrow" : ""} ${failed ? "is-failed" : ""}`}
+      style={sizeStyle}
     >
       <button
         type="button"
@@ -57,10 +70,7 @@ export const MediaTile = memo(function MediaTile({
           openMenu(event.currentTarget);
         }}
       >
-        <span
-          className="tile-preview"
-          style={{ width: `${Math.min(1, ratio) * 100}%`, height: `${Math.min(1, 1 / ratio) * 100}%` }}
-        >
+        <span className="tile-preview">
           {isRecording ? (
             <video
               src={`${recordingUrl(item.id)}#t=0.1`}
@@ -70,6 +80,16 @@ export const MediaTile = memo(function MediaTile({
               tabIndex={-1}
               draggable={false}
               onError={() => setFailed(true)}
+              onLoadedMetadata={(event) => {
+                const video = event.currentTarget;
+                if (video.videoWidth > 0 && video.videoHeight > 0) {
+                  onMeta?.(item.id, {
+                    width: video.videoWidth,
+                    height: video.videoHeight,
+                    durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : item.durationMs ?? 0,
+                  });
+                }
+              }}
             />
           ) : (
             !failed && (

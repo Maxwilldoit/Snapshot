@@ -202,50 +202,50 @@ html[data-surface="app"] .history-body { position: relative; display: flex; flex
 html[data-surface="app"] .history-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0; }
 html[data-surface="app"] .history-scroll:focus-visible { outline-offset: -3px; }
 
-/* 连续格位按时间顺序横向接排；行列只由 CSS Grid 计算，缩放/改宽不重建图片节点。 */
-html[data-surface="app"] .history-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--photo-size)), 1fr));
-  gap: var(--photo-gap); align-content: start; padding: 16px 12px 24px 16px; min-width: 0;
-}
+/* 按日期分组 + 同行等高自适应拼图（Justified）：横图宽、竖图窄，整行严丝合缝铺满且无悬空留白。 */
+html[data-surface="app"] .gallery { display: block; padding: 2px 14px 28px 16px; }
 html[data-surface="app"] .mw .day { --history-day-label-height: 32px; position: relative; display: block; margin-top: 12px; padding: 0; border-top: 0; }
+html[data-surface="app"] .mw .day:first-child { margin-top: 4px; }
 html[data-surface="app"] .mw .day::before {
-  content: ""; position: absolute; z-index: 1; top: calc(var(--history-day-label-height) - 1px); right: -10px; left: -16px; height: 2px;
+  content: ""; position: absolute; z-index: 1; top: calc(var(--history-day-label-height) - 1px); right: -14px; left: -16px; height: 2px;
   background: var(--win); pointer-events: none;
 }
 /* 日期条背景向两侧铺满滚动区，吸顶时连图片外扩的半像素边线一起盖住；
    日期条占位高度即视觉高度（32px），与图片的间距放在网格上，
    sticky 释放点即分组底边到达条底之时——整组图片吸完才上移。 */
-html[data-surface="app"] .mw .day-label { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0 -10px 0 -16px; padding: 6px 10px 6px 16px; background: var(--win); }
-html[data-surface="app"] .mw .day-title { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; color: var(--text3); }
-html[data-surface="app"] .mw .shot { min-width: 0; max-width: none; width: auto; aspect-ratio: 1; margin: 0; }
-/* 格位等大，图片完整显示。空白属于画廊，不画成卡片；时间和图标贴着图片边缘。 */
-html[data-surface="app"] .mw .tile { position: relative; width: 100%; height: 100%; }
-html[data-surface="app"] .mw .tile-main {
-  display: grid; place-items: center; width: 100%; height: 100%; padding: 0; border: 0;
-  background: none; cursor: pointer; outline: 0;
+html[data-surface="app"] .mw .day-label { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0 -14px 0 -16px; padding: 6px 14px 6px 16px; background: var(--win); }
+html[data-surface="app"] .mw .day-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text2); letter-spacing: -0.01em; }
+html[data-surface="app"] .mw .day > .jgrid { margin-top: 6px; }
+html[data-surface="app"] .jgrid { display: flex; flex-direction: column; min-width: 0; }
+html[data-surface="app"] .jrow { display: flex; align-items: flex-start; min-width: 0; }
+html[data-surface="app"] .jrow.is-wrap { flex-wrap: wrap; row-gap: 8px; }
+html[data-surface="app"] .mw .shot { flex: 0 0 auto; min-width: 0; max-width: none; margin: 0; }
+html[data-surface="app"] .mw .tile {
+  position: relative; width: 100%; height: 100%; border-radius: 6px; overflow: hidden; background: var(--fill);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14); transition: box-shadow var(--t-press) var(--ease-out), transform var(--t-press) var(--ease-out);
 }
-html[data-surface="app"] .mw .tile-preview {
-  position: relative; display: block; overflow: hidden; border-radius: 3px;
-  transition: box-shadow var(--t-press) var(--ease-out);
-}
+html[data-surface="app"][data-theme="dark"] .mw .tile { box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12); }
+html[data-surface="app"] .mw .tile:hover { box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.10); }
+html[data-surface="app"][data-theme="dark"] .mw .tile:hover { box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.24), 0 4px 12px rgba(0, 0, 0, 0.4); }
+html[data-surface="app"] .mw .tile.is-selected { box-shadow: 0 0 0 3px var(--accent); }
+html[data-surface="app"] .mw .tile-main { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; outline: 0; }
+html[data-surface="app"] .mw .tile-main:focus-visible { box-shadow: inset 0 0 0 3px var(--accent); }
+html[data-surface="app"] .mw .tile-preview { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; }
 html[data-surface="app"] .mw .tile-preview > img:not(.tile-app), html[data-surface="app"] .mw .tile-preview > video {
-  display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none;
+  display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none;
 }
+/* 超长滚动截图：整张居中垫在柔和舞台底上，不裁成一条细缝 */
+html[data-surface="app"] .mw .tile.is-narrow { background: var(--stage); }
+html[data-surface="app"] .mw .tile.is-narrow .tile-preview > img:not(.tile-app), html[data-surface="app"] .mw .tile.is-narrow .tile-preview > video { object-fit: contain; }
 html[data-surface="app"] .mw .tile.is-failed .tile-preview { background: var(--fill); }
-html[data-surface="app"] .mw .tile:hover .tile-preview { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12); }
-html[data-surface="app"] .mw .tile.is-selected .tile-main { box-shadow: inset 0 0 0 3px var(--accent); }
-html[data-surface="app"] .mw .tile-main:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-html[data-surface="app"] .history-grid.is-flush .tile-preview { border-radius: 0; box-shadow: none; }
-html[data-surface="app"] .history-grid.is-flush .tile-app, html[data-surface="app"] .history-grid.is-flush .tile-duration { display: none; }
-/* 来源应用图标：浅底衬托，深色截图上也看得清；取不到就不渲染（没有类型图标顶替） */
-html[data-surface="app"] .mw .tile-app { position: absolute; left: 5px; bottom: 5px; width: 18px; height: 18px; padding: 1px; border-radius: 4px; object-fit: contain; background: rgba(255, 255, 255, 0.88); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
-html[data-surface="app"] .mw .tile-duration { position: absolute; right: 5px; bottom: 5px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 10px; line-height: 14px; pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
-html[data-surface="app"] .mw .tile-info { position: absolute; right: 7px; bottom: 5px; display: flex; align-items: center; color: #fff; font-size: 11px; opacity: 0; transition: opacity var(--t-press) var(--ease-out); pointer-events: none; }
-html[data-surface="app"] .mw .tile-time { flex: 0 0 auto; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+/* 来源应用图标：浅底衬托，深色截图上也看得清；取不到就不渲染 */
+html[data-surface="app"] .mw .tile-app { position: absolute; left: 6px; bottom: 6px; width: 18px; height: 18px; padding: 1px; border-radius: 4px; object-fit: contain; background: rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.22); pointer-events: none; transition: opacity var(--t-press) var(--ease-out); z-index: 1; }
+html[data-surface="app"] .mw .tile-duration { position: absolute; right: 6px; bottom: 6px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.58); color: #fff; font-size: 10px; line-height: 14px; pointer-events: none; transition: opacity var(--t-press) var(--ease-out); }
+html[data-surface="app"] .mw .tile-info { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: flex-end; padding: 14px 7px 5px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.52)); color: #fff; font-size: 11px; opacity: 0; transition: opacity var(--t-press) var(--ease-out); pointer-events: none; }
+html[data-surface="app"] .mw .tile-time { flex: 0 0 auto; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65); }
 html[data-surface="app"] .mw .tile:hover .tile-info, html[data-surface="app"] .mw .tile:focus-within .tile-info { opacity: 1; }
-html[data-surface="app"] .mw .tile-app { z-index: 1; }
 html[data-surface="app"] .mw .tile:hover .tile-duration, html[data-surface="app"] .mw .tile:focus-within .tile-duration { opacity: 0; }
-html[data-surface="app"] .mw .shot.is-fresh .tile-preview { animation: mw-fresh 1.2s var(--ease-out) both; }
+html[data-surface="app"] .mw .shot.is-fresh .tile { animation: mw-fresh 1.2s var(--ease-out) both; }
 @keyframes mw-fresh { from { box-shadow: 0 0 0 3px var(--accent); } }
 
 html[data-surface="app"] .mw-empty {
