@@ -59,4 +59,28 @@ final class SnapshotCaptureTests: XCTestCase {
             XCTAssertFalse(config.capturesAudio)
         }
     }
+
+    func testScreenshotHeaderIncludesTargetOwningBundleAndPid() {
+        let full = screenshotHeaderObject(
+            appName: "系统设置",
+            bundleIdentifier: "com.apple.systempreferences",
+            processID: 4321,
+            width: 1430,
+            height: 1078
+        )
+        XCTAssertEqual(full["appName"] as? String, "系统设置")
+        XCTAssertEqual(full["bundleId"] as? String, "com.apple.systempreferences")
+        XCTAssertEqual(full["pid"] as? Int, 4321)
+
+        let minimal = screenshotHeaderObject(
+            appName: "",
+            bundleIdentifier: "",
+            processID: 0,
+            width: 100,
+            height: 80
+        )
+        XCTAssertEqual(minimal["appName"] as? String, "应用")
+        XCTAssertNil(minimal["bundleId"])
+        XCTAssertNil(minimal["pid"])
+    }
 }

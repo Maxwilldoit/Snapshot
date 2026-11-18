@@ -24,6 +24,7 @@ pub(crate) use autostart::{
 pub(crate) use clipboard::{sample as clipboard_sample, supported as clipboard_history_supported};
 pub(crate) use icon::png_for_app_name as app_icon_for_name;
 pub(crate) use icon::png_for_pid as app_icon_png;
+pub(crate) use icon::reconcile_app_id;
 pub(crate) use icon::{png_for_app_id as app_icon_for_id, stable_id_for_pid as app_stable_id};
 pub(crate) use permissions::require_screen_capture_access;
 pub(crate) use recorder::{start_recording, Recording};

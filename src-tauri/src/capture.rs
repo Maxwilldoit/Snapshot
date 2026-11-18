@@ -65,19 +65,22 @@ pub(crate) fn capture_window(
     #[cfg(target_os = "macos")]
     {
         // 独立窗口采集不依赖 xcap 的 on-screen 列表或台前调度的缩略图矩形，
-        // 也不还原/激活后台应用。光标由 ScreenCaptureKit 在原始窗口画面中处理。
+        // 也不还原/激活后台应用。来源应用标识直接取自被截窗口所属进程，避免误标为上一个前台应用。
         let include_cursor = state.settings.lock().include_cursor;
-        let (image, app_name) = os::capture_window_image(target_id, include_cursor)?;
+        let captured = os::capture_window_image(target_id, include_cursor)?;
         trace.mark("engine_capture_screencapturekit");
-        // 来源应用取「上一个应用」的 pid（截图目标默认就是它）；不为了取 pid 再枚举一遍窗口列表，
-        // 那会给截图热路径加上 sidecar 往返。取不到稳定标识就没有角标，不影响截图本身。
-        let app_id = state
-            .tracker
-            .lock()
-            .previous
-            .as_ref()
-            .and_then(|window| os::app_stable_id(window.pid));
-        finalize_capture(&app, &state, image, &app_name, app_id, None, trace)
+        let app_id = captured
+            .bundle_id
+            .or_else(|| captured.pid.and_then(os::app_stable_id));
+        finalize_capture(
+            &app,
+            &state,
+            captured.image,
+            &captured.app_name,
+            app_id,
+            None,
+            trace,
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {

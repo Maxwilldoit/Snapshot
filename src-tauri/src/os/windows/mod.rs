@@ -104,6 +104,10 @@ pub(crate) fn app_icon_for_id(id: &str, size: u32) -> Option<Vec<u8>> {
     icon::png_for_path(Path::new(id), size)
 }
 
+pub(crate) fn reconcile_app_id(_app_name: &str, app_id: Option<&str>) -> Option<String> {
+    app_id.map(str::to_string)
+}
+
 pub(crate) fn open_folder(path: &Path) -> Result<(), String> {
     let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
     let file: Vec<u16> = path

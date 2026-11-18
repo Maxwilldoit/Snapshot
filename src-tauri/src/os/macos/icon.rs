@@ -6,7 +6,8 @@ use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext, NSImage,
     NSRunningApplication, NSWorkspace,
 };
-use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{NSBundle, NSDictionary, NSFileManager, NSPoint, NSRect, NSSize, NSString};
+use std::{collections::HashSet, fs, path::Path};
 
 pub fn png_for_pid(pid: u32, size: u32) -> Option<Vec<u8>> {
     unsafe {
@@ -46,15 +47,110 @@ pub fn png_for_app_id(id: &str, size: u32) -> Option<Vec<u8>> {
     }
 }
 
-/// 兼容只有应用名的旧历史：优先匹配真实运行应用，再交给 LaunchServices 按名称解析。
-/// 不拼接或猜测 bundle id；名称无法解析时不返回替代图标。
-pub fn png_for_app_name(name: &str, size: u32) -> Option<Vec<u8>> {
-    let name = name.trim();
+fn strip_annotation_suffix(raw: &str) -> &str {
+    let mut current = raw.trim();
+    loop {
+        if let Some(stripped) = current
+            .strip_suffix(" · 标注")
+            .or_else(|| current.strip_suffix(" · Markup"))
+        {
+            current = stripped.trim();
+        } else {
+            return current;
+        }
+    }
+}
+
+fn push_candidate(candidates: &mut HashSet<String>, value: &str) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    candidates.insert(trimmed.to_lowercase());
+    if let Some(stem) = trimmed
+        .strip_suffix(".app")
+        .or_else(|| trimmed.strip_suffix(".APP"))
+    {
+        let stem = stem.trim();
+        if !stem.is_empty() {
+            candidates.insert(stem.to_lowercase());
+        }
+    }
+}
+
+fn bundle_path_for_id(id: &str) -> Option<String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    if id.starts_with('/') {
+        return Path::new(id).exists().then(|| id.to_string());
+    }
+    let workspace = NSWorkspace::sharedWorkspace();
+    workspace
+        .URLForApplicationWithBundleIdentifier(&NSString::from_str(id))?
+        .path()
+        .map(|path| path.to_string())
+}
+
+fn bundle_candidate_names(bundle_path: &str, bundle_id: Option<&str>) -> HashSet<String> {
+    let mut names = HashSet::new();
+    if let Some(stem) = Path::new(bundle_path)
+        .file_stem()
+        .and_then(|value| value.to_str())
+    {
+        push_candidate(&mut names, stem);
+    }
+
+    let ns_path = NSString::from_str(bundle_path);
+    let display = NSFileManager::defaultManager().displayNameAtPath(&ns_path);
+    push_candidate(&mut names, &display.to_string());
+
+    if let Some(bundle) = NSBundle::bundleWithPath(&ns_path) {
+        for key in ["CFBundleDisplayName", "CFBundleName", "CFBundleExecutable"] {
+            let ns_key = NSString::from_str(key);
+            if let Some(obj) = bundle.objectForInfoDictionaryKey(&ns_key) {
+                if let Ok(text) = obj.downcast::<NSString>() {
+                    push_candidate(&mut names, &text.to_string());
+                }
+            }
+            if let Some(info) = bundle.infoDictionary() {
+                if let Some(obj) = info.objectForKey(&ns_key) {
+                    if let Ok(text) = obj.downcast::<NSString>() {
+                        push_candidate(&mut names, &text.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let workspace = NSWorkspace::sharedWorkspace();
+    for app in workspace.runningApplications().iter() {
+        let same_id = bundle_id.is_some_and(|target_id| {
+            app.bundleIdentifier()
+                .is_some_and(|bid| bid.to_string().eq_ignore_ascii_case(target_id))
+        });
+        let same_path = app
+            .bundleURL()
+            .and_then(|url| url.path())
+            .is_some_and(|path| path.to_string() == bundle_path);
+        if same_id || same_path {
+            if let Some(label) = app.localizedName() {
+                push_candidate(&mut names, &label.to_string());
+            }
+        }
+    }
+
+    names
+}
+
+fn resolve_bundle_path_for_app_name(raw_name: &str) -> Option<String> {
+    let name = strip_annotation_suffix(raw_name);
     if name.is_empty() || name.contains('/') || name.contains('\\') {
         return None;
     }
     let workspace = NSWorkspace::sharedWorkspace();
-    let paths: std::collections::HashSet<_> = workspace
+    let running_paths: HashSet<_> = workspace
         .runningApplications()
         .iter()
         .filter(|app| {
@@ -63,16 +159,86 @@ pub fn png_for_app_name(name: &str, size: u32) -> Option<Vec<u8>> {
         })
         .filter_map(|app| app.bundleURL()?.path().map(|path| path.to_string()))
         .collect();
-    if paths.len() > 1 {
+    if running_paths.len() > 1 {
         return None;
     }
-    if let Some(path) = paths.into_iter().next() {
-        return png_for_app_id(&path, size);
+    if let Some(path) = running_paths.into_iter().next() {
+        return Some(path);
     }
-    // 旧记录没有 bundle id，仍需系统提供的名称解析兼容接口。
+
     #[allow(deprecated)]
-    let path = workspace.fullPathForApplication(&NSString::from_str(name))?;
-    png_for_app_id(&path.to_string(), size)
+    if let Some(path) = workspace.fullPathForApplication(&NSString::from_str(name)) {
+        return Some(path.to_string());
+    }
+
+    // 兼容 CFBundleName 与包目录名不一致的应用（如 Visual Studio Code.app 的 CFBundleName 为 Code）
+    let needle = name.to_lowercase();
+    let mut dirs = vec![
+        Path::new("/Applications").to_path_buf(),
+        Path::new("/System/Applications").to_path_buf(),
+        Path::new("/System/Applications/Utilities").to_path_buf(),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join("Applications"));
+    }
+
+    let mut matched = HashSet::new();
+    for dir in dirs {
+        let Ok(entries) = fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("app") {
+                continue;
+            }
+            let Some(path_str) = path.to_str() else {
+                continue;
+            };
+            if bundle_candidate_names(path_str, None).contains(&needle) {
+                matched.insert(path_str.to_string());
+            }
+        }
+    }
+    (matched.len() == 1).then(|| matched.into_iter().next().unwrap())
+}
+
+fn stable_id_for_bundle_path(bundle_path: &str) -> String {
+    NSBundle::bundleWithPath(&NSString::from_str(bundle_path))
+        .and_then(|bundle| bundle.bundleIdentifier())
+        .map(|id| id.to_string())
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| bundle_path.to_string())
+}
+
+/// 校验并修正历史记录中的 `app_id`：
+/// 早期版本在截取非前台窗口时误把「上一个前台应用」（如 Codex、Chrome）的 bundle id 写入了记录；
+/// 若当前 `app_id` 指向的已安装应用与 `app_name` 完全不符，则按真实 `app_name` 重新解析稳定标识。
+pub fn reconcile_app_id(app_name: &str, app_id: Option<&str>) -> Option<String> {
+    let base = strip_annotation_suffix(app_name);
+    if base.is_empty()
+        || matches!(base, "应用" | "App" | "滚动长截图" | "Scrolling Screenshot")
+        || base.starts_with("Display #")
+        || base.starts_with("显示器")
+    {
+        return app_id.map(str::to_string);
+    }
+    let id = app_id.map(str::trim).filter(|value| !value.is_empty())?;
+    let Some(bundle_path) = bundle_path_for_id(id) else {
+        // 目标应用可能已被卸载，保留原标识（角标加载失败时前端自动收起）
+        return Some(id.to_string());
+    };
+    if bundle_candidate_names(&bundle_path, Some(id)).contains(&base.to_lowercase()) {
+        return Some(id.to_string());
+    }
+    resolve_bundle_path_for_app_name(base).map(|path| stable_id_for_bundle_path(&path))
+}
+
+/// 兼容只有应用名的旧历史：优先匹配真实运行应用，再交给 LaunchServices 与已安装应用包解析。
+/// 不拼接或猜测 bundle id；名称无法唯一解析时不返回替代图标。
+pub fn png_for_app_name(name: &str, size: u32) -> Option<Vec<u8>> {
+    let path = resolve_bundle_path_for_app_name(name)?;
+    png_for_app_id(&path, size)
 }
 
 /// 图标的 TIFF 里带全套尺寸（最大 1024×1024）；setSize 只改逻辑尺寸、
@@ -110,9 +276,38 @@ mod tests {
         let png = super::png_for_app_name("Finder", 32).expect("Finder 名称应可解析");
         let decoded = image::load_from_memory(&png).unwrap();
         assert_eq!((decoded.width(), decoded.height()), (32, 32));
+        assert!(super::png_for_app_name("Finder · 标注", 32).is_some());
         assert!(super::png_for_app_name("Snapshot Missing App 8d8ddc5e", 32).is_none());
         assert!(super::png_for_app_name("", 32).is_none());
         assert!(super::png_for_app_name("/tmp/not-an-application", 32).is_none());
+    }
+
+    #[test]
+    fn mismatched_app_ids_are_reconciled_to_the_captured_app() {
+        assert_eq!(
+            super::reconcile_app_id("Finder", Some("com.apple.finder")).as_deref(),
+            Some("com.apple.finder")
+        );
+        assert_eq!(
+            super::reconcile_app_id("Finder · 标注", Some("com.apple.finder")).as_deref(),
+            Some("com.apple.finder")
+        );
+        // 错标成 TextEdit 的 Finder 窗口截图应修正回 com.apple.finder
+        assert_eq!(
+            super::reconcile_app_id("Finder", Some("com.apple.TextEdit")).as_deref(),
+            Some("com.apple.finder")
+        );
+        // 无法唯一识别的应用名称宁可清空错标的 bundle id，也不显示错误应用的图标
+        assert_eq!(
+            super::reconcile_app_id("Snapshot Missing App 8d8ddc5e", Some("com.apple.TextEdit")),
+            None
+        );
+        // 已卸载应用的 bundle id 保持原样
+        assert_eq!(
+            super::reconcile_app_id("Finder", Some("com.nonexistent.uninstalled.8d8ddc5e"))
+                .as_deref(),
+            Some("com.nonexistent.uninstalled.8d8ddc5e")
+        );
     }
 
     #[test]
