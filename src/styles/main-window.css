@@ -251,23 +251,23 @@ html[data-surface="app"][data-theme="dark"] .timeline-pill {
 }
 html[data-surface="app"] .timeline-pill-count { color: var(--text3); font-size: 10.5px; font-weight: 400; }
 
-/* 缩略图悬停左右无损原图预览窗 */
+/* 缩略图悬停左右无损原图预览窗：零延迟即时浮出 */
 html[data-surface="app"] .hover-preview {
   position: fixed; z-index: 45; padding: 6px; border-radius: 10px;
   background: var(--pop); color: var(--text1); pointer-events: none;
   user-select: none; -webkit-user-select: none;
   -webkit-backdrop-filter: blur(28px) saturate(1.8); backdrop-filter: blur(28px) saturate(1.8);
   box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.16), 0 18px 48px rgba(0, 0, 0, 0.22), 0 4px 12px rgba(0, 0, 0, 0.08);
-  animation: hover-preview-in 120ms var(--ease-out) both;
+  animation: hover-preview-in 55ms var(--ease-out) both;
 }
 html[data-surface="app"][data-theme="dark"] .hover-preview {
   box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 20px 52px rgba(0, 0, 0, 0.56), 0 4px 14px rgba(0, 0, 0, 0.32);
 }
 @keyframes hover-preview-in {
-  from { opacity: 0; transform: scale(0.985); }
+  from { opacity: 0.4; transform: scale(0.992); }
 }
 @media (prefers-reduced-motion: reduce) {
-  html[data-surface="app"] .hover-preview { animation: fade-in 80ms linear both; }
+  html[data-surface="app"] .hover-preview { animation: none; }
 }
 html[data-surface="app"] .hover-preview-stage {
   position: relative; display: grid; place-items: center; overflow: hidden;
@@ -279,25 +279,19 @@ html[data-surface="app"] .hover-preview-video {
 }
 html[data-surface="app"] .hover-preview-full {
   position: absolute; inset: 0; margin: auto; display: block; object-fit: contain;
-  opacity: 0; transition: opacity 80ms linear;
+  opacity: 0;
 }
 html[data-surface="app"] .hover-preview-full.is-loaded { opacity: 1; }
 html[data-surface="app"] .hover-preview-foot {
-  display: flex; flex-direction: column; gap: 2px; padding: 6px 4px 2px; min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 2px 10px; padding: 5px 4px 1px; min-width: 0;
 }
-html[data-surface="app"] .hover-preview-row {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0;
-}
-html[data-surface="app"] .hover-preview-app {
+html[data-surface="app"] .hover-preview-specs {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 12px; font-weight: 600; line-height: 17px; color: var(--text1);
+  font-size: 11px; line-height: 16px; color: var(--text2);
 }
 html[data-surface="app"] .hover-preview-time {
   flex: 0 0 auto; font-size: 11px; line-height: 16px; color: var(--text3);
-}
-html[data-surface="app"] .hover-preview-specs {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 11px; line-height: 16px; color: var(--text2);
 }
 html[data-surface="app"] .jrow { display: flex; align-items: flex-start; min-width: 0; }
 html[data-surface="app"] .jrow.is-wrap { flex-wrap: wrap; row-gap: 8px; }
