@@ -45,7 +45,6 @@ compile_error!("应用快照只支持 Windows、macOS 和 Linux");
 
 use arboard::{Clipboard, ImageData};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use chrono::Local;
 use image::{ImageFormat, RgbaImage};
 use parking_lot::Mutex;
 use serde::{de::DeserializeOwned, Serialize};
@@ -821,8 +820,6 @@ pub fn run() {
             capture::get_annotate_image,
             capture::annotate_get_title,
             capture::get_annotate_session,
-            capture::annotate_copy,
-            capture::annotate_save,
             capture::annotate_save_copy,
             snapshots::annotate_snapshot,
             capture::annotate_close,

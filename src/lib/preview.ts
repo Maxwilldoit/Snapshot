@@ -474,10 +474,6 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       const record = snapshots[0];
       return record ? { id: 1, title: record.appName, imageData: demoSnapshotImage(record) } : null;
     }
-    case "annotate_copy":
-      return "已复制标注图";
-    case "annotate_save":
-      return "已保存标注图";
     case "annotate_save_copy":
       return "已存入历史记录";
     case "list_activity":

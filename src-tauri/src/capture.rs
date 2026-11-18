@@ -266,42 +266,6 @@ pub(crate) fn finalize_capture(
     }
 }
 
-fn choose_image_export(
-    app: &AppHandle,
-    format_setting: &str,
-) -> Result<Option<(PathBuf, ImageFormat)>, String> {
-    use tauri_plugin_dialog::DialogExt;
-    let (format, ext) = snapshots::snapshot_format_parts(format_setting);
-    let suggested = format!("snapshot-{}.{}", Local::now().format("%Y%m%d-%H%M%S"), ext);
-    #[allow(unused_mut)]
-    let mut dialog = app
-        .dialog()
-        .file()
-        .set_file_name(&suggested)
-        .add_filter("Image", &[ext, "png", "jpg", "webp"]);
-    // Linux：标注窗口是置顶的，不挂父窗口的话 GTK 保存对话框会被压在它下面
-    #[cfg(target_os = "linux")]
-    if let Some(window) = app.get_webview_window("annotate") {
-        dialog = dialog.set_parent(&window);
-    }
-    let picked = dialog.blocking_save_file();
-    let Some(file_path) = picked else {
-        return Ok(None);
-    };
-    let path = file_path.into_path().map_err(|error| error.to_string())?;
-    // 用户在对话框里改了扩展名就按扩展名存；认不出或不支持的扩展名才回退偏好格式
-    let format = ImageFormat::from_path(&path)
-        .ok()
-        .filter(|guessed| {
-            matches!(
-                guessed,
-                ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP
-            )
-        })
-        .unwrap_or(format);
-    Ok(Some((path, format)))
-}
-
 pub(crate) struct AnnotateSession {
     id: u64,
     png: Vec<u8>,
@@ -470,72 +434,7 @@ fn keep_markup(
     Ok(edited.id)
 }
 
-#[tauri::command]
-pub(crate) async fn annotate_copy(
-    app: AppHandle,
-    image_data: String,
-    session_id: Option<u64>,
-    changed: Option<bool>,
-) -> Result<String, String> {
-    on_worker(app, move |app, state| {
-        let image = decode_png_base64(&image_data)?;
-        let current = state.annotate_session.lock();
-        let session = active_session(&current, session_id)?;
-        clipboard::copy_image(image.clone())?;
-        let id = keep_markup(app, state, session, &image, changed).map_err(|error| {
-            activity::record_error(
-                app,
-                ui_text("保存到历史记录失败", "Couldn’t save to History"),
-                &error,
-            );
-            format!("已复制，但没能存进历史记录：{error}")
-        })?;
-        activity::record(
-            app,
-            activity::Activity::new("capture", ui_text("标注图", "Marked-up image"))
-                .meta(format!("{} × {}", image.width(), image.height()))
-                .snapshot(Some(id)),
-        );
-        Ok(ui_text("已复制标注图", "Copied.").into())
-    })
-    .await
-}
-
-/// 另存为。返回 `None` 表示用户在对话框里取消了：标注保留、窗口不收起。
-/// 必须是 async：同步命令跑在主线程，Linux 上 `blocking_save_file` 会等主线程弹 GTK 对话框而卡死。
-#[tauri::command]
-pub(crate) async fn annotate_save(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    image_data: String,
-    session_id: Option<u64>,
-    changed: Option<bool>,
-) -> Result<Option<String>, String> {
-    let image = decode_png_base64(&image_data)?;
-    let format = state.settings.lock().snapshot_format.clone();
-    let Some((path, format)) = choose_image_export(&app, &format)? else {
-        return Ok(None);
-    };
-    let current = state.annotate_session.lock();
-    let session = active_session(&current, session_id)?;
-    let source = session
-        .source
-        .directory
-        .join(&session.source.record.file_name);
-    if path == source
-        || fs::canonicalize(&path).ok().is_some_and(|target| {
-            fs::canonicalize(&source).is_ok_and(|original| target == original)
-        })
-    {
-        return Err("请选择其他文件名，原图将移入回收站".into());
-    }
-    snapshots::write_image_atomically(&image, &path, format)
-        .map_err(|error| format!("另存为失败：{error}"))?;
-    keep_markup(&app, &state, session, &image, changed)
-        .map_err(|error| format!("已另存，但没能存进历史记录：{error}"))?;
-    Ok(Some(ui_text("已保存标注图", "Image saved.").into()))
-}
-
+/// 标注窗口唯一的出口：编辑版存入历史并替换原图（原图移入回收站）。
 #[tauri::command]
 pub(crate) async fn annotate_save_copy(
     app: AppHandle,
@@ -553,7 +452,7 @@ pub(crate) async fn annotate_save_copy(
             &image,
             changed,
         )?;
-        Ok(ui_text("已存入历史记录", "Saved to History.").into())
+        Ok(ui_text("已存入历史记录", "Saved to History").into())
     })
     .await
 }

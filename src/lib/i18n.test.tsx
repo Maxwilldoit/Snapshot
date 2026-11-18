@@ -55,7 +55,7 @@ describe("interface language", () => {
 
   it("uses the settled names for the main features", () => {
     expect(translate("en", "资料库")).toBe("History");
-    expect(translate("en", "存入截图记录")).toBe("Save to History");
+    expect(translate("en", "保存")).toBe("Save");
     expect(translate("en", "润色 Prompt")).toBe("Enhance Prompt");
     expect(translate("en", "桌面伴侣")).toBe("Pets");
     expect(translate("en", "素材库")).toBe("Pet Gallery");
@@ -65,10 +65,8 @@ describe("interface language", () => {
   it("translates common native errors, including interpolated details", () => {
     expect(localizeMessage("目标窗口已经关闭", "en")).toBe("That window is closed. Choose another one.");
     expect(localizeMessage("截取失败：permission denied", "en")).toBe("Couldn’t take the screenshot. permission denied");
-    expect(localizeMessage("已复制标注图", "en")).toBe("Copied.");
-    expect(localizeMessage("已复制，但没能存进历史记录：保存快照失败：disk full", "en")).toBe(
-      "Copied, but couldn’t save it to History. Couldn’t save the screenshot. disk full",
-    );
+    expect(localizeMessage("已存入历史记录", "en")).toBe("Saved to History");
+    expect(localizeMessage("保存快照失败：disk full", "en")).toBe("Couldn’t save the screenshot. disk full");
     expect(localizeMessage("目标窗口已经关闭", "zh")).toBe("目标窗口已经关闭");
   });
 

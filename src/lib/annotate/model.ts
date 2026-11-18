@@ -69,6 +69,21 @@ export function cropBounds(start: Point, end: Point, width: number, height: numb
   return normalize(clamp(start), clamp(end));
 }
 
+/** 连续裁剪：每次提交都把选区外的部分裁掉；撤销恢复的是上一个取景框 */
+export type Viewport = { x: number; y: number; width: number; height: number };
+
+/** 松手时把裁剪落到取景框上：选区换算回原图坐标，取整后不会越出上一个取景框 */
+export function commitCrop(view: Viewport, selection: Rect): Viewport {
+  const x = Math.min(view.x + view.width, Math.max(view.x, view.x + Math.round(selection.x)));
+  const y = Math.min(view.y + view.height, Math.max(view.y, view.y + Math.round(selection.y)));
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.min(view.x + view.width - x, Math.round(selection.w))),
+    height: Math.max(1, Math.min(view.y + view.height - y, Math.round(selection.h))),
+  };
+}
+
 /** ⇧：矩形/椭圆变成正方形 */
 export function squareFrom(anchor: Point, point: Point): Point {
   const dx = point.x - anchor.x;

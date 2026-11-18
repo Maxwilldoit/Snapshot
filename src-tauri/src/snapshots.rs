@@ -306,14 +306,6 @@ fn write_image_timed(
     Ok(())
 }
 
-pub(crate) fn write_image_atomically(
-    image: &RgbaImage,
-    path: &Path,
-    format: ImageFormat,
-) -> Result<(), String> {
-    atomic_write_bytes(path, &encode_snapshot(image, format)?)
-}
-
 fn encode_snapshot(image: &RgbaImage, format: ImageFormat) -> Result<Vec<u8>, String> {
     let mut bytes = Cursor::new(Vec::new());
     if format == ImageFormat::Jpeg {
