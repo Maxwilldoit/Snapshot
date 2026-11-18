@@ -1,13 +1,13 @@
 import { memo, useState } from "react";
 import { appIconUrl, appNameIconUrl, recordingUrl, thumbUrl } from "../lib/media";
-import { formatClock, formatDuration } from "../lib/format";
+import { formatDuration } from "../lib/format";
 import { useI18n } from "../lib/i18n";
 import type { MediaItem, RecordingMeta } from "../lib/mediaTimeline";
 
 /**
  * 历史拼图中的一格：按给定 boxWidth × boxHeight 完整铺满同行等高格位。
  * 普通横竖图严丝合缝铺满圆角卡片；超长滚动截图（is-narrow）居中衬底完整呈现，不裁成细条。
- * 左下角显示来源应用图标，录屏右下角显示时长，悬停浮出拍摄时间。
+ * 左下角显示来源应用图标，录屏右下角显示时长；拍摄时间与规格统一在悬停预览窗展示。
  */
 export const MediaTile = memo(function MediaTile({
   item,
@@ -130,10 +130,6 @@ export const MediaTile = memo(function MediaTile({
           {isRecording && item.durationMs != null && (
             <span className="tile-duration mono">{formatDuration(item.durationMs)}</span>
           )}
-
-          <span className="tile-info" aria-hidden="true">
-            <span className="tile-time mono">{formatClock(item.createdAt)}</span>
-          </span>
         </span>
       </button>
     </div>
