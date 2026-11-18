@@ -51,8 +51,9 @@ export const historyEnglish: Record<string, string> = {
   "下一张": "Next",
 
   "选择：{label}": "Select {label}",
-  "查看：{label}": "View {label}",
+  "标注：{label}": "Markup {label}",
   "播放：{label}": "Play {label}",
+  "时间定位": "Timeline",
 
   "原文": "Original",
   "润色文": "Enhanced",

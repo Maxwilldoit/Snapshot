@@ -15,6 +15,8 @@ import { formatBytes, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
 import { JustifiedGrid } from "../components/JustifiedGrid";
+import { HoverPreview, type HoverPreviewAnchor } from "../components/HoverPreview";
+import { TimelineScrubber } from "../components/TimelineScrubber";
 import { PhotoViewer } from "../components/PhotoViewer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
@@ -30,7 +32,7 @@ import type { RecordingRecord, SnapshotRecord } from "../types";
 
 type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y: number } };
 
-/** 历史：按日期分组 + 同行等高自适应拼图；点击打开 Quick Look 式快速预览，右键进入多选、复制、标注或删除。 */
+/** 历史：日期自然随列表滚动 + 同行等高拼图 + 右侧极简时间尺；悬停左右浮出无损原图与元信息预览，点击快照直达标注。 */
 export function HistoryPage() {
   const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
   const { t, language } = useI18n();
@@ -43,6 +45,7 @@ export function HistoryPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [hoverAnchor, setHoverAnchor] = useState<HoverPreviewAnchor | null>(null);
   const [contextMenu, setContextMenu] = useState<HistoryMenu | null>(null);
   const closeMenu = useCallback(() => setContextMenu(null), []);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
@@ -51,9 +54,30 @@ export function HistoryPage() {
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const known = useRef<Set<string> | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const flip = useFlip(listRef);
   const pendingHandled = useRef<string | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+  const hoverWarmUntilRef = useRef(0);
+  const hoveredTargetRef = useRef<{ id: string; node: HTMLElement; pointerX?: number } | null>(null);
+  const scrubberActiveRef = useRef(false);
+  const hoverOpenRef = useRef(false);
+  hoverOpenRef.current = hoverAnchor !== null;
+
+  const dismissHoverCold = useCallback(() => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    hoveredTargetRef.current = null;
+    hoverWarmUntilRef.current = 0;
+    setHoverAnchor(null);
+  }, []);
+
+  useEffect(() => () => {
+    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+  }, []);
 
   const annotateItem = useCallback((item: MediaItem) => {
     void annotateSnapshot(item.id).catch((error) => notify(errorText(error), "error"));
@@ -63,6 +87,11 @@ export function HistoryPage() {
     if (metaRef.current[id]?.durationMs === meta.durationMs && metaRef.current[id]?.width === meta.width) return;
     metaRef.current = { ...metaRef.current, [id]: meta };
     setRecordingMeta(metaRef.current);
+    setHoverAnchor((current) => (
+      current && current.item.id === id
+        ? { ...current, item: { ...current.item, width: meta.width, height: meta.height, durationMs: meta.durationMs } }
+        : current
+    ));
   }, []);
 
   const refresh = useCallback(async () => {
@@ -106,9 +135,12 @@ export function HistoryPage() {
     pendingHandled.current = pendingPreviewId;
     const items = mergeTimeline(snapshots, recordings, metaRef.current);
     const item = items.find((item) => item.id === pendingPreviewId);
-    if (item) setPreviewId(item.id);
+    if (item) {
+      if (item.kind === "snapshot") annotateItem(item);
+      else setPreviewId(item.id);
+    }
     consumePreviewId();
-  }, [pendingPreviewId, snapshots, recordings, consumePreviewId]);
+  }, [pendingPreviewId, snapshots, recordings, consumePreviewId, annotateItem]);
 
   useEffect(() => {
     if (!fresh.size) return;
@@ -137,13 +169,21 @@ export function HistoryPage() {
   }, []);
 
   useEffect(() => {
-    if (!selecting || previewId || confirming || contextMenu) return;
+    if (selecting || previewId || confirming || contextMenu) {
+      dismissHoverCold();
+    }
+  }, [selecting, previewId, confirming, contextMenu, dismissHoverCold]);
+
+  useEffect(() => {
+    if ((!selecting && !hoverAnchor) || previewId || confirming || contextMenu) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") exitSelecting();
+      if (event.key !== "Escape") return;
+      if (hoverAnchor) dismissHoverCold();
+      else if (selecting) exitSelecting();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selecting, previewId, confirming, contextMenu, exitSelecting]);
+  }, [selecting, hoverAnchor, previewId, confirming, contextMenu, exitSelecting, dismissHoverCold]);
 
   const anchorRef = useRef(anchor);
   anchorRef.current = anchor;
@@ -175,20 +215,71 @@ export function HistoryPage() {
     if (!usedRange) setAnchor(id);
   }, []);
 
+  const handleHoverStart = useCallback((item: MediaItem, node: HTMLElement, pointerX?: number) => {
+    if (selectingRef.current || scrubberActiveRef.current) return;
+    hoveredTargetRef.current = { id: item.id, node, pointerX };
+    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+    const warm = hoverOpenRef.current || performance.now() < hoverWarmUntilRef.current;
+    const delay = warm ? 40 : 160;
+    hoverTimerRef.current = window.setTimeout(() => {
+      hoverTimerRef.current = null;
+      const target = hoveredTargetRef.current;
+      if (!target || target.id !== item.id || !target.node.isConnected || selectingRef.current || scrubberActiveRef.current) return;
+      const rect = target.node.getBoundingClientRect();
+      const latest = filteredRef.current.find((entry) => entry.id === item.id) ?? item;
+      setHoverAnchor({
+        item: latest,
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        },
+        pointerX: target.pointerX,
+      });
+    }, delay);
+  }, []);
+
+  const handleHoverMove = useCallback((pointerX: number) => {
+    if (hoveredTargetRef.current) {
+      hoveredTargetRef.current.pointerX = pointerX;
+    }
+  }, []);
+
+  const handleHoverEnd = useCallback((item: MediaItem) => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    if (hoveredTargetRef.current?.id === item.id) {
+      hoveredTargetRef.current = null;
+    }
+    if (hoverOpenRef.current) {
+      hoverWarmUntilRef.current = performance.now() + 260;
+    }
+    setHoverAnchor(null);
+  }, []);
+
   const open = useCallback((item: MediaItem, event: React.MouseEvent) => {
+    dismissHoverCold();
     if (selectingRef.current) {
       toggle(item.id, event.shiftKey);
     } else if (event.shiftKey) {
       setSelecting(true);
       toggle(item.id, false);
+    } else if (item.kind === "snapshot") {
+      annotateItem(item);
     } else {
       setPreviewId(item.id);
     }
-  }, [toggle]);
+  }, [toggle, annotateItem, dismissHoverCold]);
 
   const openContextMenu = useCallback((item: MediaItem, menuAnchor: HTMLElement, point: { x: number; y: number }) => {
+    dismissHoverCold();
     setContextMenu({ item, anchor: menuAnchor, point });
-  }, []);
+  }, [dismissHoverCold]);
 
   function selectItem(item: MediaItem) {
     setSelecting(true);
@@ -376,6 +467,9 @@ export function HistoryPage() {
                     selected={selected.has(item.id)}
                     onOpen={open}
                     onMenu={openContextMenu}
+                    onHoverStart={handleHoverStart}
+                    onHoverMove={handleHoverMove}
+                    onHoverEnd={handleHoverEnd}
                     onMeta={reportMeta}
                   />
                 </figure>
@@ -391,8 +485,31 @@ export function HistoryPage() {
     <div className="mw-page history-page">
       {toolbar}
       <div className="history-body">
-        <div className="mw-scroll history-scroll" role="region" aria-label={t("历史")} tabIndex={0}>{body}</div>
+        <div
+          className="mw-scroll history-scroll"
+          ref={scrollRef}
+          role="region"
+          aria-label={t("历史")}
+          tabIndex={0}
+          onScroll={dismissHoverCold}
+        >
+          {body}
+        </div>
+        {groups.length > 0 && (
+          <TimelineScrubber
+            groups={groups}
+            scrollRef={scrollRef}
+            onInteractChange={(active) => {
+              scrubberActiveRef.current = active;
+              if (active) dismissHoverCold();
+            }}
+          />
+        )}
       </div>
+
+      {hoverAnchor && !selecting && !contextMenu && !confirming && !previewId && (
+        <HoverPreview anchor={hoverAnchor} onMeta={reportMeta} />
+      )}
 
       {contextMenu && (
         <Menu className="history-actions-menu" anchor={contextMenu.anchor} point={contextMenu.point} onClose={closeMenu} label={t("历史操作")}>

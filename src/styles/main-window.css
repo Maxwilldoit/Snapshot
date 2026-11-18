@@ -197,26 +197,108 @@ html[data-surface="app"] .mw-window-title { min-width: 0; max-width: 220px; over
 /* ---------- 截图墙 ---------- */
 
 html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
-/* Use the same native scrollbar as Settings. The browser sizes the thumb
-   from visible/content height and updates it after filtering or resizing. */
-html[data-surface="app"] .history-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0; }
+html[data-surface="app"] .history-scroll {
+  flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0;
+  scrollbar-width: none;
+}
+html[data-surface="app"] .history-scroll::-webkit-scrollbar { display: none; }
 html[data-surface="app"] .history-scroll:focus-visible { outline-offset: -3px; }
 
-/* 按日期分组 + 同行等高自适应拼图（Justified）：横图宽、竖图窄，整行严丝合缝铺满且无悬空留白。 */
-html[data-surface="app"] .gallery { display: block; padding: 2px 14px 28px 16px; }
-html[data-surface="app"] .mw .day { --history-day-label-height: 32px; position: relative; display: block; margin-top: 12px; padding: 0; border-top: 0; }
+/* 按日期分组 + 同行等高自适应拼图（Justified）：日期标题随内容自然滚动，不做吸顶停滞。 */
+html[data-surface="app"] .gallery { display: block; padding: 4px 22px 28px 16px; }
+html[data-surface="app"] .mw .day { position: relative; display: block; margin-top: 18px; padding: 0; border-top: 0; }
 html[data-surface="app"] .mw .day:first-child { margin-top: 4px; }
-html[data-surface="app"] .mw .day::before {
-  content: ""; position: absolute; z-index: 1; top: calc(var(--history-day-label-height) - 1px); right: -14px; left: -16px; height: 2px;
-  background: var(--win); pointer-events: none;
-}
-/* 日期条背景向两侧铺满滚动区，吸顶时连图片外扩的半像素边线一起盖住；
-   日期条占位高度即视觉高度（32px），与图片的间距放在网格上，
-   sticky 释放点即分组底边到达条底之时——整组图片吸完才上移。 */
-html[data-surface="app"] .mw .day-label { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0 -14px 0 -16px; padding: 6px 14px 6px 16px; background: var(--win); }
+html[data-surface="app"] .mw .day-label { display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0; padding: 0 0 6px; background: none; }
 html[data-surface="app"] .mw .day-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text2); letter-spacing: -0.01em; }
-html[data-surface="app"] .mw .day > .jgrid { margin-top: 6px; }
+html[data-surface="app"] .mw .day > .jgrid { margin-top: 0; }
 html[data-surface="app"] .jgrid { display: flex; flex-direction: column; min-width: 0; }
+
+/* 右侧极简时间定位尺：平时仅细短刻度与进度胶囊，移入或拖拽时浮出毛玻璃日期胶囊 */
+html[data-surface="app"] .timeline-scrubber {
+  position: absolute; top: 10px; bottom: 14px; right: 2px; z-index: 6; width: 18px;
+  display: flex; align-items: stretch; justify-content: flex-end;
+  cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none;
+}
+html[data-surface="app"] .timeline-scrubber:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -1px; border-radius: 6px;
+}
+html[data-surface="app"] .timeline-track { position: relative; width: 100%; height: 100%; }
+html[data-surface="app"] .timeline-tick {
+  position: absolute; right: 3px; width: 5px; height: 1.5px; margin-top: -0.75px; border-radius: 999px;
+  background: var(--text4); opacity: 0.55; pointer-events: none;
+  transition: width 90ms var(--ease-out), opacity 140ms var(--ease-out), background-color 140ms var(--ease-out);
+}
+html[data-surface="app"] .timeline-tick.is-major { width: 8px; background: var(--text3); opacity: 0.72; }
+html[data-surface="app"] .timeline-scrubber.is-active .timeline-tick { opacity: 0.8; }
+html[data-surface="app"] .timeline-tick.is-hovered { background: var(--accent); opacity: 1; }
+html[data-surface="app"] .timeline-thumb {
+  position: absolute; top: -1.5px; right: 2px; width: 9px; height: 3px; border-radius: 999px;
+  background: var(--accent); box-shadow: 0 0 0 1px var(--win); pointer-events: none; will-change: transform;
+  transition: width 120ms var(--ease-out), height 120ms var(--ease-out);
+}
+html[data-surface="app"] .timeline-scrubber.is-active .timeline-thumb { width: 12px; height: 3.5px; }
+html[data-surface="app"] .timeline-pill {
+  position: absolute; top: 0; right: 22px; display: inline-flex; align-items: center; gap: 6px;
+  height: 24px; padding: 0 9px; border-radius: 999px;
+  background: var(--pop); color: var(--text1); font-size: 11.5px; font-weight: 500; line-height: 24px;
+  white-space: nowrap; pointer-events: none; will-change: transform;
+  -webkit-backdrop-filter: blur(24px) saturate(1.8); backdrop-filter: blur(24px) saturate(1.8);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 6px 18px rgba(0, 0, 0, 0.14);
+  animation: fade-in 110ms var(--ease-out) both;
+}
+html[data-surface="app"][data-theme="dark"] .timeline-pill {
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+html[data-surface="app"] .timeline-pill-count { color: var(--text3); font-size: 10.5px; font-weight: 400; }
+
+/* 缩略图悬停左右无损原图预览窗 */
+html[data-surface="app"] .hover-preview {
+  position: fixed; z-index: 45; padding: 6px; border-radius: 10px;
+  background: var(--pop); color: var(--text1); pointer-events: none;
+  user-select: none; -webkit-user-select: none;
+  -webkit-backdrop-filter: blur(28px) saturate(1.8); backdrop-filter: blur(28px) saturate(1.8);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.16), 0 18px 48px rgba(0, 0, 0, 0.22), 0 4px 12px rgba(0, 0, 0, 0.08);
+  animation: hover-preview-in 120ms var(--ease-out) both;
+}
+html[data-surface="app"][data-theme="dark"] .hover-preview {
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 20px 52px rgba(0, 0, 0, 0.56), 0 4px 14px rgba(0, 0, 0, 0.32);
+}
+@keyframes hover-preview-in {
+  from { opacity: 0; transform: scale(0.985); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-surface="app"] .hover-preview { animation: fade-in 80ms linear both; }
+}
+html[data-surface="app"] .hover-preview-stage {
+  position: relative; display: grid; place-items: center; overflow: hidden;
+  border-radius: 6px; background: var(--stage); box-shadow: inset 0 0 0 0.5px var(--sep);
+}
+html[data-surface="app"] .hover-preview-thumb,
+html[data-surface="app"] .hover-preview-video {
+  display: block; object-fit: contain;
+}
+html[data-surface="app"] .hover-preview-full {
+  position: absolute; inset: 0; margin: auto; display: block; object-fit: contain;
+  opacity: 0; transition: opacity 80ms linear;
+}
+html[data-surface="app"] .hover-preview-full.is-loaded { opacity: 1; }
+html[data-surface="app"] .hover-preview-foot {
+  display: flex; flex-direction: column; gap: 2px; padding: 6px 4px 2px; min-width: 0;
+}
+html[data-surface="app"] .hover-preview-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0;
+}
+html[data-surface="app"] .hover-preview-app {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 600; line-height: 17px; color: var(--text1);
+}
+html[data-surface="app"] .hover-preview-time {
+  flex: 0 0 auto; font-size: 11px; line-height: 16px; color: var(--text3);
+}
+html[data-surface="app"] .hover-preview-specs {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; line-height: 16px; color: var(--text2);
+}
 html[data-surface="app"] .jrow { display: flex; align-items: flex-start; min-width: 0; }
 html[data-surface="app"] .jrow.is-wrap { flex-wrap: wrap; row-gap: 8px; }
 html[data-surface="app"] .mw .shot { flex: 0 0 auto; min-width: 0; max-width: none; margin: 0; }
