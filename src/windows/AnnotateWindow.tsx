@@ -270,6 +270,8 @@ export function AnnotateWindow() {
         original.current = img;
         view.current = { x: 0, y: 0, width: img.naturalWidth, height: img.naturalHeight };
         sessionId.current = session.id;
+        // 先把首帧画进位图再显示：不然画布会先以空白示人、下一帧才补上图，看起来闪一下
+        paintRef.current();
         setNatural({ width: img.naturalWidth, height: img.naturalHeight });
         setReady(true);
         setStatus("");
