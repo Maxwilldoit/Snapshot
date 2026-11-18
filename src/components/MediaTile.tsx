@@ -17,6 +17,9 @@ export const MediaTile = memo(function MediaTile({
   selected = false,
   onOpen,
   onMenu,
+  onHoverStart,
+  onHoverMove,
+  onHoverEnd,
   onMeta,
 }: {
   item: MediaItem;
@@ -26,6 +29,9 @@ export const MediaTile = memo(function MediaTile({
   selected?: boolean;
   onOpen: (item: MediaItem, event: React.MouseEvent) => void;
   onMenu: (item: MediaItem, anchor: HTMLElement, point: { x: number; y: number }) => void;
+  onHoverStart?: (item: MediaItem, anchor: HTMLElement, pointerX?: number) => void;
+  onHoverMove?: (pointerX: number) => void;
+  onHoverEnd?: (item: MediaItem) => void;
   onMeta?: (id: string, meta: RecordingMeta) => void;
 }) {
   const { t } = useI18n();
@@ -56,10 +62,23 @@ export const MediaTile = memo(function MediaTile({
         type="button"
         className="tile-main"
         data-thumb-id={item.id}
-        aria-label={selecting ? t("选择：{label}", { label }) : t(isRecording ? "播放：{label}" : "查看：{label}", { label })}
+        aria-label={selecting ? t("选择：{label}", { label }) : t(isRecording ? "播放：{label}" : "标注：{label}", { label })}
         aria-keyshortcuts="Shift+F10"
         aria-pressed={selecting ? selected : undefined}
         onClick={(event) => onOpen(item, event)}
+        onPointerEnter={(event) => {
+          if (event.pointerType !== "touch") onHoverStart?.(item, event.currentTarget, event.clientX);
+        }}
+        onPointerMove={(event) => {
+          if (event.pointerType !== "touch") onHoverMove?.(event.clientX);
+        }}
+        onPointerLeave={() => onHoverEnd?.(item)}
+        onFocus={(event) => {
+          try {
+            if (event.currentTarget.matches(":focus-visible")) onHoverStart?.(item, event.currentTarget);
+          } catch { /* unsupported selector */ }
+        }}
+        onBlur={() => onHoverEnd?.(item)}
         onContextMenu={(event) => {
           event.preventDefault();
           openMenu(event.currentTarget, event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : undefined);

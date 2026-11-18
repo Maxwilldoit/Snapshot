@@ -54,7 +54,7 @@ describe("历史格子的来源应用角标", () => {
     setupTauriMock();
     const onOpen = vi.fn(), onMenu = vi.fn();
     const { container } = render(<MediaTile item={item()} onOpen={onOpen} onMenu={onMenu} />);
-    const tile = screen.getByRole("button", { name: "查看：Google Chrome" });
+    const tile = screen.getByRole("button", { name: "标注：Google Chrome" });
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(container.querySelector(".tile-check, .tile-actions")).toBeNull();
     fireEvent.contextMenu(tile, { clientX: 40, clientY: 60 });
