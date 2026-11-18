@@ -150,45 +150,76 @@ fn list_tracked_window(app: &AppHandle, id: u32) -> Result<tracker::TrackedWindo
             title: main.title().map_err(|error| error.to_string())?,
         });
     }
-    #[cfg(not(target_os = "windows"))]
-    let _ = app;
-    let window = Window::all()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .find(|window| window.id().ok() == Some(id))
-        .ok_or_else(|| "目标窗口已关闭".to_string())?;
-    Ok(tracker::TrackedWindow {
-        id,
-        pid: window.pid().unwrap_or_default(),
-        app_name: window
-            .app_name()
-            .unwrap_or_else(|_| crate::ui_text("应用", "App").into()),
-        title: window.title().unwrap_or_default(),
-    })
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        let window = os::list_windows()?
+            .into_iter()
+            .find(|window| window.id == id)
+            .ok_or_else(|| "目标窗口已关闭".to_string())?;
+        Ok(tracker::TrackedWindow {
+            id: window.id,
+            pid: window.pid,
+            app_name: window.app_name,
+            title: window.title,
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        #[cfg(not(target_os = "windows"))]
+        let _ = app;
+        let window = Window::all()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|window| window.id().ok() == Some(id))
+            .ok_or_else(|| "目标窗口已关闭".to_string())?;
+        Ok(tracker::TrackedWindow {
+            id,
+            pid: window.pid().unwrap_or_default(),
+            app_name: window
+                .app_name()
+                .unwrap_or_else(|_| crate::ui_text("应用", "App").into()),
+            title: window.title().unwrap_or_default(),
+        })
+    }
 }
 
-/// 录制产物目录：优先 recording_dir，其次沿用截图的 save_dir，都没填就落到「下载」。
-/// 保留 save_dir 这一层回退，是为了不改变升级前只设过 save_dir 的用户的去向。
-fn resolve_recording_dir(settings: &settings::Settings) -> Result<PathBuf, String> {
+/// 录制产物目录：优先 recording_dir，其次沿用截图的 save_dir，都没填就落到默认录制目录
+/// （正式版为「下载」，开发态隔离到应用开发数据目录，避免测试录屏混入正式版历史）。
+fn resolve_recording_dir(
+    state: &AppState,
+    settings: &settings::Settings,
+) -> Result<PathBuf, String> {
     for candidate in [settings.recording_dir.trim(), settings.save_dir.trim()] {
         if !candidate.is_empty() {
             return Ok(PathBuf::from(snapshots::expand_user_path(candidate)));
         }
     }
-    default_recording_dir().ok_or_else(|| "无法确定录制保存目录".to_string())
+    state
+        .recordings_dir
+        .clone()
+        .ok_or_else(|| "无法确定录制保存目录".to_string())
 }
 
-/// 系统「下载」目录。Linux 上 dirs 只认 ~/.config/user-dirs.dirs 里登记的 XDG_DOWNLOAD_DIR，
-/// 精简桌面、容器、远程会话里常常没有这个文件；这时按惯例退回 ~/Downloads，不让录制直接失败。
-/// Windows / macOS 上 download_dir 总有值。
-fn default_recording_dir() -> Option<PathBuf> {
+/// 正式版默认录制目录（「下载」；Linux 无 XDG 配置时退回 ~/Downloads）；开发态隔离在应用开发数据目录。
+pub(crate) fn default_recording_dir_for_mode(
+    app_data_recordings: &Path,
+    dev_isolated: bool,
+) -> Option<PathBuf> {
+    if dev_isolated {
+        return Some(app_data_recordings.to_path_buf());
+    }
+    default_recording_dir()
+}
+
+pub(crate) fn default_recording_dir() -> Option<PathBuf> {
     dirs::download_dir().or_else(|| dirs::home_dir().map(|home| home.join("Downloads")))
 }
 
 /// 在系统文件管理器里打开录制目录。目录可能还没建过，先建出来再打开。
 #[tauri::command]
 pub(crate) fn open_recordings_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let path = resolve_recording_dir(&state.settings.lock())?;
+    let path = resolve_recording_dir(&state, &state.settings.lock())?;
     fs::create_dir_all(&path).map_err(|error| format!("无法创建录制目录：{error}"))?;
     os::open_folder(&path)?;
     Ok(path.to_string_lossy().to_string())
@@ -196,7 +227,7 @@ pub(crate) fn open_recordings_dir(state: State<'_, AppState>) -> Result<String, 
 
 #[tauri::command]
 pub(crate) fn get_recording_dir(state: State<'_, AppState>) -> Result<String, String> {
-    Ok(resolve_recording_dir(&state.settings.lock())?
+    Ok(resolve_recording_dir(&state, &state.settings.lock())?
         .to_string_lossy()
         .to_string())
 }
@@ -282,7 +313,7 @@ pub(crate) fn toggle_recording(
             .ok_or_else(|| "还没有上一个应用可录制".to_string())?,
     };
     let settings = state.settings.lock().clone();
-    let output_dir = resolve_recording_dir(&settings)?;
+    let output_dir = resolve_recording_dir(&state, &settings)?;
     fs::create_dir_all(&output_dir).map_err(|error| error.to_string())?;
     let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
     let output = output_dir.join(if interface_is_english() {
@@ -399,7 +430,7 @@ fn scan_recordings(dir: &Path, exclude: Option<&Path>) -> Vec<RecordingRecord> {
 
 /// 目录解析不了（极端环境没有下载目录）时给空列表，与 list_snapshots 的口径一致
 pub(crate) fn list_recordings_now(state: &AppState) -> Vec<RecordingRecord> {
-    let Ok(dir) = resolve_recording_dir(&state.settings.lock()) else {
+    let Ok(dir) = resolve_recording_dir(state, &state.settings.lock()) else {
         return Vec::new();
     };
     let active = state.recorder.lock().active_output();
@@ -415,7 +446,8 @@ pub(crate) fn list_recordings_now(state: &AppState) -> Vec<RecordingRecord> {
             record.app_name = activity
                 .recording_target(&path.to_string_lossy())
                 .unwrap_or_else(|| ui_text("录屏", "Recording").to_string());
-            record.app_id = meta.get(&record.id).cloned();
+            record.app_id =
+                os::reconcile_app_id(&record.app_name, meta.get(&record.id).map(String::as_str));
         }
     }
     records
@@ -452,7 +484,7 @@ pub(crate) async fn delete_recordings(
     ids: Vec<String>,
 ) -> Result<Vec<RecordingRecord>, String> {
     on_worker(app, move |app, state| {
-        let dir = resolve_recording_dir(&state.settings.lock())?;
+        let dir = resolve_recording_dir(state, &state.settings.lock())?;
         let active = state.recorder.lock().active_output();
         for id in &ids {
             // id 是文件名主干：先验明是本应用的命名，再拼路径，杜绝目录穿越
@@ -485,7 +517,7 @@ fn recording_path(state: &AppState, id: &str) -> Result<PathBuf, String> {
     if recording_stem(&file_name).is_none() {
         return Err("只能读取本应用录制的视频".into());
     }
-    let dir = resolve_recording_dir(&state.settings.lock())?;
+    let dir = resolve_recording_dir(state, &state.settings.lock())?;
     let path = dir.join(&file_name);
     if state.recorder.lock().active_output().as_deref() == Some(path.as_path()) {
         return Err("这段录像还在录制中".into());

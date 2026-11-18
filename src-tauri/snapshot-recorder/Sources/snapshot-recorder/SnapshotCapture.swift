@@ -133,6 +133,27 @@ func screenshotConfiguration(width: Int, height: Int, includeCursor: Bool) -> SC
     return configuration
 }
 
+func screenshotHeaderObject(
+    appName: String?,
+    bundleIdentifier: String?,
+    processID: pid_t?,
+    width: Int,
+    height: Int
+) -> [String: Any] {
+    var header: [String: Any] = [
+        "appName": (appName?.isEmpty == false ? appName! : "应用"),
+        "width": width,
+        "height": height,
+    ]
+    if let bundleIdentifier, !bundleIdentifier.isEmpty {
+        header["bundleId"] = bundleIdentifier
+    }
+    if let processID, processID > 0 {
+        header["pid"] = Int(processID)
+    }
+    return header
+}
+
 @MainActor
 func runScreenshot(arguments: ScreenshotArguments) async throws {
     let content = try await shareableWindowContent()
@@ -171,10 +192,17 @@ func runScreenshot(arguments: ScreenshotArguments) async throws {
         throw RecorderError(message: "无感窗口采集失败：无法编码 PNG")
     }
     // 一行 JSON 元数据 + 原始 PNG。图像只经管道传回宿主，不留临时截图。
-    let header = try JSONSerialization.data(withJSONObject: [
-        "appName": window.owningApplication?.applicationName ?? "应用",
-        "width": image.width, "height": image.height,
-    ], options: [.sortedKeys])
+    let owning = window.owningApplication
+    let header = try JSONSerialization.data(
+        withJSONObject: screenshotHeaderObject(
+            appName: owning?.applicationName,
+            bundleIdentifier: owning?.bundleIdentifier,
+            processID: owning?.processID,
+            width: image.width,
+            height: image.height
+        ),
+        options: [.sortedKeys]
+    )
     FileHandle.standardOutput.write(header)
     FileHandle.standardOutput.write(Data([10]))
     FileHandle.standardOutput.write(data as Data)

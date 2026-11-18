@@ -73,6 +73,7 @@ use xcap::{Monitor, Window};
 struct AppState {
     settings_path: PathBuf,
     snapshots_dir: PathBuf,
+    recordings_dir: Option<PathBuf>,
     /// 快照缩略图，放在应用数据目录，不往用户选的保存目录里塞东西
     thumbs_dir: PathBuf,
     /// 导入时复制进来的伴侣素材与它们的缩略图
@@ -363,15 +364,24 @@ pub fn run() {
     let mut context = tauri::generate_context!();
     configure_platform_windows(context.config_mut());
     let identifier = context.config().identifier.clone();
+    let dev_isolated = cfg!(debug_assertions);
+    let profile_id = if dev_isolated {
+        format!("{identifier}.dev")
+    } else {
+        identifier
+    };
     let settings_path = dirs::config_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join(&identifier)
+        .join(&profile_id)
         .join("settings.json");
     let data_dir = dirs::data_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join(&identifier);
+        .join(&profile_id);
     let legacy_snapshots_dir = data_dir.join("snapshots");
-    let snapshots_dir = snapshots::default_history_dir(&legacy_snapshots_dir);
+    let snapshots_dir =
+        snapshots::default_history_dir_for_mode(&legacy_snapshots_dir, dev_isolated);
+    let recordings_dir =
+        recording::default_recording_dir_for_mode(&data_dir.join("recordings"), dev_isolated);
     let thumbs_dir = data_dir.join("thumbs");
     let pets_dir = data_dir.join("pets");
     let sounds_dir = data_dir.join("sounds");
@@ -385,7 +395,7 @@ pub fn run() {
             eprintln!("snapshot: could not record the copied custom sound: {error}");
         }
     }
-    if settings.save_dir.trim().is_empty() {
+    if !dev_isolated && settings.save_dir.trim().is_empty() {
         let migration_marker = data_dir.join("snapshot-history-migrated");
         if let Err(error) = snapshots::migrate_legacy_history(
             &legacy_snapshots_dir,
@@ -409,6 +419,7 @@ pub fn run() {
         .manage(AppState {
             settings_path,
             snapshots_dir,
+            recordings_dir,
             thumbs_dir,
             pets_dir,
             sounds_dir,

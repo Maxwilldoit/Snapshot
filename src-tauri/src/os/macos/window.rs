@@ -20,6 +20,18 @@ struct CaptureMetadata {
     app_name: String,
     width: u32,
     height: u32,
+    #[serde(default)]
+    bundle_id: Option<String>,
+    #[serde(default)]
+    pid: Option<u32>,
+}
+
+#[derive(Debug)]
+pub(crate) struct CapturedWindow {
+    pub(crate) image: RgbaImage,
+    pub(crate) app_name: String,
+    pub(crate) bundle_id: Option<String>,
+    pub(crate) pid: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,7 +82,7 @@ fn sort_front_to_back(windows: &mut [ListedWindow]) {
 pub(crate) fn capture_window_image(
     id: u32,
     include_cursor: bool,
-) -> Result<(RgbaImage, String), String> {
+) -> Result<CapturedWindow, String> {
     let mut command = Command::new(recorder_program());
     command
         .arg("--screenshot")
@@ -142,7 +154,7 @@ fn check_helper_status(output: &Output) -> Result<(), String> {
     Ok(())
 }
 
-fn decode_capture_output(output: Output) -> Result<(RgbaImage, String), String> {
+fn decode_capture_output(output: Output) -> Result<CapturedWindow, String> {
     check_helper_status(&output)?;
     let newline = output
         .stdout
@@ -169,7 +181,12 @@ fn decode_capture_output(output: Output) -> Result<(RgbaImage, String), String> 
         // 全透明结果不是成功截图；纯黑但不透明的正常窗口则允许保存。
         return Err(INVALID_RESPONSE.into());
     }
-    Ok((image, metadata.app_name))
+    Ok(CapturedWindow {
+        image,
+        app_name: metadata.app_name,
+        bundle_id: metadata.bundle_id.filter(|id| !id.trim().is_empty()),
+        pid: metadata.pid.filter(|pid| *pid > 0),
+    })
 }
 
 #[cfg(test)]
@@ -180,7 +197,11 @@ mod tests {
 
     fn output(image: RgbaImage, width: u32, height: u32) -> Output {
         let mut stdout = serde_json::to_vec(&serde_json::json!({
-            "appName": "Code\n测试", "width": width, "height": height,
+            "appName": "Code\n测试",
+            "bundleId": "com.microsoft.VSCode",
+            "pid": 59230,
+            "width": width,
+            "height": height,
         }))
         .unwrap();
         stdout.push(b'\n');
@@ -270,9 +291,11 @@ mod tests {
     #[test]
     fn png_and_metadata_round_trip_without_temporary_files() {
         let image = RgbaImage::from_pixel(12, 8, Rgba([7, 11, 23, 255]));
-        let (decoded, name) = decode_capture_output(output(image.clone(), 12, 8)).unwrap();
-        assert_eq!(image, decoded);
-        assert_eq!(name, "Code\n测试");
+        let captured = decode_capture_output(output(image.clone(), 12, 8)).unwrap();
+        assert_eq!(image, captured.image);
+        assert_eq!(captured.app_name, "Code\n测试");
+        assert_eq!(captured.bundle_id.as_deref(), Some("com.microsoft.VSCode"));
+        assert_eq!(captured.pid, Some(59230));
     }
 
     #[test]

@@ -52,7 +52,7 @@ objc2 = "0.6"
 # NSCursor：静帧截图合成光标（取当前系统光标的位图与热点）
 objc2-app-kit = { version = "0.3", features = ["NSBitmapImageRep", "NSCursor", "NSGraphics", "NSGraphicsContext", "NSImageRep", "NSImage", "NSPasteboard", "NSResponder", "NSRunningApplication", "NSScrollView", "NSView", "NSWorkspace"] }
 # NSString/NSURL：历史角标按 bundle id / .app 路径取图标（NSWorkspace、NSRunningApplication）
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSDictionary", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDictionary", "NSFileManager", "NSString", "NSURL"] }
 
 [target.'cfg(windows)'.dependencies]
 # 窗口录制：Windows.Graphics.Capture 取帧 + Media Foundation 编码。

@@ -24,8 +24,18 @@ pub(crate) struct SnapshotRecord {
     pub(crate) app_id: Option<String>,
 }
 
-/// 默认把快照放到用户能在资源管理器里直接看到的「图片/Snapshot」。
-/// 系统没有图片目录时退回应用数据目录。
+/// 默认把快照放到用户能在资源管理器里直接看到的「图片/Snapshot」；
+/// 开发态隔离到各自的应用开发数据目录，不与正式版共用历史。
+pub(crate) fn default_history_dir_for_mode(
+    app_data_snapshots: &Path,
+    dev_isolated: bool,
+) -> PathBuf {
+    if dev_isolated {
+        return app_data_snapshots.to_path_buf();
+    }
+    default_history_dir(app_data_snapshots)
+}
+
 pub(crate) fn default_history_dir(app_data_snapshots: &Path) -> PathBuf {
     dirs::picture_dir()
         .map(|pictures| pictures.join("Snapshot"))
@@ -347,11 +357,19 @@ pub(crate) fn list_snapshots(state: State<'_, AppState>) -> Vec<SnapshotRecord> 
     let index_path = snapshot_index_path(&state);
     let _guard = state.snapshot_index_lock.lock();
     let records = read_snapshot_index(&index_path);
-    // 文件被手动删掉的条目顺手从索引里剔除，避免历史库里全是打不开的记录
-    let (alive, dropped): (Vec<_>, Vec<_>) = records
+    // 文件被手动删掉的条目顺手从索引里剔除；同时自动纠偏早期版本误写成上一个前台应用的 appId
+    let (mut alive, dropped): (Vec<_>, Vec<_>) = records
         .into_iter()
         .partition(|item| history_dir(&state).join(&item.file_name).is_file());
-    if !dropped.is_empty() {
+    let mut repaired = false;
+    for item in &mut alive {
+        let reconciled = os::reconcile_app_id(&item.app_name, item.app_id.as_deref());
+        if reconciled != item.app_id {
+            item.app_id = reconciled;
+            repaired = true;
+        }
+    }
+    if !dropped.is_empty() || repaired {
         let _ = write_snapshot_index(&index_path, &alive);
     }
     alive
@@ -359,10 +377,12 @@ pub(crate) fn list_snapshots(state: State<'_, AppState>) -> Vec<SnapshotRecord> 
 
 fn find_record(state: &AppState, id: &str) -> Result<SnapshotRecord, String> {
     let _guard = state.snapshot_index_lock.lock();
-    read_snapshot_index(&snapshot_index_path(state))
+    let mut record = read_snapshot_index(&snapshot_index_path(state))
         .into_iter()
         .find(|item| item.id == id)
-        .ok_or_else(|| "找不到这条快照".to_string())
+        .ok_or_else(|| "找不到这条快照".to_string())?;
+    record.app_id = os::reconcile_app_id(&record.app_name, record.app_id.as_deref());
+    Ok(record)
 }
 
 /// 按 id 读出一张快照的文件字节与类型（媒体协议用）。
@@ -616,6 +636,8 @@ mod tests {
         } else {
             assert_eq!(resolved, fallback);
         }
+        assert_eq!(default_history_dir_for_mode(&fallback, true), fallback);
+        assert_eq!(default_history_dir_for_mode(&fallback, false), resolved);
     }
 
     #[test]
