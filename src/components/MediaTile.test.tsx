@@ -43,11 +43,11 @@ describe("历史格子的来源应用角标", () => {
     expect(container.querySelector(".tile-type")).toBeNull();
   });
 
-  it("悬停信息只保留时间，不重复显示应用名称", () => {
+  it("缩略图表面干净：不叠加应用名称或右下角悬停时间遮罩", () => {
     setupTauriMock(() => undefined);
     const { container } = renderTile(item());
     expect(container.querySelector(".tile-name")).toBeNull();
-    expect(container.querySelector(".tile-info")?.textContent).toMatch(/\d{2}:\d{2}/);
+    expect(container.querySelector(".tile-info, .tile-time")).toBeNull();
   });
 
   it("格子只有一个主入口，没有悬停操作或圆形复选框，支持右键和键盘菜单", () => {
