@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCheck, FolderOpen, Trash2, X } from "lucide-react";
 import {
   annotateSnapshot,
@@ -15,8 +15,6 @@ import { formatBytes, groupByDay } from "../lib/format";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
 import { JustifiedGrid } from "../components/JustifiedGrid";
-import { DEFAULT_PHOTO_SIZE, PHOTO_SIZE_MIN, PHOTO_SIZE_MAX, PHOTO_SIZES } from "../lib/gallery";
-import { isNotchedZoom, zoomDeltaOf } from "../lib/photoPhysics";
 import { PhotoViewer } from "../components/PhotoViewer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
@@ -31,58 +29,8 @@ import { mergeTimeline, type MediaItem, type RecordingMeta } from "../lib/mediaT
 import type { RecordingRecord, SnapshotRecord } from "../types";
 
 type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y: number } };
-type GestureEventLike = Event & { scale?: number; clientX?: number; clientY?: number };
-type ZoomAnchor = {
-  element: HTMLElement | null;
-  clientY: number;
-  relRatio: number;
-  fallbackRatio: number;
-};
 
-const ZOOM_KEY = "snapshot-history-zoom";
-
-/** 存的可能是旧版档位（0–6）或新版行高（px）；档位换算成对应目标行高 */
-function readZoom(): number {
-  const stored = Number(localStorage.getItem(ZOOM_KEY));
-  if (!Number.isFinite(stored) || stored <= 0) return DEFAULT_PHOTO_SIZE;
-  if (stored < 10) {
-    return PHOTO_SIZES[Math.min(PHOTO_SIZES.length - 1, Math.round(stored))] ?? DEFAULT_PHOTO_SIZE;
-  }
-  return Math.max(PHOTO_SIZE_MIN, Math.min(PHOTO_SIZE_MAX, stored));
-}
-
-function captureZoomAnchor(scroller: HTMLElement, clientX: number, clientY: number): ZoomAnchor {
-  const scrollerRect = scroller.getBoundingClientRect();
-  const clampedY = Math.max(scrollerRect.top + 4, Math.min(scrollerRect.bottom - 4, clientY || (scrollerRect.top + scrollerRect.height / 2)));
-  const probeX = clientX > 0 ? clientX : scrollerRect.left + scrollerRect.width / 2;
-  let hit: HTMLElement | null = null;
-  if (typeof document.elementFromPoint === "function") {
-    const raw = document.elementFromPoint(probeX, clampedY);
-    if (raw && scroller.contains(raw)) {
-      hit = raw.closest<HTMLElement>("[data-flip-key], [data-day-key]");
-    }
-  }
-  if (!hit) {
-    const sections = scroller.querySelectorAll<HTMLElement>("[data-day-key]");
-    for (const section of sections) {
-      const box = section.getBoundingClientRect();
-      if (box.bottom >= clampedY) {
-        hit = section;
-        break;
-      }
-    }
-  }
-  if (hit) {
-    const rect = hit.getBoundingClientRect();
-    const relRatio = rect.height > 0 ? (clampedY - rect.top) / rect.height : 0;
-    return { element: hit, clientY: clampedY, relRatio, fallbackRatio: 0 };
-  }
-  const offsetInView = clampedY - scrollerRect.top;
-  const fallbackRatio = scroller.scrollHeight > 0 ? (scroller.scrollTop + offsetInView) / scroller.scrollHeight : 0;
-  return { element: null, clientY: offsetInView, relRatio: 0, fallbackRatio };
-}
-
-/** 历史：按日期分组 + 同行等高自适应拼图；点开 Quick Look 式快速预览，支持触控板连续无级捏合缩放。 */
+/** 历史：按日期分组 + 同行等高自适应拼图；点击打开 Quick Look 式快速预览，右键进入多选、复制、标注或删除。 */
 export function HistoryPage() {
   const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
   const { t, language } = useI18n();
@@ -91,7 +39,6 @@ export function HistoryPage() {
   const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>({});
   const metaRef = useRef<Record<string, RecordingMeta>>({});
   const [query, setQuery] = useState("");
-  const [zoom, setZoom] = useState(readZoom);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -117,122 +64,6 @@ export function HistoryPage() {
     metaRef.current = { ...metaRef.current, [id]: meta };
     setRecordingMeta(metaRef.current);
   }, []);
-
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
-  const persistTimerRef = useRef<number | null>(null);
-  const zoomAnchorRef = useRef<ZoomAnchor | null>(null);
-  const [scrollNode, setScrollNode] = useState<HTMLDivElement | null>(null);
-
-  const scheduleZoomPersist = useCallback((value: number) => {
-    if (persistTimerRef.current !== null) window.clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = window.setTimeout(() => {
-      persistTimerRef.current = null;
-      localStorage.setItem(ZOOM_KEY, String(Math.round(value)));
-    }, 150);
-  }, []);
-
-  useEffect(() => () => {
-    if (persistTimerRef.current !== null) {
-      window.clearTimeout(persistTimerRef.current);
-      localStorage.setItem(ZOOM_KEY, String(Math.round(zoomRef.current)));
-    }
-  }, []);
-
-  const changeZoom = useCallback((next: number, clientX = 0, clientY = 0) => {
-    const clamped = Math.max(PHOTO_SIZE_MIN, Math.min(PHOTO_SIZE_MAX, next));
-    if (Math.abs(clamped - zoomRef.current) < 0.25) return;
-    if (scrollNode) {
-      zoomAnchorRef.current = captureZoomAnchor(scrollNode, clientX, clientY);
-    }
-    zoomRef.current = clamped;
-    setZoom(clamped);
-    scheduleZoomPersist(clamped);
-  }, [scheduleZoomPersist, scrollNode]);
-
-  // 布局提交后、浏览器绘制前同步修正 scrollTop，让双指下的那一行图片零抖动原地缩放
-  useLayoutEffect(() => {
-    const pendingAnchor = zoomAnchorRef.current;
-    zoomAnchorRef.current = null;
-    if (!pendingAnchor || !scrollNode) return;
-    if (pendingAnchor.element && pendingAnchor.element.isConnected) {
-      const rect = pendingAnchor.element.getBoundingClientRect();
-      const currentY = rect.top + pendingAnchor.relRatio * rect.height;
-      scrollNode.scrollTop = Math.max(0, scrollNode.scrollTop + (currentY - pendingAnchor.clientY));
-    } else if (pendingAnchor.fallbackRatio > 0 && scrollNode.scrollHeight > 0) {
-      scrollNode.scrollTop = Math.max(0, pendingAnchor.fallbackRatio * scrollNode.scrollHeight - pendingAnchor.clientY);
-    }
-  }, [zoom, scrollNode]);
-
-  // 同时兼容 macOS WKWebView 原生 GestureEvent 双指捏合与 Windows/Linux/浏览器 Ctrl/Cmd+滚轮无级缩放
-  useEffect(() => {
-    const node = scrollNode;
-    if (!node) return;
-    let accumulatedLog = 0;
-    let lastX = 0;
-    let lastY = 0;
-    let frame: number | null = null;
-    let webkitGestureActive = false;
-    let lastGestureScale = 1;
-
-    const flush = () => {
-      frame = null;
-      if (accumulatedLog === 0) return;
-      const next = zoomRef.current * Math.exp(accumulatedLog);
-      accumulatedLog = 0;
-      changeZoom(next, lastX, lastY);
-    };
-
-    const queueDelta = (deltaLog: number, clientX: number, clientY: number) => {
-      if (!Number.isFinite(deltaLog) || deltaLog === 0) return;
-      lastX = clientX;
-      lastY = clientY;
-      accumulatedLog += deltaLog;
-      if (frame === null) frame = window.requestAnimationFrame(flush);
-    };
-
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      if (webkitGestureActive) return;
-      const delta = zoomDeltaOf(event.deltaY, event.deltaMode, isNotchedZoom(event));
-      queueDelta(delta, event.clientX, event.clientY);
-    };
-
-    const onGestureStart = (event: Event) => {
-      event.preventDefault();
-      const gesture = event as GestureEventLike;
-      webkitGestureActive = true;
-      lastGestureScale = typeof gesture.scale === "number" && gesture.scale > 0 ? gesture.scale : 1;
-    };
-
-    const onGestureChange = (event: Event) => {
-      event.preventDefault();
-      const gesture = event as GestureEventLike;
-      const scale = gesture.scale;
-      if (typeof scale !== "number" || scale <= 0 || lastGestureScale <= 0) return;
-      const delta = Math.log(scale / lastGestureScale);
-      lastGestureScale = scale;
-      queueDelta(delta, gesture.clientX ?? 0, gesture.clientY ?? 0);
-    };
-
-    const onGestureEnd = (event: Event) => {
-      event.preventDefault();
-      webkitGestureActive = false;
-    };
-
-    node.addEventListener("wheel", onWheel, { passive: false });
-    node.addEventListener("gesturestart", onGestureStart, { passive: false });
-    node.addEventListener("gesturechange", onGestureChange, { passive: false });
-    node.addEventListener("gestureend", onGestureEnd, { passive: false });
-    return () => {
-      node.removeEventListener("wheel", onWheel);
-      node.removeEventListener("gesturestart", onGestureStart);
-      node.removeEventListener("gesturechange", onGestureChange);
-      node.removeEventListener("gestureend", onGestureEnd);
-      if (frame !== null) window.cancelAnimationFrame(frame);
-    };
-  }, [changeZoom, scrollNode]);
 
   const refresh = useCallback(async () => {
     try {
@@ -529,7 +360,6 @@ export function HistoryPage() {
             </div>
             <JustifiedGrid
               items={group.items}
-              targetHeight={zoom}
               size={(item) => item}
               render={(item, box) => (
                 <figure
@@ -561,7 +391,7 @@ export function HistoryPage() {
     <div className="mw-page history-page">
       {toolbar}
       <div className="history-body">
-        <div className="mw-scroll history-scroll" ref={setScrollNode} role="region" aria-label={t("历史")} tabIndex={0}>{body}</div>
+        <div className="mw-scroll history-scroll" role="region" aria-label={t("历史")} tabIndex={0}>{body}</div>
       </div>
 
       {contextMenu && (
