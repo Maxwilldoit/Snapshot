@@ -25,7 +25,7 @@ type HoverPreviewBox = {
 const MARGIN = 12;
 const GAP = 12;
 const PAD = 6;
-const FOOTER_H = 44;
+const FOOTER_H = 26;
 const MIN_CARD_W = 228;
 const MAX_CARD_W = 760;
 
@@ -101,7 +101,7 @@ export function computeHoverPreviewBox(
   };
 }
 
-/** 历史缩略图悬停无损预览窗：在左/右侧浮出原图（或录屏静音预览），底部附带分辨率、格式、体积与拍摄时间。 */
+/** 历史缩略图悬停无损预览窗：在左/右侧即时浮出原图（或录屏静音预览），底部仅附带分辨率、格式、体积与拍摄时间。 */
 export function HoverPreview({
   anchor,
   onMeta,
@@ -174,13 +174,13 @@ export function HoverPreview({
               src={thumbUrl(item.id)}
               alt=""
               style={{ width: box.mediaWidth, height: box.mediaHeight }}
-              decoding="async"
+              decoding="sync"
             />
             <img
               key={item.id}
               className={`hover-preview-full ${fullLoaded ? "is-loaded" : ""}`}
               src={snapshotUrl(item.id)}
-              alt={item.appName}
+              alt=""
               style={{ width: box.mediaWidth, height: box.mediaHeight }}
               decoding="async"
               onLoad={() => setLoadedId(item.id)}
@@ -188,14 +188,11 @@ export function HoverPreview({
           </>
         )}
       </div>
-      <div className="hover-preview-foot">
-        <div className="hover-preview-row">
-          <span className="hover-preview-app">{item.appName}</span>
-          <time className="hover-preview-time mono" dateTime={new Date(item.createdAt).toISOString()}>
-            {formatCalendarDate(item.createdAt, Date.now(), language)} {formatClock(item.createdAt)}
-          </time>
-        </div>
-        <div className="hover-preview-specs mono">{specs.join(" · ")}</div>
+      <div className="hover-preview-foot mono">
+        <span className="hover-preview-specs">{specs.join(" · ")}</span>
+        <time className="hover-preview-time" dateTime={new Date(item.createdAt).toISOString()}>
+          {formatCalendarDate(item.createdAt, Date.now(), language)} {formatClock(item.createdAt)}
+        </time>
       </div>
     </div>,
     document.body,

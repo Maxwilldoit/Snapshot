@@ -67,7 +67,7 @@ describe("HoverPreview geometry and rendering", () => {
       />,
     );
     const tip = screen.getByRole("tooltip");
-    expect(tip.textContent).toContain("Figma");
+    expect(tip.textContent).not.toContain("Figma");
     expect(tip.textContent).toContain("1920 × 1080 · WEBP · 256 KB");
     const full = tip.querySelector<HTMLImageElement>("img.hover-preview-full");
     expect(full?.src).toContain("snapshot");

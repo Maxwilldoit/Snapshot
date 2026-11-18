@@ -93,12 +93,12 @@ describe("history opens markup directly and previews uncompressed media on hover
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("hovering a screenshot pops out an uncompressed preview window with resolution and format", async () => {
+  it("hovering a screenshot immediately pops out an uncompressed preview window without app name", async () => {
     renderHistory();
     const tile = await screen.findByRole("button", { name: "标注：Alpha" });
     fireEvent.pointerEnter(tile, { pointerType: "mouse", clientX: 240, clientY: 160 });
-    const tooltip = await screen.findByRole("tooltip");
-    expect(within(tooltip).getByText("Alpha")).toBeTruthy();
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.textContent).not.toContain("Alpha");
     expect(within(tooltip).getByText(/100 × 80 · PNG · 1 KB/)).toBeTruthy();
     const fullImg = tooltip.querySelector<HTMLImageElement>("img.hover-preview-full");
     expect(fullImg?.getAttribute("src")).toContain("snapshot");

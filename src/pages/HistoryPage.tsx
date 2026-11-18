@@ -58,25 +58,12 @@ export function HistoryPage() {
   const listRef = useRef<HTMLDivElement>(null);
   const flip = useFlip(listRef);
   const pendingHandled = useRef<string | null>(null);
-  const hoverTimerRef = useRef<number | null>(null);
-  const hoverWarmUntilRef = useRef(0);
   const hoveredTargetRef = useRef<{ id: string; node: HTMLElement; pointerX?: number } | null>(null);
   const scrubberActiveRef = useRef(false);
-  const hoverOpenRef = useRef(false);
-  hoverOpenRef.current = hoverAnchor !== null;
 
   const dismissHoverCold = useCallback(() => {
-    if (hoverTimerRef.current !== null) {
-      window.clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
     hoveredTargetRef.current = null;
-    hoverWarmUntilRef.current = 0;
     setHoverAnchor(null);
-  }, []);
-
-  useEffect(() => () => {
-    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
   }, []);
 
   const annotateItem = useCallback((item: MediaItem) => {
@@ -216,30 +203,22 @@ export function HistoryPage() {
   }, []);
 
   const handleHoverStart = useCallback((item: MediaItem, node: HTMLElement, pointerX?: number) => {
-    if (selectingRef.current || scrubberActiveRef.current) return;
+    if (selectingRef.current || scrubberActiveRef.current || !node.isConnected) return;
     hoveredTargetRef.current = { id: item.id, node, pointerX };
-    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
-    const warm = hoverOpenRef.current || performance.now() < hoverWarmUntilRef.current;
-    const delay = warm ? 40 : 160;
-    hoverTimerRef.current = window.setTimeout(() => {
-      hoverTimerRef.current = null;
-      const target = hoveredTargetRef.current;
-      if (!target || target.id !== item.id || !target.node.isConnected || selectingRef.current || scrubberActiveRef.current) return;
-      const rect = target.node.getBoundingClientRect();
-      const latest = filteredRef.current.find((entry) => entry.id === item.id) ?? item;
-      setHoverAnchor({
-        item: latest,
-        rect: {
-          left: rect.left,
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom,
-          width: rect.width,
-          height: rect.height,
-        },
-        pointerX: target.pointerX,
-      });
-    }, delay);
+    const rect = node.getBoundingClientRect();
+    const latest = filteredRef.current.find((entry) => entry.id === item.id) ?? item;
+    setHoverAnchor({
+      item: latest,
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      },
+      pointerX,
+    });
   }, []);
 
   const handleHoverMove = useCallback((pointerX: number) => {
@@ -249,17 +228,10 @@ export function HistoryPage() {
   }, []);
 
   const handleHoverEnd = useCallback((item: MediaItem) => {
-    if (hoverTimerRef.current !== null) {
-      window.clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
     if (hoveredTargetRef.current?.id === item.id) {
       hoveredTargetRef.current = null;
     }
-    if (hoverOpenRef.current) {
-      hoverWarmUntilRef.current = performance.now() + 260;
-    }
-    setHoverAnchor(null);
+    setHoverAnchor((current) => (current?.item.id === item.id ? null : current));
   }, []);
 
   const open = useCallback((item: MediaItem, event: React.MouseEvent) => {
