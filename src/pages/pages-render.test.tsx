@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { PlatformCapabilities, Settings } from "../types";
+import type { PlatformCapabilities, Settings, TrashEntry } from "../types";
 import { setupTauriMock, type IPCHandler } from "../test/tauri";
 
 vi.mock("../lib/petAutoScale", () => ({ measurePetScale: vi.fn().mockResolvedValue(null) }));
@@ -59,6 +59,7 @@ function handler(command: string) {
     case "platform_capabilities":
       return capabilities;
     case "list_snapshots":
+    case "list_trash":
       return [];
     case "list_prompt_history":
       return [];
@@ -194,6 +195,7 @@ describe("B2 拆页后逐页渲染", () => {
 
   it.each([
     [/^历史/, "还没有截图或录屏"],
+    [/^回收站$/, "回收站为空"],
     [/^Prompt$/, "还没有 Prompt 记录"],
     [/^应用图标/, "自由走动"],
     [/^截图与录制/, "截图时"],
@@ -204,6 +206,52 @@ describe("B2 拆页后逐页渲染", () => {
     await user.click(screen.getByRole("button", { name: navLabel }));
     // 换页不等旧页淡出，新页内容应当马上出现
     expect(await screen.findAllByText(marker, { exact: false })).not.toHaveLength(0);
+  });
+
+  it("资料库回收站可恢复原图，永久删除前会确认", async () => {
+    const original = {
+      id: "original", fileName: "original.png", appName: "Codex",
+      width: 200, height: 100, createdAt: 1, sizeBytes: 1200,
+    };
+    const recording = {
+      id: "recording", fileName: "Snapshot-recording.mp4", appName: "Terminal",
+      createdAt: 2, sizeBytes: 2400,
+    };
+    let entries: TrashEntry[] = [
+      { id: "trash-original", trashedAt: 4, kind: "snapshot", record: original },
+      { id: "trash-recording", trashedAt: 3, kind: "recording", record: recording },
+    ];
+    let restored = false;
+    const purged = vi.fn();
+    await renderApp((command, args) => {
+      if (command === "list_trash") return structuredClone(entries);
+      if (command === "list_snapshots") return restored ? [original] : [];
+      if (command === "restore_trash") {
+        expect((args as { id: string }).id).toBe("trash-original");
+        entries = entries.filter((entry) => entry.id !== "trash-original");
+        restored = true;
+      }
+      if (command === "purge_trash") {
+        const { ids } = args as { ids: string[] };
+        purged(ids);
+        entries = entries.filter((entry) => !ids.includes(entry.id));
+      }
+      return handler(command);
+    });
+    const user = userEvent.setup();
+    const library = screen.getByRole("heading", { name: "资料库" }).parentElement!;
+    await user.click(within(library).getByRole("button", { name: "回收站" }));
+    await user.click(await screen.findByRole("button", { name: "恢复 original.png" }));
+    await waitFor(() => expect(screen.queryByText("Codex")).toBeNull());
+    await user.click(screen.getByRole("button", { name: "清空回收站" }));
+    await user.keyboard("{Escape}");
+    expect(purged).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "清空回收站" }));
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "永久删除" }));
+    expect(await screen.findByRole("heading", { name: "回收站为空" })).toBeTruthy();
+    expect(purged).toHaveBeenCalledWith(["trash-recording"]);
+    await user.click(within(library).getByRole("button", { name: "历史" }));
+    expect(await screen.findByRole("button", { name: "标注：Codex" })).toBeTruthy();
   });
 
   it("截图和 Prompt 分在资料库的两页，Prompt 可展开原文与润色文", async () => {
@@ -437,7 +485,7 @@ describe("B2 拆页后逐页渲染", () => {
     const nav = screen.getByRole("navigation", { name: "主导航" });
     // 导入按钮与伴侣名称各是一个按钮，不再显示独立选择圆圈。
     expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "历史", "Prompt", "截图与录制", "快捷键", "", "应用图标",
+      "历史", "Prompt", "回收站", "截图与录制", "快捷键", "", "应用图标",
     ]);
     expect(within(nav).getByRole("button", { name: "导入伴侣素材…" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^主题库/ })).toBeNull();

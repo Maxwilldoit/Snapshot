@@ -17,6 +17,7 @@ import type {
   Settings,
   ShortcutBinding,
   SnapshotRecord,
+  TrashEntry,
 } from "../types";
 
 export const setInterfaceLanguage = (language: "zh" | "en") =>
@@ -198,6 +199,10 @@ export const listRecordings = () => invoke<RecordingRecord[]>("list_recordings")
 
 /** 删掉选中的几段录像，返回删完后的列表 */
 export const deleteRecordings = (ids: string[]) => invoke<RecordingRecord[]>("delete_recordings", { ids });
+
+export const listTrash = () => invoke<TrashEntry[]>("list_trash");
+export const restoreTrash = (id: string) => invoke<void>("restore_trash", { id });
+export const purgeTrash = (ids: string[]) => invoke<void>("purge_trash", { ids });
 
 /** 把历史里的一张重新放回剪贴板 */
 export const copySnapshot = (id: string) => invoke<string>("copy_snapshot", { id });

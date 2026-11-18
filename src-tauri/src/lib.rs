@@ -25,6 +25,7 @@ mod settings;
 mod shortcuts;
 mod snapshots;
 mod tracker;
+mod trash;
 
 // 三端各一套原生实现（os/windows、os/macos、os/linux），对外提供同名的一组函数：
 // 录制、带光标截图、还原最小化、开机自启、取图标、打开文件夹、本机能力、
@@ -76,6 +77,8 @@ struct AppState {
     recordings_dir: Option<PathBuf>,
     /// 快照缩略图，放在应用数据目录，不往用户选的保存目录里塞东西
     thumbs_dir: PathBuf,
+    trash_dir: PathBuf,
+    trash_lock: Mutex<()>,
     /// 导入时复制进来的伴侣素材与它们的缩略图
     pets_dir: PathBuf,
     /// 导入时复制进来的自定义快门声（只留当前那一份）
@@ -96,10 +99,7 @@ struct AppState {
     quick_menu_anchor: Mutex<Option<(f64, f64)>>,
     quick_menu_pending_show: AtomicBool,
     /// 标注窗口待编辑 PNG（RGBA 编码前的原始 PNG 字节）
-    annotate_png: Mutex<Option<Vec<u8>>>,
-    annotate_title: Mutex<String>,
-    /// 标注副本的来源应用稳定标识，存进历史时沿用，角标跟原图一致
-    annotate_app_id: Mutex<Option<String>>,
+    annotate_session: Mutex<Option<capture::AnnotateSession>>,
     /// 历史角标按稳定标识取到的图标缓存（键 `{id}/{size}`）。应用退出后图标不变，
     /// 内存缓存最轻：进程重启再取一次即可，不落盘。
     app_icons: Mutex<HashMap<String, Vec<u8>>>,
@@ -421,6 +421,8 @@ pub fn run() {
             snapshots_dir,
             recordings_dir,
             thumbs_dir,
+            trash_dir: data_dir.join("trash"),
+            trash_lock: Mutex::new(()),
             pets_dir,
             sounds_dir,
             activity: Mutex::new(activity::ActivityLog::load(activity_path)),
@@ -438,9 +440,7 @@ pub fn run() {
             pet_frame_shift: Mutex::new((0, 0)),
             quick_menu_anchor: Mutex::new(None),
             quick_menu_pending_show: AtomicBool::new(false),
-            annotate_png: Mutex::new(None),
-            annotate_title: Mutex::new(String::new()),
-            annotate_app_id: Mutex::new(None),
+            annotate_session: Mutex::new(None),
             app_icons: Mutex::new(HashMap::new()),
             recording_meta_path,
             shortcut_conflicts: Mutex::new(Vec::new()),
@@ -792,6 +792,9 @@ pub fn run() {
             recording::list_recordings,
             recording::delete_recordings,
             snapshots::delete_snapshots,
+            trash::list_trash,
+            trash::restore_trash,
+            trash::purge_trash,
             snapshots::copy_snapshot,
             activity::list_activity,
             prompt_history::list_prompt_history,
@@ -817,6 +820,7 @@ pub fn run() {
             launchpad::launch_app,
             capture::get_annotate_image,
             capture::annotate_get_title,
+            capture::get_annotate_session,
             capture::annotate_copy,
             capture::annotate_save,
             capture::annotate_save_copy,

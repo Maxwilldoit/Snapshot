@@ -13,6 +13,7 @@ Built with Tauri 2, React, and native adapters for Windows, macOS, and Linux.
 - **Screenshots**: capture windows or the full screen; copy, annotate, or save only to History. Linux X11 also supports scrolling screenshots.
 - **Recording**: record a selected window to MP4, with optional system audio and microphone input.
 - **History**: screenshots and recordings share one searchable timeline, newest first. Prompt rewrites have their own page and keep the original, result, rule, and time.
+- **Markup and Trash**: crop images in Markup and undo the crop while editing. Finishing an edit keeps the edited image in History and moves the original to Trash. Restore screenshots and recordings from **Trash** in the sidebar.
 - **Prompts**: rewrite clipboard text using an OpenAI-compatible endpoint and reusable rules. API keys stay in the operating system credential store. A separate Prompt library stores text you want to reuse.
 - **Companion**: show the active app icon or import GIF/WebM actions. Optional roaming, random actions, gravity, and a right-click quick menu keep tools within reach. Windows and Linux also provide a launchpad.
 - **Shortcuts**: bind common actions or pause global shortcuts without losing saved bindings.

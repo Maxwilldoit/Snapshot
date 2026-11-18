@@ -16,6 +16,7 @@ import { LoadingState } from "./components/LoadingState";
 import { useActivityLog, useRecordingStatus } from "./hooks/useLive";
 import { ShortcutsPage } from "./pages/ShortcutsPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { TrashPage } from "./pages/TrashPage";
 import { ClipboardPage } from "./pages/ClipboardPage";
 import { PromptsPage } from "./pages/PromptsPage";
 import { PetPage } from "./pages/PetPage";
@@ -24,7 +25,7 @@ import type { NavPage, PlatformCapabilities, Settings } from "./types";
 import { useI18n, useWindowTitle } from "./lib/i18n";
 
 /** 侧栏的先后顺序决定换页时上下滑入的方向 */
-const NAV_ORDER: NavPage[] = ["history", "clipboard", "prompts", "capture", "shortcuts", "pet"];
+const NAV_ORDER: NavPage[] = ["history", "clipboard", "prompts", "trash", "capture", "shortcuts", "pet"];
 
 function directionFor(from: NavPage, to: NavPage): TransitionDirection {
   return NAV_ORDER.indexOf(to) >= NAV_ORDER.indexOf(from) ? "down" : "up";
@@ -39,6 +40,8 @@ function PageView({ page }: { page: NavPage }) {
       return <PetPage />;
     case "clipboard":
       return <ClipboardPage />;
+    case "trash":
+      return <TrashPage />;
     case "capture":
       return <CapturePage />;
     case "shortcuts":

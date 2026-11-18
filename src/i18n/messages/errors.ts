@@ -36,6 +36,13 @@ export const backendErrorEnglish: Record<string, string> = {
   "Prompt 库打开失败": "Couldn’t open the Prompt Library.",
   "这条 Prompt 已不存在": "That prompt no longer exists.",
   "快照文件已被移动或删除": "The screenshot file was moved or deleted.",
+  "历史文件名无效": "The history filename is invalid.",
+  "历史文件已被移动或删除": "The history file was moved or deleted.",
+  "目标文件已存在，无法恢复": "A file with this name already exists. Move or rename it before restoring.",
+  "找不到这条回收站记录": "This item is no longer in Trash.",
+  "原图已不在历史记录中，请重新打开标注": "The original is no longer in History. Reopen the image to continue.",
+  "待标注的截图已更换，请重新打开标注": "The screenshot being edited changed. Reopen it to continue.",
+  "请选择其他文件名，原图将移入回收站": "Choose another filename. The original will be moved to Trash.",
   "素材库目录文件过大": "The Pet Gallery list is too large to load.",
   "素材库目录格式不正确": "The Pet Gallery list is damaged. Try again later.",
   "当前应用不支持这个素材库版本": "This Pet Gallery needs a newer version of Snapshot.",
@@ -174,6 +181,9 @@ export const backendErrorEnglish: Record<string, string> = {
 };
 
 export const backendErrorPatterns: Array<[RegExp, string]> = [
+  [/^无法操作回收站：(.+)$/s, "Couldn’t access Trash. $1"],
+  [/^原图仍可从回收站恢复：(.+)$/s, "The original is still recoverable from Trash. $1"],
+  [/^已另存，但没能存进历史记录：(.+)$/s, "Exported, but couldn’t save to History. $1"],
   [/^无法启动无感窗口采集组件：(.+)$/s, "Couldn’t start window capture. $1"],
   [/^等待无感窗口采集失败：(.+)$/s, "Window capture didn’t finish. $1"],
   [/^读取无感窗口采集结果失败：(.+)$/s, "Couldn’t read the window capture. $1"],

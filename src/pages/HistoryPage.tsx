@@ -285,7 +285,7 @@ export function HistoryPage() {
       setRecordings(nextRecs);
       setLeaving(new Set());
       setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))));
-      notify(t(ids.length === 1 ? "删掉了 1 项" : "删掉了 {count} 项", { count: ids.length }));
+      notify(t(ids.length === 1 ? "已将 1 项移入回收站" : "已将 {count} 项移入回收站", { count: ids.length }));
       return true;
     } catch (error) {
       setLeaving(new Set());
@@ -504,7 +504,7 @@ export function HistoryPage() {
       {confirmDialog.item && (
         <ConfirmDialog
           title={confirmDialog.item.title}
-          body={t("文件会从本机一起删掉，没法恢复。")}
+          body={t("可在资料库的回收站中恢复这些文件。")}
           confirmLabel={confirmDialog.item.label}
           busy={deleting || !deleteIds}
           leaving={confirmDialog.leaving}

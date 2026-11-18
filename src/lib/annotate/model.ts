@@ -3,8 +3,8 @@
  * 画布只在显示和导出时把它们画出来（render.ts），原图像素从不被改写。
  */
 
-export type Tool = "select" | "arrow" | "rect" | "ellipse" | "pen" | "highlight" | "text" | "step";
-export type DrawTool = Exclude<Tool, "select">;
+export type Tool = "select" | "arrow" | "rect" | "ellipse" | "pen" | "highlight" | "text" | "step" | "crop";
+export type DrawTool = Exclude<Tool, "select" | "crop">;
 /** 粗细：线条的逻辑点数（1–12，线性），字号、编号、荧光笔、马赛克块都按它等比换算 */
 export type Size = number;
 export type Point = { x: number; y: number };
@@ -60,6 +60,14 @@ const normalize = (a: Point, b: Point): Rect => ({
   w: Math.abs(b.x - a.x),
   h: Math.abs(b.y - a.y),
 });
+
+export function cropBounds(start: Point, end: Point, width: number, height: number): Rect {
+  const clamp = (point: Point) => ({
+    x: Math.max(0, Math.min(width, Math.round(point.x))),
+    y: Math.max(0, Math.min(height, Math.round(point.y))),
+  });
+  return normalize(clamp(start), clamp(end));
+}
 
 /** ⇧：矩形/椭圆变成正方形 */
 export function squareFrom(anchor: Point, point: Point): Point {

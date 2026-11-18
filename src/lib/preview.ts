@@ -1,6 +1,6 @@
 import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, RecordingRecord, SavedPrompt, Settings, SnapshotRecord } from "../types";
+import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, RecordingRecord, SavedPrompt, Settings, SnapshotRecord, TrashEntry } from "../types";
 import { demoVideos } from "./demoVideos";
 
 /**
@@ -267,6 +267,22 @@ let clipboardHistory = demo
 const idleRecording = { active: false, target: null, startedAt: null };
 const defaultSnapshotDir = () => (demo ? "D:\\Dropbox\\工作\\2026\\截图归档\\应用快照\\原始文件" : "~/Pictures/Snapshot");
 const defaultRecordingDir = "~/Downloads";
+let trashEntries: TrashEntry[] = [];
+let trashSequence = 0;
+
+function moveToTrash(ids: string[], kind: TrashEntry["kind"]) {
+  const trashedAt = Date.now();
+  if (kind === "snapshot") {
+    const moved = snapshots.filter((record) => ids.includes(record.id));
+    trashEntries.unshift(...moved.map((record) => ({ id: `trash-${++trashSequence}`, trashedAt, kind, record } as const)));
+    snapshots = snapshots.filter((record) => !ids.includes(record.id));
+    return structuredClone(snapshots);
+  }
+  const moved = recordings.filter((record) => ids.includes(record.id));
+  trashEntries.unshift(...moved.map((record) => ({ id: `trash-${++trashSequence}`, trashedAt, kind, record } as const)));
+  recordings = recordings.filter((record) => !ids.includes(record.id));
+  return structuredClone(recordings);
+}
 
 /** 改设置的命令在预览里也要「生效」，页面才能照常来回切换 */
 function update(patch: Partial<Settings>): Settings {
@@ -435,15 +451,35 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       savedPrompts = savedPrompts.filter((prompt) => prompt.id !== args.id);
       return structuredClone(savedPrompts);
     case "delete_snapshots":
-      snapshots = snapshots.filter((item) => !(args.ids as string[]).includes(item.id));
-      return structuredClone(snapshots);
+      return moveToTrash(args.ids, "snapshot");
     case "delete_recordings":
-      recordings = recordings.filter((item) => !(args.ids as string[]).includes(item.id));
-      return structuredClone(recordings);
+      return moveToTrash(args.ids, "recording");
+    case "list_trash":
+      return structuredClone(trashEntries);
+    case "restore_trash": {
+      const entry = trashEntries.find((item) => item.id === args.id);
+      if (entry?.kind === "snapshot") snapshots.push(entry.record);
+      if (entry?.kind === "recording") recordings.push(entry.record);
+      trashEntries = trashEntries.filter((item) => item.id !== args.id);
+      return undefined;
+    }
+    case "purge_trash":
+      trashEntries = trashEntries.filter((item) => !args.ids.includes(item.id));
+      return undefined;
     case "copy_snapshot":
       return "预览模式下不会写剪贴板";
     case "annotate_snapshot":
       throw new Error("请在桌面应用中打开标注窗口");
+    case "get_annotate_session": {
+      const record = snapshots[0];
+      return record ? { id: 1, title: record.appName, imageData: demoSnapshotImage(record) } : null;
+    }
+    case "annotate_copy":
+      return "已复制标注图";
+    case "annotate_save":
+      return "已保存标注图";
+    case "annotate_save_copy":
+      return "已存入历史记录";
     case "list_activity":
       return structuredClone(activity);
     case "list_capturable_windows":
@@ -476,6 +512,10 @@ export function installPreviewBackend() {
       if (kind === "snapshot" || kind === "thumb") {
         const record = snapshots.find((item) => item.id === id);
         if (record) return demoSnapshotImage(record);
+      }
+      if (kind === "trash-thumb") {
+        const entry = trashEntries.find((item) => item.id === id);
+        if (entry?.kind === "snapshot") return demoSnapshotImage(entry.record);
       }
       if (kind === "recording" && demoVideos[id]) return demoVideos[id];
       if (kind === "clipboard") {

@@ -73,6 +73,9 @@ export const windowsEnglish: Record<string, string> = {
   "撤销": "Undo",
   "重做": "Redo",
   "存入截图记录": "Save to History",
+  "裁剪": "Crop",
+  "裁剪尺寸：{width} × {height}": "Crop size: {width} × {height}",
+  "拖动选区，或用方向键调整右下角，Shift 加方向键调整左上角。": "Drag to select, or use arrow keys for the bottom-right corner and Shift with arrow keys for the top-left corner.",
   "再按一次 Esc 放弃标注并关闭": "Press Esc again to discard your markup and close.",
   "复制": "Copy",
   "另存为…": "Save As…",
@@ -80,7 +83,6 @@ export const windowsEnglish: Record<string, string> = {
   "截图标注画布": "Markup canvas",
   "已取消另存，标注仍保留": "Save canceled. Your markup is still here.",
   "已保存标注图": "Image saved",
-  "标注副本已保存到历史记录": "Saved a copy to History",
 
   "搜索应用": "Search",
   "正在读取本机应用…": "Loading apps…",

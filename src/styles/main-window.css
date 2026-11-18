@@ -217,6 +217,22 @@ html[data-surface="app"] .history-scroll:focus-visible { outline-offset: -3px; }
 html[data-surface="app"] .history-page .mw-empty { padding-top: 92px; }
 html[data-surface="app"] .history-page .mw-empty-line { margin-top: 80px; }
 
+html[data-surface="app"] .trash-list { list-style: none; margin: 0; padding: 8px 20px 24px; }
+html[data-surface="app"] .trash-row {
+  display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 0; border-bottom: 1px solid var(--sep);
+}
+html[data-surface="app"] .trash-thumb {
+  position: relative; flex: 0 0 66px; height: 42px; display: grid; place-items: center;
+  overflow: hidden; border-radius: 5px; background: var(--fill); color: var(--text3);
+}
+html[data-surface="app"] .trash-thumb svg { width: 17px; height: 17px; }
+html[data-surface="app"] .trash-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+html[data-surface="app"] .trash-details { flex: 1; min-width: 0; margin-left: 3px; }
+html[data-surface="app"] .trash-name, html[data-surface="app"] .trash-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-surface="app"] .trash-name { font-size: 13px; font-weight: 500; }
+html[data-surface="app"] .trash-meta { margin-top: 3px; color: var(--text2); font-size: 11px; }
+html[data-surface="app"] .trash-row .tb-btn { flex: 0 0 auto; }
+
 /* 按日期分组 + 同行等高自适应拼图（Justified）：左界对齐顶栏标题（20px），12px 呼吸间距 */
 html[data-surface="app"] .gallery { display: block; padding: 60px 24px 32px 20px; }
 html[data-surface="app"] .mw .day { position: relative; display: block; margin-top: 24px; padding: 0; border-top: 0; }

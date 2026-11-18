@@ -78,6 +78,7 @@ export function SideNav() {
     { page: "history", label: t("历史") },
     ...(caps?.clipboardHistory?.available ? [{ page: "clipboard" as const, label: t("剪贴板") }] : []),
     { page: "prompts", label: t("Prompt") },
+    { page: "trash", label: t("回收站") },
   ];
   const prefs: NavItem[] = [
     { page: "capture", label: t("截图与录制") },

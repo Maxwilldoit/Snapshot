@@ -353,7 +353,7 @@ pub(crate) fn format_duration(ms: u64) -> String {
 
 /// 历史页里的一段录像。不另建索引：目录就是事实来源，文件名里带着录制时间。
 /// 时长和画面尺寸由前端用 video 元素量（preload=metadata），后端不引入解码依赖。
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordingRecord {
     /// 文件名去掉 .mp4，媒体协议按它取文件
@@ -433,8 +433,12 @@ pub(crate) fn list_recordings_now(state: &AppState) -> Vec<RecordingRecord> {
     let Ok(dir) = resolve_recording_dir(state, &state.settings.lock()) else {
         return Vec::new();
     };
+    list_recordings_in(state, &dir)
+}
+
+fn list_recordings_in(state: &AppState, dir: &Path) -> Vec<RecordingRecord> {
     let active = state.recorder.lock().active_output();
-    let mut records = scan_recordings(&dir, active.as_deref());
+    let mut records = scan_recordings(dir, active.as_deref());
     if !records.is_empty() {
         // 目标应用名记在活动流水里（detail 是落盘路径）；流水只留最近 300 条，
         // 更早的录像退回通用称呼，不影响播放和删除
@@ -485,27 +489,51 @@ pub(crate) async fn delete_recordings(
 ) -> Result<Vec<RecordingRecord>, String> {
     on_worker(app, move |app, state| {
         let dir = resolve_recording_dir(state, &state.settings.lock())?;
-        let active = state.recorder.lock().active_output();
-        for id in &ids {
-            // id 是文件名主干：先验明是本应用的命名，再拼路径，杜绝目录穿越
-            if recording_stem(&format!("{id}.mp4")).is_none() {
-                continue;
-            }
-            let path = dir.join(format!("{id}.mp4"));
-            if active.as_deref() == Some(path.as_path()) {
-                continue;
-            }
-            match fs::remove_file(&path) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(format!("删除录像失败：{error}"));
+        let _guard = state.trash_lock.lock();
+        let records = list_recordings_in(state, &dir);
+        let result = records
+            .into_iter()
+            .filter(|record| ids.contains(&record.id))
+            .try_for_each(|record| {
+                let path = trash::checked_file(&dir, &record.file_name)?;
+                let recorder = state.recorder.lock();
+                if recorder.active_output().as_deref() == Some(path.as_path()) {
+                    return Err("这段录像还在录制中".into());
                 }
-                _ => {}
-            }
-        }
+                trash::archive(
+                    &state.trash_dir,
+                    &path,
+                    trash::TrashMedia::Recording(record),
+                )
+                .map(|_| ())
+            });
         let _ = app.emit("recordings-changed", ());
+        result?;
         Ok(list_recordings_now(state))
     })
     .await
+}
+
+pub(crate) fn restore_recording(
+    state: &AppState,
+    entry: &trash::TrashEntry,
+    record: &RecordingRecord,
+) -> Result<(), String> {
+    if recording_stem(&record.file_name) != Some(record.id.as_str()) {
+        return Err("录像路径无效".into());
+    }
+    let dir = resolve_recording_dir(state, &state.settings.lock())?;
+    let destination = trash::checked_file(&dir, &record.file_name)?;
+    let recorder = state.recorder.lock();
+    if recorder.active_output().as_deref() == Some(destination.as_path()) {
+        return Err("这段录像还在录制中".into());
+    }
+    trash::copy_out(&state.trash_dir, entry, &destination)?;
+    if let Err(error) = trash::discard(&state.trash_dir, entry) {
+        let _ = fs::remove_file(destination);
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// 按 id 校验出录像的真实路径：只放行本应用命名、不带路径分隔符的 id

@@ -1,5 +1,6 @@
 use super::*;
 use crate::capture_timing::CaptureTrace;
+use crate::trash::{self, TrashEntry, TrashMedia};
 use image::buffer::ConvertBuffer;
 use serde::Deserialize;
 
@@ -168,15 +169,6 @@ pub(crate) fn write_snapshot_index(path: &Path, records: &[SnapshotRecord]) -> R
 
 /// 把截图落盘并登记进历史索引。
 /// 这里失败不该影响"已复制到剪贴板"这件事，所以调用方只记录不中断。
-pub(crate) fn store_snapshot(
-    state: &AppState,
-    image: &RgbaImage,
-    app_name: &str,
-    app_id: Option<String>,
-) -> Result<SnapshotRecord, String> {
-    store_snapshot_inner(state, image, app_name, app_id, None)
-}
-
 pub(crate) fn store_snapshot_traced(
     state: &AppState,
     image: &RgbaImage,
@@ -184,18 +176,33 @@ pub(crate) fn store_snapshot_traced(
     app_id: Option<String>,
     trace: &CaptureTrace,
 ) -> Result<SnapshotRecord, String> {
-    store_snapshot_inner(state, image, app_name, app_id, Some(trace))
+    let dir = history_dir(state);
+    let record = write_snapshot_file(state, &dir, image, app_name, app_id, Some(trace))?;
+    let _ = write_thumbnail(state, &record.id, image, Some(trace));
+    let index_path = dir.join("index.json");
+    {
+        let _guard = state.snapshot_index_lock.lock();
+        let mut records = read_snapshot_index(&index_path);
+        records.insert(0, record.clone());
+        if let Err(error) = write_snapshot_index(&index_path, &records) {
+            let _ = fs::remove_file(dir.join(&record.file_name));
+            let _ = fs::remove_file(thumbnail_path(state, &record.id));
+            return Err(error);
+        }
+    }
+    trace.mark("history_index");
+    Ok(record)
 }
 
-fn store_snapshot_inner(
+fn write_snapshot_file(
     state: &AppState,
+    dir: &Path,
     image: &RgbaImage,
     app_name: &str,
     app_id: Option<String>,
     trace: Option<&CaptureTrace>,
 ) -> Result<SnapshotRecord, String> {
-    let dir = history_dir(state);
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(dir).map_err(|error| error.to_string())?;
     let format_setting = state.settings.lock().snapshot_format.clone();
     let (format, ext) = snapshot_format_parts(&format_setting);
     let created_at = now_millis();
@@ -206,15 +213,16 @@ fn store_snapshot_inner(
     );
     let file_name = format!("{id}.{ext}");
     let path = dir.join(&file_name);
-    match trace.filter(|trace| trace.enabled()) {
-        Some(trace) => write_image_timed(image, &path, format, trace)
-            .map_err(|error| format!("保存快照失败：{error}"))?,
-        None => {
-            write_image(image, &path, format).map_err(|error| format!("保存快照失败：{error}"))?;
-        }
+    let result = match trace.filter(|trace| trace.enabled()) {
+        Some(trace) => write_image_timed(image, &path, format, trace),
+        None => write_image(image, &path, format).map_err(|error| error.to_string()),
+    };
+    if let Err(error) = result {
+        let _ = fs::remove_file(&path);
+        return Err(format!("保存快照失败：{error}"));
     }
     let size_bytes = fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
-    let record = SnapshotRecord {
+    Ok(SnapshotRecord {
         id,
         file_name,
         app_name: app_name.to_string(),
@@ -223,20 +231,7 @@ fn store_snapshot_inner(
         size_bytes,
         created_at,
         app_id,
-    };
-    // 缩略图失败不影响快照本身：列表里取不到时会按原图现做一张
-    let _ = write_thumbnail(state, &record.id, image, trace);
-    let index_path = snapshot_index_path(state);
-    {
-        let _guard = state.snapshot_index_lock.lock();
-        let mut records = read_snapshot_index(&index_path);
-        records.insert(0, record.clone());
-        write_snapshot_index(&index_path, &records)?;
-    }
-    if let Some(trace) = trace {
-        trace.mark("history_index");
-    }
-    Ok(record)
+    })
 }
 
 fn thumbnail_path(state: &AppState, id: &str) -> PathBuf {
@@ -251,9 +246,7 @@ fn write_thumbnail(
     image: &RgbaImage,
     trace: Option<&CaptureTrace>,
 ) -> Result<(), String> {
-    let (width, height) = thumbnail_size(image.width(), image.height());
-    let small = image::imageops::thumbnail(image, width, height);
-    let rgb: image::RgbImage = small.convert();
+    let rgb = make_thumbnail(image);
     fs::create_dir_all(&state.thumbs_dir).map_err(|error| error.to_string())?;
     let result = rgb
         .save_with_format(thumbnail_path(state, id), ImageFormat::Jpeg)
@@ -262,6 +255,11 @@ fn write_thumbnail(
         trace.mark("thumbnail");
     }
     result
+}
+
+pub(crate) fn make_thumbnail(image: &RgbaImage) -> image::RgbImage {
+    let (width, height) = thumbnail_size(image.width(), image.height());
+    image::imageops::thumbnail(image, width, height).convert()
 }
 
 fn thumbnail_size(width: u32, height: u32) -> (u32, u32) {
@@ -277,11 +275,6 @@ fn thumbnail_size(width: u32, height: u32) -> (u32, u32) {
         ((width as f64 * scale).round() as u32).max(1),
         ((height as f64 * scale).round() as u32).max(1),
     )
-}
-
-fn remove_snapshot_files(state: &AppState, dir: &Path, record: &SnapshotRecord) {
-    let _ = fs::remove_file(dir.join(&record.file_name));
-    let _ = fs::remove_file(thumbnail_path(state, &record.id));
 }
 
 /// 按格式写盘。JPEG 不支持 alpha，要先转成 RGB；PNG / WebP 直接写 RGBA。
@@ -306,6 +299,22 @@ fn write_image_timed(
     format: ImageFormat,
     trace: &CaptureTrace,
 ) -> Result<(), String> {
+    let bytes = encode_snapshot(image, format)?;
+    trace.mark("snapshot_encode");
+    fs::write(path, bytes).map_err(|error| error.to_string())?;
+    trace.mark("snapshot_write");
+    Ok(())
+}
+
+pub(crate) fn write_image_atomically(
+    image: &RgbaImage,
+    path: &Path,
+    format: ImageFormat,
+) -> Result<(), String> {
+    atomic_write_bytes(path, &encode_snapshot(image, format)?)
+}
+
+fn encode_snapshot(image: &RgbaImage, format: ImageFormat) -> Result<Vec<u8>, String> {
     let mut bytes = Cursor::new(Vec::new());
     if format == ImageFormat::Jpeg {
         let rgb: image::RgbImage = image.convert();
@@ -316,10 +325,7 @@ fn write_image_timed(
             .write_to(&mut bytes, format)
             .map_err(|error| error.to_string())?;
     }
-    trace.mark("snapshot_encode");
-    fs::write(path, bytes.into_inner()).map_err(|error| error.to_string())?;
-    trace.mark("snapshot_write");
-    Ok(())
+    Ok(bytes.into_inner())
 }
 
 /// 展开 `~/…`；其它路径原样返回。
@@ -408,7 +414,6 @@ pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, Stri
     fs::read(&path).map_err(|error| error.to_string())
 }
 
-/// 删掉选中的若干张（「全选」再删就是清空）。返回删完后的列表。
 #[tauri::command]
 pub(crate) async fn delete_snapshots(
     app: AppHandle,
@@ -423,29 +428,154 @@ fn delete_snapshots_now(
     ids: Vec<String>,
 ) -> Result<Vec<SnapshotRecord>, String> {
     let dir = history_dir(state);
-    let index_path = snapshot_index_path(state);
+    let index_path = dir.join("index.json");
+    let _trash_guard = state.trash_lock.lock();
     let _guard = state.snapshot_index_lock.lock();
     let (removed, kept): (Vec<_>, Vec<_>) = read_snapshot_index(&index_path)
         .into_iter()
         .partition(|item| ids.contains(&item.id));
-    for record in &removed {
-        remove_snapshot_files(state, &dir, record);
+    update_snapshot_history(&state.trash_dir, &dir, &removed, &kept)?;
+    for record in removed {
+        let _ = fs::remove_file(thumbnail_path(state, &record.id));
     }
-    write_snapshot_index(&index_path, &kept)?;
     let _ = app.emit("snapshots-changed", ());
     Ok(kept)
 }
 
-/// 从历史原图打开现有标注窗口，不修改原始快照。
+fn update_snapshot_history(
+    trash_dir: &Path,
+    directory: &Path,
+    removed: &[SnapshotRecord],
+    kept: &[SnapshotRecord],
+) -> Result<(), String> {
+    let mut archived = Vec::new();
+    let result = (|| {
+        for record in removed {
+            let source = trash::checked_file(directory, &record.file_name)?;
+            let entry = trash::archive(trash_dir, &source, TrashMedia::Snapshot(record.clone()))?;
+            archived.push((source, entry));
+        }
+        write_snapshot_index(&directory.join("index.json"), kept)
+    })();
+    result.map_err(|error| rollback_archive(trash_dir, archived, error))
+}
+
+fn rollback_archive(root: &Path, archived: Vec<(PathBuf, TrashEntry)>, error: String) -> String {
+    let mut recovery = None;
+    for (destination, entry) in archived {
+        if let Err(error) =
+            trash::copy_out(root, &entry, &destination).and_then(|()| trash::discard(root, &entry))
+        {
+            recovery = Some(error);
+        }
+    }
+    match recovery {
+        Some(recovery) => format!("原图仍可从回收站恢复：{error}；{recovery}"),
+        None => error,
+    }
+}
+
+pub(crate) fn restore_snapshot(
+    state: &AppState,
+    entry: &TrashEntry,
+    record: &SnapshotRecord,
+) -> Result<(), String> {
+    let dir = history_dir(state);
+    let index = dir.join("index.json");
+    let _guard = state.snapshot_index_lock.lock();
+    let before = read_snapshot_index(&index);
+    let destination = trash::checked_file(&dir, &record.file_name)?;
+    if before
+        .iter()
+        .any(|item| item.id == record.id && dir.join(&item.file_name).is_file())
+    {
+        return Err("目标文件已存在，无法恢复".into());
+    }
+    trash::copy_out(&state.trash_dir, entry, &destination)?;
+    let mut records = before.clone();
+    records.retain(|item| item.id != record.id);
+    records.push(record.clone());
+    records.sort_by_key(|item| std::cmp::Reverse(item.created_at));
+    if let Err(error) = write_snapshot_index(&index, &records) {
+        let _ = fs::remove_file(destination);
+        return Err(error);
+    }
+    if let Err(error) = trash::discard(&state.trash_dir, entry) {
+        if write_snapshot_index(&index, &before).is_ok() {
+            let _ = fs::remove_file(destination);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[derive(Clone)]
+pub(crate) struct SnapshotSource {
+    pub(crate) directory: PathBuf,
+    pub(crate) record: SnapshotRecord,
+}
+
+pub(crate) fn replace_snapshot(
+    state: &AppState,
+    source: &SnapshotSource,
+    image: &RgbaImage,
+) -> Result<SnapshotRecord, String> {
+    let dir = &source.directory;
+    let index = dir.join("index.json");
+    let _trash_guard = state.trash_lock.lock();
+    let _guard = state.snapshot_index_lock.lock();
+    let mut records = read_snapshot_index(&index);
+    let position = records
+        .iter()
+        .position(|record| {
+            record.id == source.record.id && record.file_name == source.record.file_name
+        })
+        .ok_or("原图已不在历史记录中，请重新打开标注")?;
+    let original = records[position].clone();
+    let mut edited = write_snapshot_file(
+        state,
+        dir,
+        image,
+        &source.record.app_name,
+        source.record.app_id.clone(),
+        None,
+    )?;
+    edited.created_at = original.created_at;
+    records[position] = edited.clone();
+    let result = update_snapshot_history(
+        &state.trash_dir,
+        dir,
+        std::slice::from_ref(&original),
+        &records,
+    );
+    if let Err(error) = result {
+        let _ = fs::remove_file(dir.join(&edited.file_name));
+        return Err(error);
+    }
+    let _ = fs::remove_file(thumbnail_path(state, &original.id));
+    let _ = write_thumbnail(state, &edited.id, image, None);
+    Ok(edited)
+}
+
 #[tauri::command]
 pub(crate) async fn annotate_snapshot(app: AppHandle, id: String) -> Result<(), String> {
     on_worker(app, move |app, state| {
-        let record = find_record(state, &id)?;
-        let (_, bytes) = read_snapshot(state, &id)?;
+        let directory = history_dir(state);
+        let (mut record, bytes) = {
+            let _guard = state.snapshot_index_lock.lock();
+            let record = read_snapshot_index(&directory.join("index.json"))
+                .into_iter()
+                .find(|item| item.id == id)
+                .ok_or("找不到这条快照")?;
+            let path = trash::checked_file(&directory, &record.file_name)?;
+            let bytes = fs::read(path).map_err(|_| "快照文件已被移动或删除")?;
+            (record, bytes)
+        };
+        record.app_id = os::reconcile_app_id(&record.app_name, record.app_id.as_deref());
         let image = image::load_from_memory(&bytes)
             .map_err(|error| format!("无法读取快照图片：{error}"))?
             .to_rgba8();
-        capture::open_annotate_window(app, state, &image, &record.app_name, record.app_id.clone())
+        capture::open_annotate_window(app, state, &image, SnapshotSource { directory, record })
     })
     .await
 }
@@ -472,6 +602,79 @@ fn copy_snapshot_now(state: &AppState, id: String) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_keeps_edited_image_in_history_and_archives_original_bytes() {
+        check_history_replacement(false);
+    }
+
+    #[test]
+    fn index_failure_restores_original_bytes_to_history_folder() {
+        check_history_replacement(true);
+    }
+
+    fn check_history_replacement(fail_index_write: bool) {
+        let root = std::env::temp_dir().join(format!(
+            "snapshot-history-replacement-{}-{}-{fail_index_write}",
+            std::process::id(),
+            now_millis()
+        ));
+        let history = root.join("history");
+        let trash_dir = root.join("trash");
+        fs::create_dir_all(&history).unwrap();
+        let index = history.join("index.json");
+        let original = SnapshotRecord {
+            id: "original".into(),
+            file_name: "original.png".into(),
+            app_name: "Example".into(),
+            width: 200,
+            height: 100,
+            size_bytes: 8,
+            created_at: 1,
+            app_id: None,
+        };
+        let edited = SnapshotRecord {
+            id: "edited".into(),
+            file_name: "edited.png".into(),
+            width: 80,
+            height: 40,
+            ..original.clone()
+        };
+        let original_path = history.join(&original.file_name);
+        let edited_path = history.join(&edited.file_name);
+        fs::write(&original_path, b"original").unwrap();
+        fs::write(&edited_path, b"edited").unwrap();
+        if fail_index_write {
+            fs::create_dir(&index).unwrap();
+        } else {
+            write_snapshot_index(&index, std::slice::from_ref(&original)).unwrap();
+        }
+
+        let result = update_snapshot_history(&trash_dir, &history, &[original], &[edited]);
+        if fail_index_write {
+            assert!(result.is_err());
+            assert_eq!(fs::read(&original_path).unwrap(), b"original");
+            assert_eq!(fs::read_dir(&trash_dir).unwrap().count(), 0);
+        } else {
+            result.unwrap();
+            let archived = fs::read_dir(&trash_dir)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            assert_eq!(fs::read(archived.join("file")).unwrap(), b"original");
+            assert!(!original_path.exists());
+            let active = read_snapshot_index(&index);
+            assert_eq!(active.len(), 1);
+            assert_eq!(
+                (active[0].id.as_str(), active[0].width, active[0].height),
+                ("edited", 80, 40)
+            );
+            assert_eq!(fs::read(&edited_path).unwrap(), b"edited");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn expand_user_path_keeps_absolute_and_expands_tilde() {

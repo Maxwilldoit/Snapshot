@@ -16,9 +16,8 @@ async function editor() {
   let saveResult: string | null = "已保存标注图";
   setupTauriMock((command, payload) => {
     calls.push({ command, args: invokeArgs(payload) });
-    if (command === "get_annotate_image") return image;
-    if (command === "annotate_get_title") return "历史截图";
-    if (command === "annotate_save_copy") return "标注副本已保存到历史记录";
+    if (command === "get_annotate_session") return image ? { id: 1, imageData: image, title: "历史截图" } : null;
+    if (command === "annotate_save_copy") return "已存入历史记录";
     if (command === "annotate_copy") return "已复制标注图";
     if (command === "annotate_save") return saveResult;
   }, { currentWindow: "annotate", shouldMockEvents: true });
@@ -53,7 +52,7 @@ async function editor() {
     getImageData, putImageData: vi.fn(),
     beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), quadraticCurveTo: vi.fn(), closePath: vi.fn(),
     stroke: vi.fn(), fill: vi.fn(), strokeRect: vi.fn(), ellipse: vi.fn(), arc: vi.fn(),
-    fillText: vi.fn(), strokeText: vi.fn(), setLineDash: vi.fn(),
+    fillText: vi.fn(), strokeText: vi.fn(), setLineDash: vi.fn(), fillRect: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: text.length * 10 })),
     set lineWidth(value: number) { lineWidths.push(value); },
     get lineWidth() { return lineWidths.at(-1) ?? 1; },
@@ -130,9 +129,9 @@ describe("截图标注：工具", () => {
     expect(pressed("箭头")).toBe(true);
   });
 
-  it("数字键 1–8 按工具栏从左到右切换，提示里写着数字和字母", async () => {
+  it("数字键 1–9 按工具栏从左到右切换，提示里写着数字和字母", async () => {
     await editor();
-    const order = ["选择", "箭头", "矩形", "椭圆", "画笔", "荧光笔", "文字", "编号"];
+    const order = ["选择", "箭头", "矩形", "椭圆", "画笔", "荧光笔", "文字", "编号", "裁剪"];
     const shown = Array.from(screen.getByRole("group", { name: "标注工具" }).querySelectorAll("button")).map((item) => item.getAttribute("aria-label"));
     expect(shown).toEqual(order);
     order.forEach((label, index) => {
@@ -145,7 +144,7 @@ describe("截图标注：工具", () => {
     key({ key: "\"", code: "Digit2" });
     expect(pressed("箭头")).toBe(true);
     key({ key: "9", code: "Digit9" });
-    expect(pressed("箭头")).toBe(true);
+    expect(pressed("裁剪")).toBe(true);
     expect(button("箭头").title).toBe("箭头  2 / A");
     expect(button("编号").title).toBe("编号  8 / N");
   });
@@ -235,7 +234,9 @@ describe("截图标注：工具", () => {
 
     const before = context.putImageData.mock.calls.length;
     fireEvent.click(button("复制"));
-    await waitFor(() => expect(calls).toContainEqual({ command: "annotate_copy", args: { imageData: "data:image/png;base64,edited" } }));
+    await waitFor(() => expect(calls).toContainEqual({
+      command: "annotate_copy", args: { imageData: "data:image/png;base64,edited", sessionId: 1, changed: true },
+    }));
     // 导出时重画了一遍：同一块原图像素区域又被打码，坐标仍是原图像素
     const exported = context.putImageData.mock.calls.slice(before);
     expect(exported.map((call) => [call[1], call[2], call[0].width, call[0].height])).toContainEqual([20, 10, 40, 30]);
@@ -441,6 +442,42 @@ describe("截图标注：对象编辑", () => {
 });
 
 describe("截图标注：快捷键与出口", () => {
+  it("按原图像素裁剪已标注的画面，并可撤销、重做和用键盘微调", async () => {
+    const { canvas, context, drag, calls } = await editor();
+    drag([8, 8], [45, 35]);
+    fireEvent.click(button("裁剪"));
+    expect(document.activeElement).toBe(canvas);
+    drag([65, 38], [15, 8]);
+    expect(screen.getByText("裁剪尺寸：100 × 60")).toBeTruthy();
+    fireEvent.click(button("撤销"));
+    expect(screen.queryByText(/裁剪尺寸/)).toBeNull();
+    fireEvent.click(button("重做"));
+    fireEvent.keyDown(canvas, { key: "ArrowRight", shiftKey: true });
+    expect(screen.getByText("裁剪尺寸：99 × 60")).toBeTruthy();
+
+    fireEvent.click(button("存入截图记录"));
+    await waitFor(() => expect(calls).toContainEqual({
+      command: "annotate_save_copy", args: { imageData: "data:image/png;base64,edited", sessionId: 1, changed: true },
+    }));
+    expect(context.drawImage).toHaveBeenLastCalledWith(expect.any(HTMLCanvasElement), 31, 16, 99, 60, 0, 0, 99, 60);
+    expect(context.moveTo).toHaveBeenCalledWith(16, 16);
+  });
+
+  it("撤销唯一的裁剪后，复制不会要求替换原图", async () => {
+    const { canvas, drag, calls } = await editor();
+    fireEvent.click(button("裁剪"));
+    drag([15, 8], [65, 38]);
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 20, clientY: 10 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 40 });
+    fireEvent.pointerCancel(canvas);
+    expect(screen.getByText("裁剪尺寸：100 × 60")).toBeTruthy();
+    fireEvent.click(button("撤销"));
+    fireEvent.click(button("复制"));
+    await waitFor(() => expect(calls).toContainEqual({
+      command: "annotate_copy", args: { imageData: "data:image/png;base64,edited", sessionId: 1, changed: false },
+    }));
+  });
+
   it("⌘C 复制、⌘S 存入截图记录、⇧⌘S 另存为；回车不复制；成功后按钮打勾，停一下再收起窗口", async () => {
     const { drag, calls } = await editor();
     const count = (command: string) => calls.filter((call) => call.command === command).length;
