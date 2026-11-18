@@ -156,7 +156,6 @@ export const onPreviousAppChanged = (callback: (app: PreviousApp) => void) =>
   listen<PreviousApp>("previous-app-changed", ({ payload }) => callback(payload));
 
 export type CaptureFeedback = {
-  flash: boolean;
   shutterSound: Settings["shutterSound"];
   customSoundPath: string | null;
   shotId?: string;

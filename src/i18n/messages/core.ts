@@ -40,7 +40,6 @@ export const coreEnglish: Record<string, string> = {
   "轻柔": "Soft",
   "静音": "None",
   "自定义": "Custom",
-  "截屏时闪一下": "Flash screen on capture",
   "截图带上鼠标指针": "Include pointer in screenshots",
   "大小": "Size",
   "100% 基准大小": "Base size (100%)",

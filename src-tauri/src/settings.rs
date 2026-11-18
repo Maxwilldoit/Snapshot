@@ -153,8 +153,6 @@ pub(crate) struct Settings {
     pub(crate) shutter_sound: String,
     #[serde(default)]
     pub(crate) custom_sound_path: Option<String>,
-    #[serde(default = "default_true")]
-    pub(crate) flash_on_capture: bool,
     #[serde(default)]
     pub(crate) launch_on_boot: bool,
     #[serde(default)]
@@ -225,7 +223,6 @@ impl Default for Settings {
             recording_dir: String::new(),
             shutter_sound: default_shutter_sound(),
             custom_sound_path: None,
-            flash_on_capture: true,
             launch_on_boot: false,
             include_cursor: false,
             record_system_audio: false,
@@ -260,7 +257,6 @@ pub(crate) struct PreferencesPatch {
     pub(crate) recording_dir: Option<String>,
     pub(crate) shutter_sound: Option<String>,
     pub(crate) custom_sound_path: Option<serde_json::Value>,
-    pub(crate) flash_on_capture: Option<bool>,
     pub(crate) launch_on_boot: Option<bool>,
     pub(crate) include_cursor: Option<bool>,
     pub(crate) record_system_audio: Option<bool>,
@@ -646,9 +642,6 @@ fn apply_patch_fields(target: &mut Settings, prefs: &PreferencesPatch) -> Result
             Some(path) if target.custom_sound_path.as_deref() == Some(path) => {}
             Some(_) => return Err("请用「导入」选择音效文件".into()),
         }
-    }
-    if let Some(value) = prefs.flash_on_capture {
-        target.flash_on_capture = value;
     }
     if let Some(value) = prefs.launch_on_boot {
         target.launch_on_boot = value;

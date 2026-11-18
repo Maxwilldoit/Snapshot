@@ -36,7 +36,6 @@ const settings: Settings = {
   recordingDir: "",
   shutterSound: "crisp",
   customSoundPath: null,
-  flashOnCapture: true,
   launchOnBoot: false,
   includeCursor: false,
   recordSystemAudio: false,
@@ -107,7 +106,7 @@ describe("B2 拆页后逐页渲染", () => {
     expect(Boolean(screen.queryByRole("heading", { name: "录制" }))).toBe(recording);
     expect(Boolean(screen.queryByRole("switch", { name: "同时录系统声音" }))).toBe(recording);
     if (recording) expect(screen.getByRole("switch", { name: "同时录系统声音" })).toHaveProperty("disabled", false);
-    expect(screen.getByRole("switch", { name: "截屏时闪一下" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "截屏时闪一下" })).toBeNull();
     expect(screen.queryByRole("switch", { name: "开机时静默启动" })).toBeNull();
     expect(screen.queryByRole("radiogroup", { name: "界面语言" })).toBeNull();
     expect(preferences).not.toHaveBeenCalled();

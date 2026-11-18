@@ -112,9 +112,6 @@
 .notice-line.is-error { border: 1px solid var(--signal); background: var(--paper-raised); color: var(--ink); padding-right: 6px; }
 .notice-line button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--ink-2); flex: 0 0 auto; }
 
-.shutter-flash { position: fixed; inset: 0; z-index: 90; background: #fff; pointer-events: none; animation: flash 220ms var(--ease-in) both; }
-@keyframes flash { from { opacity: 0.55; } to { opacity: 0; } }
-
 /* ---------- 通用页面骨架 ---------- */
 
 .page-grid { display: grid; column-gap: 44px; row-gap: 28px; padding: 14px 32px 22px 20px; min-height: 100%; }

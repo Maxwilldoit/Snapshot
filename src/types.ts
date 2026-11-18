@@ -139,7 +139,6 @@ export interface Settings {
   recordingDir: string;
   shutterSound: "crisp" | "soft" | "none" | "custom";
   customSoundPath: string | null;
-  flashOnCapture: boolean;
   launchOnBoot: boolean;
   includeCursor: boolean;
   recordSystemAudio: boolean;

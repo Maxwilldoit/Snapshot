@@ -43,7 +43,6 @@ function settingsWith(asset: PetAsset) {
     recordingDir: "",
     shutterSound: "crisp",
     customSoundPath: null,
-    flashOnCapture: true,
     launchOnBoot: false,
     includeCursor: false,
     recordSystemAudio: false,
