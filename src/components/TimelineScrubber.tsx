@@ -264,7 +264,8 @@ export function TimelineScrubber({
     let targetTop: number;
     const measuredTop = dayTops[groupIndex];
     if (typeof measuredTop === "number" && (dayTops.length <= 1 || dayTops[dayTops.length - 1] > dayTops[0])) {
-      targetTop = Math.max(0, Math.min(maxScroll, measuredTop - 4));
+      const leadOffset = (dayTops[0] ?? 0) >= 48 ? dayTops[0] : 4;
+      targetTop = Math.max(0, Math.min(maxScroll, measuredTop - leadOffset));
     } else {
       const node = nodesRef.current[groupIndex];
       targetTop = Math.round((node?.u ?? 0) * maxScroll);

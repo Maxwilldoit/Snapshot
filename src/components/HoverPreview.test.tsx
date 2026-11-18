@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { HoverPreview, computeHoverPreviewBox } from "./HoverPreview";
 import { setupTauriMock } from "../test/tauri";
 import type { MediaItem } from "../lib/mediaTimeline";
@@ -71,5 +71,29 @@ describe("HoverPreview geometry and rendering", () => {
     expect(tip.textContent).toContain("1920 × 1080 · WEBP · 256 KB");
     const full = tip.querySelector<HTMLImageElement>("img.hover-preview-full");
     expect(full?.src).toContain("snapshot");
+  });
+
+  it.each([
+    { appId: "/usr/bin/figma", iconRoute: "/app-icon/" },
+    { appId: undefined, iconRoute: "/app-name-icon/" },
+  ])("resolves the source icon via $iconRoute and hides it on failure", ({ appId, iconRoute }) => {
+    setupTauriMock(() => undefined);
+    render(
+      <HoverPreview
+        anchor={{
+          item: makeItem({ appId }),
+          rect: { left: 204, top: 120, right: 384, bottom: 260, width: 180, height: 140 },
+        }}
+      />,
+    );
+    const tip = screen.getByRole("tooltip");
+    const icon = tip.querySelector<HTMLImageElement>("img.hover-preview-app-icon");
+    expect(icon).not.toBeNull();
+    if (!icon) throw new Error("Missing source app icon");
+    expect(decodeURIComponent(icon.src)).toContain(iconRoute);
+    expect(icon.alt).toBe("");
+    fireEvent.error(icon);
+    expect(tip.querySelector("img.hover-preview-app-icon")).toBeNull();
+    expect(tip.textContent).toContain("1920 × 1080 · WEBP · 256 KB");
   });
 });

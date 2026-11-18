@@ -4,7 +4,7 @@
  * - 最后一行不足整行宽度时保持目标高度靠左自然排列，不强行拉伸放大。
  */
 
-export const JUSTIFY_GAP = 8;
+export const JUSTIFY_GAP = 12;
 const MAX_PER_ROW = 9;
 
 export type JustifiedRow = { height: number; widths: number[] };

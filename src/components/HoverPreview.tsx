@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatBytes, formatCalendarDate, formatClock, formatDuration } from "../lib/format";
 import { useI18n } from "../lib/i18n";
-import { recordingUrl, snapshotUrl, thumbUrl } from "../lib/media";
+import { appIconUrl, appNameIconUrl, recordingUrl, snapshotUrl, thumbUrl } from "../lib/media";
 import type { MediaItem, RecordingMeta } from "../lib/mediaTimeline";
 
 export type HoverPreviewAnchor = {
@@ -111,6 +111,7 @@ export function HoverPreview({
 }) {
   const { language } = useI18n();
   const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [iconFailedId, setIconFailedId] = useState<string | null>(null);
   const [viewport, setViewport] = useState(() => ({
     width: typeof window !== "undefined" ? window.innerWidth : 960,
     height: typeof window !== "undefined" ? window.innerHeight : 600,
@@ -136,6 +137,8 @@ export function HoverPreview({
   specs.push(formatBytes(item.sizeBytes));
 
   const fullLoaded = loadedId === item.id;
+  const iconSrc = item.appId ? appIconUrl(item.appId, 16) : appNameIconUrl(item.appName, 16);
+  const showIcon = iconFailedId !== item.id;
 
   return createPortal(
     <div
@@ -189,7 +192,20 @@ export function HoverPreview({
         )}
       </div>
       <div className="hover-preview-foot mono">
-        <span className="hover-preview-specs">{specs.join(" · ")}</span>
+        <span className="hover-preview-lead">
+          {showIcon && (
+            <img
+              key={item.id}
+              className="hover-preview-app-icon"
+              src={iconSrc}
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+              onError={() => setIconFailedId(item.id)}
+            />
+          )}
+          <span className="hover-preview-specs">{specs.join(" · ")}</span>
+        </span>
         <time className="hover-preview-time" dateTime={new Date(item.createdAt).toISOString()}>
           {formatCalendarDate(item.createdAt, Date.now(), language)} {formatClock(item.createdAt)}
         </time>

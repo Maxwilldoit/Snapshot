@@ -13,8 +13,8 @@ html[data-surface="app"], html[data-window="annotate"] {
   --font-mono: "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "JetBrains Mono", "DejaVu Sans Mono", monospace;
   --accent: #007aff;
   --text1: #1d1d1f; --text2: rgba(60, 60, 67, 0.78); --text3: rgba(60, 60, 67, 0.5); --text4: rgba(60, 60, 67, 0.3);
-  --sep: rgba(0, 0, 0, 0.085); --fill: rgba(0, 0, 0, 0.045); --fill2: rgba(0, 0, 0, 0.075);
-  --win: #ffffff; --side: #ececee; --side-sel: rgba(0, 0, 0, 0.08);
+  --sep: rgba(0, 0, 0, 0.065); --fill: rgba(0, 0, 0, 0.042); --fill2: rgba(0, 0, 0, 0.07);
+  --win: #ffffff; --side: #ececee; --side-sel: rgba(0, 0, 0, 0.065);
   --stage: #f5f5f7; --stage2: #fafafa; --group: #ffffff; --pane: #f5f5f7;
   --btn: #ffffff; --btn-line: rgba(0, 0, 0, 0.14);
   --pop: rgba(250, 250, 252, 0.94); --toast: rgba(30, 30, 32, 0.92); --on-toast: #fff;
@@ -196,26 +196,39 @@ html[data-surface="app"] .mw-window-title { min-width: 0; max-width: 220px; over
 
 /* ---------- 截图墙 ---------- */
 
-html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
+/* 历史页顶栏采用轻透毛玻璃浮层，滚动时图片从顶栏下方自然柔和透出（不叠加压暗灰罩） */
+html[data-surface="app"] .history-page > .mw-toolbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 8;
+  background: color-mix(in srgb, var(--win) 80%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(1.8); backdrop-filter: blur(22px) saturate(1.8);
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.055);
+}
+html[data-surface="app"][data-theme="dark"] .history-page > .mw-toolbar {
+  background: color-mix(in srgb, var(--win) 76%, transparent);
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+}
+html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; height: 100%; min-height: 0; }
 html[data-surface="app"] .history-scroll {
   flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0;
-  scrollbar-width: none;
+  scroll-padding-top: 56px; scrollbar-width: none;
 }
 html[data-surface="app"] .history-scroll::-webkit-scrollbar { display: none; }
 html[data-surface="app"] .history-scroll:focus-visible { outline-offset: -3px; }
+html[data-surface="app"] .history-page .mw-empty { padding-top: 92px; }
+html[data-surface="app"] .history-page .mw-empty-line { margin-top: 80px; }
 
-/* 按日期分组 + 同行等高自适应拼图（Justified）：日期标题随内容自然滚动，不做吸顶停滞。 */
-html[data-surface="app"] .gallery { display: block; padding: 4px 22px 28px 16px; }
-html[data-surface="app"] .mw .day { position: relative; display: block; margin-top: 18px; padding: 0; border-top: 0; }
+/* 按日期分组 + 同行等高自适应拼图（Justified）：左界对齐顶栏标题（20px），12px 呼吸间距 */
+html[data-surface="app"] .gallery { display: block; padding: 60px 24px 32px 20px; }
+html[data-surface="app"] .mw .day { position: relative; display: block; margin-top: 24px; padding: 0; border-top: 0; }
 html[data-surface="app"] .mw .day:first-child { margin-top: 4px; }
-html[data-surface="app"] .mw .day-label { display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0; padding: 0 0 6px; background: none; }
-html[data-surface="app"] .mw .day-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text2); letter-spacing: -0.01em; }
+html[data-surface="app"] .mw .day-label { display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0; padding: 0 0 8px; background: none; }
+html[data-surface="app"] .mw .day-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text1); letter-spacing: -0.012em; }
 html[data-surface="app"] .mw .day > .jgrid { margin-top: 0; }
 html[data-surface="app"] .jgrid { display: flex; flex-direction: column; min-width: 0; }
 
 /* 右侧极简时间定位尺：平时仅细短刻度与进度胶囊，移入或拖拽时浮出毛玻璃日期胶囊 */
 html[data-surface="app"] .timeline-scrubber {
-  position: absolute; top: 10px; bottom: 14px; right: 2px; z-index: 6; width: 18px;
+  position: absolute; top: 60px; bottom: 16px; right: 3px; z-index: 6; width: 18px;
   display: flex; align-items: stretch; justify-content: flex-end;
   cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none;
 }
@@ -283,8 +296,14 @@ html[data-surface="app"] .hover-preview-full {
 }
 html[data-surface="app"] .hover-preview-full.is-loaded { opacity: 1; }
 html[data-surface="app"] .hover-preview-foot {
-  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
   gap: 2px 10px; padding: 5px 4px 1px; min-width: 0;
+}
+html[data-surface="app"] .hover-preview-lead {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
+}
+html[data-surface="app"] .hover-preview-app-icon {
+  width: 15px; height: 15px; flex: 0 0 15px; border-radius: 3.5px; object-fit: contain;
 }
 html[data-surface="app"] .hover-preview-specs {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -294,29 +313,34 @@ html[data-surface="app"] .hover-preview-time {
   flex: 0 0 auto; font-size: 11px; line-height: 16px; color: var(--text3);
 }
 html[data-surface="app"] .jrow { display: flex; align-items: flex-start; min-width: 0; }
-html[data-surface="app"] .jrow.is-wrap { flex-wrap: wrap; row-gap: 8px; }
+html[data-surface="app"] .jrow.is-wrap { flex-wrap: wrap; row-gap: 12px; }
 html[data-surface="app"] .mw .shot { flex: 0 0 auto; min-width: 0; max-width: none; margin: 0; }
 html[data-surface="app"] .mw .tile {
-  position: relative; width: 100%; height: 100%; border-radius: 6px; overflow: hidden; background: var(--fill);
-  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14); transition: box-shadow var(--t-press) var(--ease-out), transform var(--t-press) var(--ease-out);
+  position: relative; width: 100%; height: 100%; border-radius: 5px; overflow: hidden; background: var(--stage);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.065), 0 1px 2.5px rgba(0, 0, 0, 0.045);
+  transition: box-shadow var(--t-press) var(--ease-out), transform var(--t-press) var(--ease-out);
 }
-html[data-surface="app"][data-theme="dark"] .mw .tile { box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12); }
-html[data-surface="app"] .mw .tile:hover { box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.10); }
-html[data-surface="app"][data-theme="dark"] .mw .tile:hover { box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.24), 0 4px 12px rgba(0, 0, 0, 0.4); }
-html[data-surface="app"] .mw .tile.is-selected { box-shadow: 0 0 0 3px var(--accent); }
+html[data-surface="app"][data-theme="dark"] .mw .tile {
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.09), 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+html[data-surface="app"] .mw .tile:hover {
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+html[data-surface="app"][data-theme="dark"] .mw .tile:hover {
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.18), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+html[data-surface="app"] .mw .tile.is-selected { box-shadow: 0 0 0 2.5px var(--accent); }
 html[data-surface="app"] .mw .tile-main { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; outline: 0; }
-html[data-surface="app"] .mw .tile-main:focus-visible { box-shadow: inset 0 0 0 3px var(--accent); }
+html[data-surface="app"] .mw .tile-main:focus-visible { box-shadow: inset 0 0 0 2.5px var(--accent); }
 html[data-surface="app"] .mw .tile-preview { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; }
-html[data-surface="app"] .mw .tile-preview > img:not(.tile-app), html[data-surface="app"] .mw .tile-preview > video {
+html[data-surface="app"] .mw .tile-preview > img, html[data-surface="app"] .mw .tile-preview > video {
   display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none;
 }
 /* 超长滚动截图：整张居中垫在柔和舞台底上，不裁成一条细缝 */
 html[data-surface="app"] .mw .tile.is-narrow { background: var(--stage); }
-html[data-surface="app"] .mw .tile.is-narrow .tile-preview > img:not(.tile-app), html[data-surface="app"] .mw .tile.is-narrow .tile-preview > video { object-fit: contain; }
+html[data-surface="app"] .mw .tile.is-narrow .tile-preview > img, html[data-surface="app"] .mw .tile.is-narrow .tile-preview > video { object-fit: contain; }
 html[data-surface="app"] .mw .tile.is-failed .tile-preview { background: var(--fill); }
-/* 来源应用图标：浅底衬托，深色截图上也看得清；取不到就不渲染 */
-html[data-surface="app"] .mw .tile-app { position: absolute; left: 6px; bottom: 6px; width: 18px; height: 18px; padding: 1px; border-radius: 4px; object-fit: contain; background: rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.22); pointer-events: none; transition: opacity var(--t-press) var(--ease-out); z-index: 1; }
-html[data-surface="app"] .mw .tile-duration { position: absolute; right: 6px; bottom: 6px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.58); color: #fff; font-size: 10px; line-height: 14px; pointer-events: none; }
+html[data-surface="app"] .mw .tile-duration { position: absolute; right: 6px; bottom: 6px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.54); color: #fff; font-size: 10px; line-height: 14px; pointer-events: none; }
 html[data-surface="app"] .mw .shot.is-fresh .tile { animation: mw-fresh 1.2s var(--ease-out) both; }
 @keyframes mw-fresh { from { box-shadow: 0 0 0 3px var(--accent); } }
 
