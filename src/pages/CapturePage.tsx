@@ -23,7 +23,7 @@ function SnapshotPanel() {
   );
 }
 
-/** 截屏那一下：快门声、闪一下、带不带鼠标指针 */
+/** 截屏那一下：快门声、带不带鼠标指针 */
 function BehaviorPanel() {
   const { settings, caps, notify, onSaved } = useApp();
   const update = usePreferences();
@@ -54,7 +54,6 @@ function BehaviorPanel() {
   }
 
   const toggles = [
-    { key: "flashOnCapture" as const, label: t("截屏时闪一下"), available: true },
     { key: "includeCursor" as const, label: t("截图带上鼠标指针"), available: caps?.includeCursor.available !== false },
   ].filter((toggle) => toggle.available);
 

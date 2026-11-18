@@ -21,7 +21,6 @@ const settings: Settings = {
   recordingDir: "",
   shutterSound: "none",
   customSoundPath: null,
-  flashOnCapture: false,
   launchOnBoot: false,
   includeCursor: false,
   recordSystemAudio: false,

@@ -60,8 +60,6 @@ export function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [caps, setCaps] = useState<PlatformCapabilities | null>(null);
-  const [flash, setFlash] = useState(false);
-  const flashTimer = useRef<number | null>(null);
   const recentCaptureShots = useRef<string[]>([]);
   const [pendingPreviewId, setPendingPreviewId] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
@@ -133,11 +131,6 @@ export function App() {
       recentCaptureShots.current = [...recentCaptureShots.current.slice(-15), payload.shotId];
       const receivedEpoch = Date.now();
       const receivedAt = performance.now();
-      if (payload.flash) {
-        setFlash(true);
-        if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
-        flashTimer.current = window.setTimeout(() => setFlash(false), 220);
-      }
       if (payload.shutterSound !== "none") {
         previewHintSound(
           payload.shutterSound === "soft" ? "soft" : "crisp",
@@ -153,7 +146,6 @@ export function App() {
     });
     return () => {
       void pending.then((unlisten) => unlisten());
-      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
     };
   }, []);
 
@@ -258,7 +250,6 @@ export function App() {
         </div>
 
         <NoticeLine />
-        {flash && <div className="shutter-flash" aria-hidden="true" />}
       </div>
     </AppContext.Provider>
   );

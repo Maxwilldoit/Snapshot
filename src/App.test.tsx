@@ -24,7 +24,6 @@ const settings: Settings = {
   recordingDir: "",
   shutterSound: "crisp",
   customSoundPath: null,
-  flashOnCapture: true,
   launchOnBoot: false,
   includeCursor: false,
   recordSystemAudio: false,
@@ -192,7 +191,7 @@ describe("global shortcuts", () => {
 describe("capture feedback", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("plays the reaction for one shot ID only", async () => {
+  it("does not render a screen flash overlay on capture-shot or capture-feedback", async () => {
     await renderApp((command) => {
       if (command === "load_settings") return settings;
       if (command === "platform_capabilities") return capabilities;
@@ -200,13 +199,11 @@ describe("capture feedback", () => {
       return undefined;
     });
     await screen.findByRole("heading", { name: "历史" });
-    const timeout = vi.spyOn(window, "setTimeout");
     const shot = {
       shotId: "shot-1",
       startedAtMs: Date.now(),
       sentAtMs: Date.now(),
       trace: false,
-      flash: true,
       shutterSound: "crisp" as const,
       customSoundPath: null,
     };
@@ -214,16 +211,13 @@ describe("capture feedback", () => {
     await act(async () => {
       await emit("capture-shot", shot);
       await emit("capture-shot", shot);
-      // 最终事件保留给兼容消费者，不能再次触发快门闪光或第二遍声音。
       await emit("capture-feedback", {
-        flash: true,
         shutterSound: "crisp",
         customSoundPath: null,
       });
     });
 
-    expect(Array.from(document.querySelectorAll(".shutter-flash"))).toHaveLength(1);
-    expect(timeout.mock.calls.filter((call) => call[1] === 220)).toHaveLength(1);
+    expect(document.querySelector(".shutter-flash")).toBeNull();
   });
 
   it("honors the sound setting and does not replay a capture-shot", async () => {
@@ -270,7 +264,6 @@ describe("capture feedback", () => {
       startedAtMs: Date.now(),
       sentAtMs: Date.now(),
       trace: false,
-      flash: false,
       shutterSound: "crisp" as const,
       customSoundPath: null,
     };
