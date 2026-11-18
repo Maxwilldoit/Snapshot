@@ -157,22 +157,37 @@ describe("截图标注：工具", () => {
     expect(button("画笔").title).toBe("画笔  7 / P");
   });
 
-  it("颜色/粗细条跟着画图工具出现：选择、裁剪时收起，其余工具都在", async () => {
-    await editor();
-    const bar = () => screen.queryByRole("group", { name: "颜色和粗细" });
-    expect(bar()).toBeTruthy(); // 默认箭头
-    for (const letter of ["r", "o", "t", "n", "p", "h", "a"]) {
+  it("颜色/粗细弹层只被画笔和荧光笔唤起，悬浮不占版面；换工具、点画布或 Esc 收起", async () => {
+    const { canvas } = await editor();
+    const pop = () => screen.queryByRole("dialog", { name: "颜色和粗细" });
+    expect(pop()).toBeNull(); // 默认箭头：不弹
+    for (const letter of ["r", "o", "t", "n", "v", "c", "a"]) {
       key({ key: letter });
-      expect(bar()).toBeTruthy();
+      expect(pop()).toBeNull();
     }
-    key({ key: "v" });
-    expect(bar()).toBeNull();
-    key({ key: "c" });
-    expect(bar()).toBeNull();
-    expect(screen.queryByRole("slider", { name: "粗细" })).toBeNull();
     key({ key: "p" });
-    expect(bar()).toBeTruthy();
+    expect(pop()).toBeTruthy();
     expect(screen.getByRole("slider", { name: "粗细" })).toBeTruthy();
+    // 悬浮弹层：绝对定位，不在工具栏和图片之间挤出一行
+    expect((pop() as HTMLElement).className).toContain("annotate-pop");
+    // 画笔 ↔ 荧光笔互切时保持打开
+    key({ key: "h" });
+    expect(pop()).toBeTruthy();
+    // Esc 收起
+    key({ key: "Escape" });
+    expect(pop()).toBeNull();
+    // 再点画笔重新唤起；点画布开始画就收起
+    fireEvent.click(button("画笔"));
+    expect(pop()).toBeTruthy();
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(canvas);
+    expect(pop()).toBeNull();
+    // 荧光笔也能唤起
+    fireEvent.click(button("荧光笔"));
+    expect(pop()).toBeTruthy();
+    // 换到别的工具收起
+    key({ key: "r" });
+    expect(pop()).toBeNull();
   });
 
   it("编号点一下放一个，自动 1、2、3", async () => {
@@ -242,9 +257,11 @@ describe("截图标注：工具", () => {
 
   it("马赛克是颜色里的一格：矩形打码整块，真的改写原图像素，导出按原图分辨率", async () => {
     const { context, drag, calls } = await editor();
-    key({ key: "r" });
+    // 马赛克在画笔弹层里选：颜色对所有工具共享，选完再回矩形
+    key({ key: "p" });
     fireEvent.click(screen.getByRole("radio", { name: "马赛克" }));
     expect(screen.getByRole("radio", { name: "马赛克" }).getAttribute("aria-checked")).toBe("true");
+    key({ key: "r" });
     context.strokeRect.mockClear();
     drag([10, 5], [30, 20]);
     expect(context.strokeRect).not.toHaveBeenCalled();
@@ -282,30 +299,34 @@ describe("截图标注：工具", () => {
     expect(strokeStyles).not.toContain("mosaic");
 
     key({ key: "a" });
-    const swatch = screen.getByRole("radio", { name: "马赛克" });
-    expect(swatch.getAttribute("aria-disabled")).toBe("true");
-    expect(swatch.title).toBe("马赛克只能用于矩形、椭圆、画笔和荧光笔");
-    expect(screen.getByRole("radio", { name: "蓝色" }).getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(swatch);
+    // 箭头没有弹层，也选不了马赛克：照旧用上一次的真颜色（蓝色）
+    expect(screen.queryByRole("dialog", { name: "颜色和粗细" })).toBeNull();
     strokeStyles.length = 0;
     drag([10, 30], [40, 40]);
     expect(strokeStyles).toContain("#007aff");
     // 回到画笔，马赛克还在
     key({ key: "p" });
     expect(screen.getByRole("radio", { name: "马赛克" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "马赛克" }).getAttribute("aria-disabled")).not.toBe("true");
   });
 
-  it("选中的方框可以直接改成马赛克，撤销回到原来的颜色", async () => {
-    const { context, drag, click, shapeRect } = await editor();
+  it("选中的方框跟着弹层改色，撤销回到原来的颜色", async () => {
+    const { context, drag, click, shapeRect, strokeStyles } = await editor();
     key({ key: "r" });
     drag([10, 5], [30, 20]);
     click(20, 5);
-    const puts = context.putImageData.mock.calls.length;
-    fireEvent.click(screen.getByRole("radio", { name: "马赛克" }));
-    expect(context.putImageData.mock.calls.length).toBeGreaterThan(puts);
-    expect(context.putImageData.mock.calls.at(-1)!.slice(1, 3)).toEqual([20, 10]);
+    // 切到画笔唤起弹层：选中还在，改色直接落到选中的方框上
+    key({ key: "p" });
+    const strokes = context.strokeRect.mock.calls.length;
+    fireEvent.click(screen.getByRole("radio", { name: "蓝色" }));
+    expect(context.strokeRect.mock.calls.length).toBeGreaterThan(strokes);
+    expect(context.strokeStyle).toBe("#007aff");
+    strokeStyles.length = 0;
     fireEvent.click(button("撤销"));
     expect(shapeRect()).toEqual([20, 10, 40, 30]);
+    // 撤销后这一帧方框重画回红色（之后的蓝色是选中虚线框）
+    expect(strokeStyles).toContain("#ff3b30");
+    expect(strokeStyles.indexOf("#ff3b30")).toBeLessThan(strokeStyles.indexOf("#007aff"));
   });
 });
 
@@ -391,17 +412,20 @@ describe("截图标注：对象编辑", () => {
   it("画完不留选中，颜色只管下一笔；点选后再改才改到那个标注上", async () => {
     const { drag, click, strokeStyles, lineWidths } = await editor();
     drag([10, 5], [30, 20]);
+    key({ key: "p" }); // 画笔唤起弹层改颜色
     fireEvent.click(screen.getByRole("radio", { name: "黄色" }));
     expect(strokeStyles.at(-1)).not.toBe("#ffcc00");
+    key({ key: "a" });
     click(20, 12.5);
+    key({ key: "p" });
     fireEvent.click(screen.getByRole("radio", { name: "绿色" }));
     expect(strokeStyles).toContain("#34c759");
     lineWidths.length = 0;
     fireEvent.change(screen.getByRole("slider", { name: "粗细" }), { target: { value: "7" } });
     expect(lineWidths).toContain(7);
-    // Esc 只取消选中，颜色条还在（当前是画图工具）
+    // Esc 先收起弹层
     key({ key: "Escape" });
-    expect(screen.getByRole("group", { name: "颜色和粗细" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "颜色和粗细" })).toBeNull();
     const before = strokeStyles.length;
     key({ key: "r" });
     drag([60, 5], [80, 20]);
@@ -412,6 +436,7 @@ describe("截图标注：对象编辑", () => {
     const { drag, click, lineWidths } = await editor();
     drag([10, 5], [30, 20]);
     click(20, 12.5);
+    key({ key: "p" }); // 弹层里调粗细，直接落到选中的方框上
     const slider = screen.getByRole("slider", { name: "粗细" }) as HTMLInputElement;
     expect([slider.min, slider.max, slider.value]).toEqual(["1", "12", "4"]);
     fireEvent.change(slider, { target: { value: "6" } });
@@ -434,6 +459,7 @@ describe("截图标注：对象编辑", () => {
 
     cleanup();
     await editor();
+    key({ key: "p" });
     expect((screen.getByRole("slider", { name: "粗细" }) as HTMLInputElement).value).toBe("9");
   });
 
@@ -528,8 +554,9 @@ describe("截图标注：快捷键与出口", () => {
 
   it("裁剪后马赛克仍按原图坐标取像素：读写换算回画布坐标，不越界", async () => {
     const { context, drag, refit } = await editor();
-    key({ key: "r" });
+    key({ key: "p" });
     fireEvent.click(screen.getByRole("radio", { name: "马赛克" }));
+    key({ key: "r" });
     drag([20, 10], [40, 25]); // 原图 (40,20)–(80,50)
     key({ key: "c" });
     drag([15, 8], [65, 38]); // 取景框 (30,16) 100×60

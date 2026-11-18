@@ -325,14 +325,20 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 .an-btn.is-primary { min-width: 64px; padding: 0 14px; background: var(--accent); color: #fff; font-weight: 500; }
 .an-btn.is-primary .an-check { width: 14px; height: 14px; stroke-width: 2.4; margin-left: -2px; }
 .an-btn.is-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
-/* 颜色和粗细：选中画图工具时出现在工具栏下方的一条，6 个预设色 + 马赛克 + 粗细滑杆 */
-.annotate-stylebar {
-  display: flex; align-items: center; justify-content: center; gap: 12px; flex: 0 0 40px; height: 40px; padding: 0 16px;
-  background: var(--win); border-bottom: 0.5px solid var(--sep);
-  animation: an-stylebar-in 120ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+/* 颜色和粗细：画笔/荧光笔唤起的悬浮弹层，对准工具按钮、盖在图片上方，不占版面 */
+.annotate-pop {
+  position: absolute; top: 60px; z-index: 6; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border-radius: 10px; background: var(--pop); box-shadow: var(--shadow-dialog);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+  animation: an-pop-in 120ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
 }
-@keyframes an-stylebar-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.annotate-stylebar .annotate-size { width: 180px; }
+@keyframes an-pop-in { from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.96); } to { opacity: 1; transform: translateX(-50%); } }
+/* 不支持背景模糊（部分 Linux WebKitGTK）时用不透明底色，控件不会糊在画面上 */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .annotate-pop { background: var(--win); }
+}
+.annotate-pop .annotate-size { width: 160px; }
 /* 马赛克那一格：灰色小方块，一看就是「打码」 */
 .annotate-swatch.is-mosaic, .annotate-size-preview .is-mosaic {
   background: repeating-conic-gradient(#8e939b 0 25%, #d5d8dd 0 50%) 0 0 / 6px 6px;
@@ -343,7 +349,7 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
   box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); transition: box-shadow 120ms ease-out, transform 90ms ease-out;
 }
 .annotate-swatch:active { transform: scale(0.9); }
-.annotate-swatch.is-on { box-shadow: 0 0 0 2px var(--win), 0 0 0 3.5px var(--accent); }
+.annotate-swatch.is-on { box-shadow: 0 0 0 2px var(--pop), 0 0 0 3.5px var(--accent); }
 .annotate-swatch[aria-disabled="true"] { opacity: 0.3; }
 .annotate-swatch[aria-disabled="true"]:active { transform: none; }
 /* 粗细：一条线性滑杆，右边是实际粗细的预览点 */

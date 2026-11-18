@@ -122,6 +122,8 @@ export function AnnotateWindow() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLTextAreaElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const stylePopRef = useRef<HTMLDivElement | null>(null);
   const original = useRef<HTMLImageElement | null>(null);
   const ratioRef = useRef(1);
   const loadVersion = useRef(0);
@@ -161,6 +163,9 @@ export function AnnotateWindow() {
   const [size, setSize] = useState<Size>(loadSize);
   /** 拖粗细滑杆时实时改选中的对象，松手才记一步撤销 */
   const sizeBefore = useRef<Shape[] | null>(null);
+  /** 颜色/粗细弹层：只在画笔、荧光笔时出现，悬浮在工具下方，不占版面 */
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [styleX, setStyleX] = useState<number | null>(null);
   const [pill, setPill] = useState<{ x: number; width: number; animate: boolean } | null>(null);
   const [done, setDone] = useState(false);
   const [title, setTitle] = useState("");
@@ -485,6 +490,7 @@ export function AnnotateWindow() {
 
   function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
     if (!ready || busy || event.button !== 0 || drag.current || cropDrag.current) return;
+    setStyleOpen(false);
     endSize();
     escArmedAt.current = 0;
     if (editingRef.current) {
@@ -800,11 +806,13 @@ export function AnnotateWindow() {
     if (editingRef.current) commitText();
     endSize();
     setTool(next);
+    setStyleOpen(next === "pen" || next === "highlight");
     if (canvasRef.current) {
       canvasRef.current.style.cursor = next === "crop" ? "crosshair" : "";
       if (next === "crop") canvasRef.current.focus({ preventScroll: true });
     }
-    if (next !== "select") {
+    // 画笔/荧光笔带着弹层来：留着选中，弹层里改颜色/粗细直接落到选中的那个上
+    if (next !== "select" && next !== "pen" && next !== "highlight") {
       select(null);
       if (hoverRef.current) {
         hoverRef.current = null;
@@ -870,6 +878,10 @@ export function AnnotateWindow() {
   function onEscape() {
     if (busy) return;
     if (cancelDrag()) return;
+    if (styleOpen) {
+      setStyleOpen(false);
+      return;
+    }
     if (selectedRef.current != null) {
       select(null);
       return;
@@ -951,6 +963,42 @@ export function AnnotateWindow() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // 弹层收起（点画布、点外面、Esc、换工具）时把还没记的粗细变化记上
+  useEffect(() => {
+    if (!styleOpen) endSize();
+  }, [styleOpen]);
+
+  // 点到弹层外面就收起（工具按钮自己的点击不算外面，不然切画笔/荧光笔会先收再开）
+  useEffect(() => {
+    if (!styleOpen) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (stylePopRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest("[data-tool='pen'], [data-tool='highlight']")) return;
+      setStyleOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, [styleOpen]);
+
+  // 弹层水平对准当前工具按钮，夹在窗口内；垂直悬浮在工具栏下方，不挤占图片
+  useLayoutEffect(() => {
+    if (!styleOpen) return;
+    const place = () => {
+      const root = rootRef.current;
+      const pop = stylePopRef.current;
+      const button = toolsRef.current?.querySelector<HTMLElement>(`[data-tool="${tool}"]`);
+      if (!root || !pop || !button) return;
+      const center = button.offsetLeft + button.offsetWidth / 2 + (toolsRef.current?.offsetLeft ?? 0);
+      const half = pop.offsetWidth / 2;
+      const max = root.clientWidth - half - 8;
+      setStyleX(Math.max(half + 8, Math.min(max, center)));
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [styleOpen, tool, ready]);
 
   // 输入框一出现就拿到焦点（等这次按下的默认行为过去，不然焦点会被画布抢走）
   const editingId = editing?.id ?? null;
@@ -1057,7 +1105,7 @@ export function AnnotateWindow() {
   const swatchFill = (value: string) => (value === MOSAIC ? undefined : value);
 
   return (
-    <div className={`annotate-root${isMac ? " is-mac" : ""}${busy ? " is-busy" : ""}`}>
+    <div ref={rootRef} className={`annotate-root${isMac ? " is-mac" : ""}${busy ? " is-busy" : ""}`}>
       <header className="annotate-toolbar" data-tauri-drag-region>
         <div className="annotate-group is-tools" role="group" aria-label={t("标注工具")} ref={toolsRef}>
           {pill ? (
@@ -1108,8 +1156,14 @@ export function AnnotateWindow() {
           </button>
         </div>
       </header>
-      {tool !== "select" && tool !== "crop" && (
-        <div className="annotate-stylebar" role="group" aria-label={t("颜色和粗细")}>
+      {styleOpen && (tool === "pen" || tool === "highlight") && (
+        <div
+          ref={stylePopRef}
+          className="annotate-pop"
+          role="dialog"
+          aria-label={t("颜色和粗细")}
+          style={{ left: styleX ?? undefined, visibility: styleX == null ? "hidden" : undefined }}
+        >
           <div className="annotate-swatches" role="radiogroup" aria-label={t("颜色")}>
             {COLORS.map((value) => (
               <button
