@@ -105,6 +105,11 @@ describe("history opens markup directly and previews uncompressed media on hover
 
     fireEvent.scroll(document.querySelector(".history-scroll")!);
     expect(screen.queryByRole("tooltip")).toBeNull();
+
+    // 滚动过程中经过其他卡片不抢先弹出悬停大图，避免滚动掉帧
+    const secondTile = screen.getByRole("button", { name: "标注：Beta" });
+    fireEvent.pointerEnter(secondTile, { pointerType: "mouse", clientX: 240, clientY: 160 });
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("a pending screenshot opens markup directly", async () => {

@@ -119,7 +119,8 @@ export function TimelineScrubber({
     trackHeight: 0,
     dayTops: [],
   });
-  const [activeIndex, setActiveIndex] = useState(0);
+  const activeIndexRef = useRef(0);
+  const scrollRafRef = useRef(0);
   const [hover, setHover] = useState<{ groupIndex: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -154,7 +155,15 @@ export function TimelineScrubber({
       if (currentNodes[i].u <= u + 0.002) idx = i;
       else break;
     }
-    setActiveIndex((prev) => (prev === idx ? prev : idx));
+    if (activeIndexRef.current !== idx) {
+      activeIndexRef.current = idx;
+      const root = rootRef.current;
+      if (root) {
+        root.setAttribute("aria-valuenow", String(idx));
+        const label = currentNodes[idx]?.label;
+        if (label) root.setAttribute("aria-valuetext", label);
+      }
+    }
   }, [scrollRef]);
 
   const measure = useCallback(() => {
@@ -177,7 +186,13 @@ export function TimelineScrubber({
     const scroller = scrollRef.current;
     if (!scroller) return;
 
-    const onScroll = () => syncScrollVisuals();
+    const onScroll = () => {
+      if (scrollRafRef.current) return;
+      scrollRafRef.current = requestAnimationFrame(() => {
+        scrollRafRef.current = 0;
+        syncScrollVisuals();
+      });
+    };
     scroller.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", measure);
 
@@ -190,6 +205,10 @@ export function TimelineScrubber({
     }
 
     return () => {
+      if (scrollRafRef.current) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = 0;
+      }
       scroller.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", measure);
       observer?.disconnect();
@@ -276,11 +295,17 @@ export function TimelineScrubber({
     } else {
       scroller.scrollTop = targetTop;
     }
-    setActiveIndex(groupIndex);
+    activeIndexRef.current = groupIndex;
+    const root = rootRef.current;
+    if (root) {
+      root.setAttribute("aria-valuenow", String(groupIndex));
+      root.setAttribute("aria-valuetext", group.label);
+    }
   }, [groups, scrollRef]);
 
   if (!scrollable) return null;
 
+  const activeIndex = Math.min(activeIndexRef.current, Math.max(0, groups.length - 1));
   const activeGroup = groups[activeIndex] ?? groups[0];
   const hoverNode = hover ? nodes[hover.groupIndex] : null;
   const pillY = hover ? Math.max(0, Math.min(Math.max(0, metrics.trackHeight - 24), hover.y - 12)) : 0;
@@ -371,10 +396,11 @@ export function TimelineScrubber({
       }}
       onKeyDown={(event) => {
         let next: number | null = null;
+        const current = activeIndexRef.current;
         if (event.key === "ArrowDown" || event.key === "PageDown") {
-          next = Math.min(groups.length - 1, activeIndex + 1);
+          next = Math.min(groups.length - 1, current + 1);
         } else if (event.key === "ArrowUp" || event.key === "PageUp") {
-          next = Math.max(0, activeIndex - 1);
+          next = Math.max(0, current - 1);
         } else if (event.key === "Home") {
           next = 0;
         } else if (event.key === "End") {

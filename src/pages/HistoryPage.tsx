@@ -59,11 +59,30 @@ export function HistoryPage() {
   const flip = useFlip(listRef);
   const pendingHandled = useRef<string | null>(null);
   const hoveredTargetRef = useRef<{ id: string; node: HTMLElement; pointerX?: number } | null>(null);
+  const hoverAnchorRef = useRef<HoverPreviewAnchor | null>(null);
+  hoverAnchorRef.current = hoverAnchor;
   const scrubberActiveRef = useRef(false);
+  const scrollingRef = useRef(false);
+  const scrollIdleTimerRef = useRef<number | null>(null);
 
   const dismissHoverCold = useCallback(() => {
+    const hadHover = hoveredTargetRef.current !== null || hoverAnchorRef.current !== null;
     hoveredTargetRef.current = null;
-    setHoverAnchor(null);
+    if (hadHover) setHoverAnchor(null);
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    scrollingRef.current = true;
+    if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
+    scrollIdleTimerRef.current = window.setTimeout(() => {
+      scrollingRef.current = false;
+      scrollIdleTimerRef.current = null;
+    }, 140);
+    dismissHoverCold();
+  }, [dismissHoverCold]);
+
+  useEffect(() => () => {
+    if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
   }, []);
 
   const annotateItem = useCallback((item: MediaItem) => {
@@ -203,7 +222,7 @@ export function HistoryPage() {
   }, []);
 
   const handleHoverStart = useCallback((item: MediaItem, node: HTMLElement, pointerX?: number) => {
-    if (selectingRef.current || scrubberActiveRef.current || !node.isConnected) return;
+    if (selectingRef.current || scrubberActiveRef.current || scrollingRef.current || !node.isConnected) return;
     hoveredTargetRef.current = { id: item.id, node, pointerX };
     const rect = node.getBoundingClientRect();
     const latest = filteredRef.current.find((entry) => entry.id === item.id) ?? item;
@@ -424,12 +443,15 @@ export function HistoryPage() {
             <JustifiedGrid
               items={group.items}
               size={(item) => item}
-              render={(item, box) => (
+              render={(item, box) => {
+                const slot = order++;
+                const isStatic = slot >= 12;
+                return (
                 <figure
                   key={item.id}
                   data-flip-key={item.id}
-                  style={{ ...stagger(order++), width: box.width }}
-                  className={`shot ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
+                  style={isStatic ? { width: box.width } : { ...stagger(slot), width: box.width }}
+                  className={`shot ${isStatic ? "is-static" : ""} ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
                 >
                   <MediaTile
                     item={item}
@@ -445,7 +467,8 @@ export function HistoryPage() {
                     onMeta={reportMeta}
                   />
                 </figure>
-              )}
+                );
+              }}
             />
           </section>
         ))}
@@ -463,7 +486,7 @@ export function HistoryPage() {
           role="region"
           aria-label={t("历史")}
           tabIndex={0}
-          onScroll={dismissHoverCold}
+          onScroll={handleScroll}
         >
           {body}
         </div>

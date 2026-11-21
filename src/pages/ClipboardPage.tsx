@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { ClipboardCopy, Trash2 } from "lucide-react";
 import { copyClipboardHistory, deleteClipboardHistory, listClipboardHistory, onClipboardHistoryChanged } from "../lib/backend";
 import { clipboardImageUrl } from "../lib/media";
@@ -146,7 +146,7 @@ export function ClipboardPage() {
   );
 }
 
-function ClipboardRow({ record, index, onCopy, onDelete }: {
+const ClipboardRow = memo(function ClipboardRow({ record, index, onCopy, onDelete }: {
   record: ClipboardHistoryEntry;
   index: number;
   onCopy: () => void;
@@ -154,11 +154,12 @@ function ClipboardRow({ record, index, onCopy, onDelete }: {
 }) {
   const { t } = useI18n();
   const isImage = record.kind === "image";
+  const isStatic = index >= 12;
   const summary = isImage
     ? t("图片 {width} × {height}", { width: record.width, height: record.height })
     : record.text.replace(/\s+/g, " ").trim();
   return (
-    <div className="clip-entry" style={stagger(index)}>
+    <div className={`clip-entry${isStatic ? " is-static" : ""}`} style={isStatic ? undefined : stagger(index)}>
       <button
         type="button"
         className="clip-main"
@@ -167,7 +168,7 @@ function ClipboardRow({ record, index, onCopy, onDelete }: {
       >
         <time className="mono small quiet">{formatClock(record.createdAt)}</time>
         {isImage ? (
-          <img className="clip-thumb" src={clipboardImageUrl(record.id)} alt={summary} loading="lazy" />
+          <img className="clip-thumb" src={clipboardImageUrl(record.id)} alt={summary} loading="lazy" decoding="async" />
         ) : (
           <span className="clip-text" title={record.text}>{summary}</span>
         )}
@@ -184,4 +185,4 @@ function ClipboardRow({ record, index, onCopy, onDelete }: {
       </button>
     </div>
   );
-}
+});

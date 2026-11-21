@@ -99,7 +99,7 @@ export function TrashPage() {
                 <li className="trash-row" key={entry.id}>
                   <div className="trash-thumb" aria-hidden="true">
                     {thumb ? <ImageIcon /> : <Film />}
-                    {thumb && <img alt="" loading="lazy" src={trashThumbUrl(entry.id)} onError={(event) => { event.currentTarget.hidden = true; }} />}
+                    {thumb && <img alt="" loading="lazy" decoding="async" src={trashThumbUrl(entry.id)} onError={(event) => { event.currentTarget.hidden = true; }} />}
                   </div>
                   <div className="trash-details">
                     <div className="trash-name" title={record.fileName}>{record.appName || record.fileName}</div>

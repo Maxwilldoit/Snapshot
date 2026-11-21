@@ -42,9 +42,11 @@ function mount() {
   });
   import.meta.hot?.dispose(unwatchTheme);
 
-  // 滚轮定速：主窗口和库窗口把鼠标滚轮的大颗粒增量收成固定小步，触控板保持原生。
-  // 启动台自己管翻页手势，不叠加。
-  if (label !== "launchpad" && label !== "pet") {
+  // 滚轮定速：Windows / Linux 下把鼠标滚轮的大颗粒增量收成固定小步。
+  // macOS 触控板和鼠标滚轮本身已有原生 120Hz 惯性滚动；挂 passive: false 的全局 wheel 监听
+  // 会迫使 WKWebView 退回主线程同步滚动并误拦快速触控板滑动，造成滑动掉帧。
+  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
+  if (label !== "launchpad" && label !== "pet" && !isMac) {
     const uninstallWheel = installWheelPace(document.documentElement);
     import.meta.hot?.dispose(uninstallWheel);
   }
