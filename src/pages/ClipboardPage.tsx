@@ -161,12 +161,15 @@ export function ClipboardPage() {
     dismissHover();
     try {
       const created = await copyClipboardHistory(id);
-      if (created?.id) deferredIdsRef.current.add(created.id);
+      if (created?.id) {
+        deferredIdsRef.current.add(created.id);
+        if (pageCache) pageCache.clipboard = null;
+      }
       notify(t("已放回剪贴板"));
     } catch (error) {
       notify(errorText(error), "error");
     }
-  }, [dismissHover, notify, t]);
+  }, [dismissHover, notify, pageCache, t]);
 
   const remove = useCallback(async (ids: string[]) => {
     dismissHover();

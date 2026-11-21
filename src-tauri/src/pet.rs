@@ -893,7 +893,11 @@ pub(crate) async fn pet_animation_duration(
             return Err("WebM 时长由前端读取视频元数据".into());
         }
         let duration = gif_duration_ms(&bytes)?;
-        cache.lock().insert(cache_key, duration);
+        let mut guard = cache.lock();
+        if guard.len() >= 256 {
+            guard.clear();
+        }
+        guard.insert(cache_key, duration);
         Ok(duration)
     })
     .await

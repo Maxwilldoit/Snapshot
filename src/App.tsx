@@ -3,8 +3,11 @@ import {
   getShortcutConflicts,
   loadSettings,
   onCaptureShot,
+  onClipboardHistoryChanged,
   onPromptLibraryOpened,
+  onRecordingsChanged,
   onSettingsChanged,
+  onSnapshotsChanged,
   platformCapabilities,
 } from "./lib/backend";
 import { prepareHintSound, previewHintSound, primeHintSound } from "./lib/sound";
@@ -77,6 +80,7 @@ export function App() {
   const noticeListenersRef = useRef<Set<() => void>>(new Set());
   const pageCache = useRef<PageSessionCache>({
     history: null,
+    recordingMeta: {},
     clipboard: null,
     trash: null,
   }).current;
@@ -221,6 +225,25 @@ export function App() {
       { direction: directionFor(from, next) },
     );
   }, []);
+
+  useEffect(() => {
+    const pendingSnapshots = onSnapshotsChanged(() => {
+      if (pageRef.current !== "history") pageCache.history = null;
+      if (pageRef.current !== "trash") pageCache.trash = null;
+    });
+    const pendingRecordings = onRecordingsChanged(() => {
+      if (pageRef.current !== "history") pageCache.history = null;
+      if (pageRef.current !== "trash") pageCache.trash = null;
+    });
+    const pendingClipboard = onClipboardHistoryChanged(() => {
+      if (pageRef.current !== "clipboard") pageCache.clipboard = null;
+    });
+    return () => {
+      void pendingSnapshots.then((unlisten) => unlisten()).catch(() => {});
+      void pendingRecordings.then((unlisten) => unlisten()).catch(() => {});
+      void pendingClipboard.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, [pageCache]);
 
   useEffect(() => {
     const pending = onPromptLibraryOpened(() => {

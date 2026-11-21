@@ -54,6 +54,7 @@ export function TrashPage() {
     setBusy(true);
     try {
       await operation();
+      if (pageCache) pageCache.history = null;
       if (message) notify(message);
     } catch (error) {
       notify(errorText(error), "error");

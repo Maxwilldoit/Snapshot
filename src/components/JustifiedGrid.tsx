@@ -21,7 +21,7 @@ export function JustifiedGrid<T>({
     if (!node) return;
     const measure = () => {
       const next = Math.floor(node.clientWidth);
-      if (next > 0) lastMeasuredGridWidth = next;
+      lastMeasuredGridWidth = next;
       setWidth((prev) => (prev === next ? prev : next));
     };
     measure();

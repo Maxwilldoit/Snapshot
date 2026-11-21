@@ -275,4 +275,49 @@ describe("capture feedback", () => {
 
     expect(starts).toBe(2);
   });
+
+  it("caches history across page switches without loading flash and invalidates when snapshots change in background", async () => {
+    let currentSnapshots = [
+      { id: "snap-1", fileName: "1.png", appName: "Alpha", width: 800, height: 600, sizeBytes: 1024, createdAt: 1000 },
+    ];
+    let delaySnapshots = false;
+    await renderApp((command) => {
+      if (command === "load_settings") return settings;
+      if (command === "platform_capabilities") return capabilities;
+      if (command === "get_shortcut_conflicts") return [];
+      if (command === "list_snapshots") {
+        if (delaySnapshots) {
+          return new Promise((resolve) => setTimeout(() => resolve(structuredClone(currentSnapshots)), 60));
+        }
+        return structuredClone(currentSnapshots);
+      }
+      if (command === "list_recordings") return [];
+      return undefined;
+    });
+
+    const user = userEvent.setup();
+    expect(await screen.findByRole("button", { name: "标注：Alpha" })).toBeTruthy();
+
+    // 切到「截图与录制」页，再切回「历史」页：即使后台 IPC 慢返回，首帧也直接展示已缓存条目而不退回加载态
+    await user.click(screen.getByRole("button", { name: "截图与录制" }));
+    await screen.findByRole("heading", { name: "截图与录制" });
+    delaySnapshots = true;
+    await user.click(screen.getByRole("button", { name: "历史" }));
+    expect(screen.queryByText("正在读取历史记录…")).toBeNull();
+    expect(screen.getByRole("button", { name: "标注：Alpha" })).toBeTruthy();
+
+    // 在其它页面期间发生后台截图变更时，缓存立即失效，返回历史页后展示最新条目
+    delaySnapshots = false;
+    await user.click(screen.getByRole("button", { name: "截图与录制" }));
+    await screen.findByRole("heading", { name: "截图与录制" });
+    currentSnapshots = [
+      { id: "snap-2", fileName: "2.png", appName: "Beta", width: 800, height: 600, sizeBytes: 2048, createdAt: 2000 },
+    ];
+    await act(async () => {
+      await emit("snapshots-changed");
+    });
+    await user.click(screen.getByRole("button", { name: "历史" }));
+    expect(await screen.findByRole("button", { name: "标注：Beta" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "标注：Alpha" })).toBeNull();
+  });
 });

@@ -17,8 +17,10 @@ use std::{
 
 type ReconcileCache = HashMap<(String, String), Option<String>>;
 
+const MAX_BUNDLE_CACHE_ENTRIES: usize = 256;
+
 static ICON_DRAW_LOCK: Mutex<()> = Mutex::new(());
-static APP_NAME_BUNDLE_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+static APP_NAME_BUNDLE_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 static RECONCILE_APP_ID_CACHE: OnceLock<Mutex<ReconcileCache>> = OnceLock::new();
 
 pub fn frontmost_pid() -> Option<u32> {
@@ -175,8 +177,18 @@ fn resolve_bundle_path_for_app_name(raw_name: &str) -> Option<String> {
     let cache_key = name.to_lowercase();
     let cache = APP_NAME_BUNDLE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(cached) = cache.lock().get(&cache_key).cloned() {
-        return cached;
+        if Path::new(&cached).exists() {
+            return Some(cached);
+        }
     }
+    let record_hit = |key: String, path: String| -> Option<String> {
+        let mut guard = cache.lock();
+        if guard.len() >= MAX_BUNDLE_CACHE_ENTRIES {
+            guard.clear();
+        }
+        guard.insert(key, path.clone());
+        Some(path)
+    };
     let workspace = NSWorkspace::sharedWorkspace();
     let running_paths: HashSet<_> = workspace
         .runningApplications()
@@ -191,15 +203,12 @@ fn resolve_bundle_path_for_app_name(raw_name: &str) -> Option<String> {
         return None;
     }
     if let Some(path) = running_paths.into_iter().next() {
-        cache.lock().insert(cache_key, Some(path.clone()));
-        return Some(path);
+        return record_hit(cache_key, path);
     }
 
     #[allow(deprecated)]
     if let Some(path) = workspace.fullPathForApplication(&NSString::from_str(name)) {
-        let resolved = path.to_string();
-        cache.lock().insert(cache_key, Some(resolved.clone()));
-        return Some(resolved);
+        return record_hit(cache_key, path.to_string());
     }
 
     // 兼容 CFBundleName 与包目录名不一致的应用（如 Visual Studio Code.app 的 CFBundleName 为 Code）
@@ -231,9 +240,11 @@ fn resolve_bundle_path_for_app_name(raw_name: &str) -> Option<String> {
             }
         }
     }
-    let resolved = (matched.len() == 1).then(|| matched.into_iter().next().unwrap());
-    cache.lock().insert(cache_key, resolved.clone());
-    resolved
+    if matched.len() == 1 {
+        record_hit(cache_key, matched.into_iter().next().unwrap())
+    } else {
+        None
+    }
 }
 
 fn stable_id_for_bundle_path(bundle_path: &str) -> String {
@@ -277,7 +288,11 @@ pub fn reconcile_app_id(app_name: &str, app_id: Option<&str>) -> Option<String> 
                 }
             }
         };
-        cache.lock().insert(cache_key, resolved.clone());
+        let mut guard = cache.lock();
+        if guard.len() >= MAX_BUNDLE_CACHE_ENTRIES {
+            guard.clear();
+        }
+        guard.insert(cache_key, resolved.clone());
         resolved
     })
 }

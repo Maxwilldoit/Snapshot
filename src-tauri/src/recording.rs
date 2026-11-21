@@ -113,6 +113,13 @@ impl Recorder {
     }
 }
 
+/// 退出应用前同步收尾录制：先拿 `RECORDING_OP_LOCK` 等待可能正在后台线程收尾的 `toggle_recording` 完成，
+/// 避免写到一半的 MP4 在 `app.exit(0)` 时被截断。
+pub(crate) fn stop_for_quit(state: &AppState) {
+    let _op_guard = RECORDING_OP_LOCK.lock();
+    let _ = state.recorder.lock().stop();
+}
+
 fn validate_recording_output(path: &Path) -> Result<(), String> {
     let metadata = fs::metadata(path).map_err(|error| format!("录制文件不可用：{error}"))?;
     if !metadata.is_file() || metadata.len() == 0 {
@@ -607,11 +614,9 @@ fn recording_path(state: &AppState, id: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// 单次 Range 响应的最大字节数（4 MB）：历史页 `<video preload="metadata">` 与播放器拖动常发
-/// `bytes=0-` 等开放区间，限制单次切片大小可避免一次把数百 MB 录像读入内存。
-const MAX_RANGE_CHUNK: u64 = 4 * 1024 * 1024;
-
-/// 解析单段 Range（bytes=start-end / bytes=start- / bytes=-N）；多段或非法时返回 None，整文件回 200
+/// 解析单段 Range（bytes=start-end / bytes=start- / bytes=-N）；多段或非法时返回 None，整文件回 200。
+/// 注意：Wry 的自定义协议响应器在单次回调末尾即调用 `WKURLSchemeTask::didFinish()`，
+/// 不能截断客户端请求的区间，否则 macOS `AVURLAsset` 对 >4MB 录像会视为提前 EOF 而中断播放或拖动。
 fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     if len == 0 {
         return None;
@@ -623,22 +628,18 @@ fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
         if suffix == 0 {
             return None;
         }
-        let actual_suffix = suffix.min(MAX_RANGE_CHUNK);
-        Some((len.saturating_sub(actual_suffix), len - 1))
+        Some((len.saturating_sub(suffix), len - 1))
     } else {
         let start: u64 = start.parse().ok()?;
-        let requested_end: u64 = if end.is_empty() {
+        let end: u64 = if end.is_empty() {
             len - 1
         } else {
             end.parse().ok()?
         };
-        if start >= len || requested_end < start {
+        if start >= len || end < start {
             return None;
         }
-        let capped_end = requested_end
-            .min(len - 1)
-            .min(start.saturating_add(MAX_RANGE_CHUNK - 1));
-        Some((start, capped_end))
+        Some((start, end.min(len - 1)))
     }
 }
 
@@ -661,7 +662,7 @@ fn read_file_range(path: &Path, range: Option<&str>) -> Result<RecordingBytes, S
             .map_err(|error| format!("读取录像失败：{error}"))?;
         Ok((len, Some((start, end)), bytes))
     } else {
-        let mut bytes = Vec::new();
+        let mut bytes = Vec::with_capacity(len as usize);
         file.read_to_end(&mut bytes)
             .map_err(|error| format!("读取录像失败：{error}"))?;
         Ok((len, None, bytes))
@@ -853,12 +854,8 @@ mod tests {
         assert_eq!(super::parse_range("bytes=0-1,5-6", 100), None);
         assert_eq!(super::parse_range("items=0-1", 100), None);
         assert_eq!(super::parse_range("bytes=0-", 0), None);
-        // 超大录像的开放 Range 请求按 MAX_RANGE_CHUNK 分片返回，避免整段读入内存
-        let huge = super::MAX_RANGE_CHUNK * 10;
-        assert_eq!(
-            super::parse_range("bytes=0-", huge),
-            Some((0, super::MAX_RANGE_CHUNK - 1))
-        );
+        let huge = 50 * 1024 * 1024;
+        assert_eq!(super::parse_range("bytes=0-", huge), Some((0, huge - 1)));
     }
 
     #[test]

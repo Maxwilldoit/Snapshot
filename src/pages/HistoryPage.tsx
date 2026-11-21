@@ -39,11 +39,12 @@ export function HistoryPage() {
   const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate, pageCache } = useApp();
   const { t, language } = useI18n();
   const cachedHistory = pageCache?.history ?? null;
+  const cachedMeta = pageCache?.recordingMeta ?? {};
   const skipInitialStagger = useRef(cachedHistory !== null).current;
   const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(() => cachedHistory?.snapshots ?? null);
   const [recordings, setRecordings] = useState<RecordingRecord[]>(() => cachedHistory?.recordings ?? []);
-  const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>(() => cachedHistory?.recordingMeta ?? {});
-  const metaRef = useRef<Record<string, RecordingMeta>>(cachedHistory?.recordingMeta ?? {});
+  const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>(() => cachedMeta);
+  const metaRef = useRef<Record<string, RecordingMeta>>(cachedMeta);
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -59,7 +60,7 @@ export function HistoryPage() {
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const known = useRef<Set<string> | null>(
     cachedHistory
-      ? new Set(mergeTimeline(cachedHistory.snapshots, cachedHistory.recordings, cachedHistory.recordingMeta).map((item) => item.id))
+      ? new Set(mergeTimeline(cachedHistory.snapshots, cachedHistory.recordings, cachedMeta).map((item) => item.id))
       : null,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -130,8 +131,11 @@ export function HistoryPage() {
   }, []);
 
   useEffect(() => {
-    if (pageCache && snapshots !== null) {
-      pageCache.history = { snapshots, recordings, recordingMeta };
+    if (pageCache) {
+      pageCache.recordingMeta = recordingMeta;
+      if (snapshots !== null) {
+        pageCache.history = { snapshots, recordings };
+      }
     }
   }, [pageCache, snapshots, recordings, recordingMeta]);
 
@@ -315,6 +319,7 @@ export function HistoryPage() {
       flip.capture();
       setSnapshots(nextSnaps);
       setRecordings(nextRecs);
+      if (pageCache) pageCache.trash = null;
       setLeaving(new Set());
       setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))));
       notify(t(ids.length === 1 ? "已将 1 项移入回收站" : "已将 {count} 项移入回收站", { count: ids.length }));

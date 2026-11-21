@@ -25,8 +25,8 @@ export type PageSessionCache = {
   history: {
     snapshots: SnapshotRecord[];
     recordings: RecordingRecord[];
-    recordingMeta: Record<string, RecordingMeta>;
   } | null;
+  recordingMeta: Record<string, RecordingMeta>;
   clipboard: {
     records: ClipboardHistoryEntry[];
   } | null;

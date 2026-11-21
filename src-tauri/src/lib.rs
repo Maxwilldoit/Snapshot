@@ -624,7 +624,7 @@ pub fn run() {
                     "launch-on-boot" => actions::toggle_autostart_from_tray(app),
                     "quit" => {
                         if let Some(state) = app.try_state::<AppState>() {
-                            let _ = state.recorder.lock().stop();
+                            recording::stop_for_quit(&state);
                         }
                         app.exit(0);
                     }

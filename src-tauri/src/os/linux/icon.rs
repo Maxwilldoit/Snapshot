@@ -91,6 +91,14 @@ fn find_desktop_icon(app: &str) -> Option<String> {
     if let Some(cached) = cache.lock().get(&lower).cloned() {
         return cached;
     }
+    let store_cache = |key: String, value: Option<String>| -> Option<String> {
+        let mut guard = cache.lock();
+        if guard.len() >= 256 {
+            guard.clear();
+        }
+        guard.insert(key, value.clone());
+        value
+    };
     for root in xdg_data_dirs() {
         let apps = root.join("applications");
         let Ok(entries) = fs::read_dir(&apps) else {
@@ -119,16 +127,13 @@ fn find_desktop_icon(app: &str) -> Option<String> {
                 if let Some(icon) = line.strip_prefix("Icon=") {
                     let icon = icon.trim();
                     if !icon.is_empty() {
-                        let resolved = icon.to_string();
-                        cache.lock().insert(lower, Some(resolved.clone()));
-                        return Some(resolved);
+                        return store_cache(lower, Some(icon.to_string()));
                     }
                 }
             }
         }
     }
-    cache.lock().insert(lower, None);
-    None
+    store_cache(lower, None)
 }
 
 fn load_icon_file(icon: &str) -> Option<RgbaImage> {

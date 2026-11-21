@@ -93,6 +93,7 @@ fn recording_response(
         Ok((total, span, bytes)) => {
             let builder = Response::builder()
                 .header(header::CONTENT_TYPE, "video/mp4")
+                .header(header::CONTENT_LENGTH, bytes.len().to_string())
                 .header(header::ACCEPT_RANGES, "bytes")
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
                 .header(header::CACHE_CONTROL, "max-age=31536000, immutable");
@@ -239,18 +240,24 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
     }
 }
 
-/// 按进程 pid 取图标：若能解析到稳定应用标识（bundle id / exe 路径），则与历史角标共用同一份内存缓存，
-/// 避免打开窗口选择器或频繁切换前台应用时对同一款应用重复光栅化编码 PNG。
+const MAX_ICON_CACHE_ENTRIES: usize = 256;
+
+/// 按进程 pid 取图标：先解析实时进程的稳定应用标识（bundle id / exe 路径）作缓存键，
+/// 既避免 PID 被系统复用后命中旧进程图标，又避免与 `app-icon` 静态包图标键冲突；缓存容量封顶。
 fn process_icon_bytes(state: &AppState, pid: u32, size: u32) -> Option<Vec<u8>> {
     if let Some(stable_id) = os::app_stable_id(pid) {
-        let key = format!("app-icon/{size}/{stable_id}");
+        let key = format!("pid-icon/{size}/{stable_id}");
         if let Some(bytes) = state.app_icons.lock().get(&key) {
             return Some(bytes.clone());
         }
         if let Some(bytes) =
             os::app_icon_png(pid, size).or_else(|| os::app_icon_for_id(&stable_id, size))
         {
-            state.app_icons.lock().insert(key, bytes.clone());
+            let mut cache = state.app_icons.lock();
+            if cache.len() >= MAX_ICON_CACHE_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(key, bytes.clone());
             return Some(bytes);
         }
     }
@@ -273,7 +280,11 @@ fn app_icon_bytes(state: &AppState, kind: &str, id: &str, size: u32) -> Option<V
     } else {
         os::app_icon_for_id(id, size)
     }?;
-    state.app_icons.lock().insert(key, bytes.clone());
+    let mut cache = state.app_icons.lock();
+    if cache.len() >= MAX_ICON_CACHE_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(key, bytes.clone());
     Some(bytes)
 }
 
