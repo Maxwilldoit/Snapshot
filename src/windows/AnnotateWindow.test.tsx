@@ -485,20 +485,19 @@ describe("截图标注：对象编辑", () => {
 describe("截图标注：快捷键与出口", () => {
   it("松手即裁剪，可撤销、重做和用键盘继续微调", async () => {
     const { canvas, context, drag, refit, calls } = await editor();
+    expect(screen.queryByText(/图片尺寸/)).toBeNull();
     drag([8, 8], [45, 35]);
     fireEvent.click(button("裁剪"));
     expect(document.activeElement).toBe(canvas);
-    expect(screen.getByText("图片尺寸：200 × 100")).toBeTruthy();
+    expect([canvas.width, canvas.height]).toEqual([200, 100]);
     drag([65, 38], [15, 8]);
-    expect(screen.getByText("图片尺寸：100 × 60")).toBeTruthy();
     expect([canvas.width, canvas.height]).toEqual([100, 60]);
     fireEvent.click(button("撤销"));
-    expect(screen.getByText("图片尺寸：200 × 100")).toBeTruthy();
     expect([canvas.width, canvas.height]).toEqual([200, 100]);
     fireEvent.click(button("重做"));
     await refit(100);
     fireEvent.keyDown(canvas, { key: "ArrowRight", shiftKey: true });
-    expect(screen.getByText("图片尺寸：99 × 60")).toBeTruthy();
+    expect([canvas.width, canvas.height]).toEqual([99, 60]);
 
     fireEvent.click(button("保存"));
     await waitFor(() => expect(calls).toContainEqual({
@@ -513,19 +512,19 @@ describe("截图标注：快捷键与出口", () => {
     const { canvas, drag, refit, calls } = await editor();
     fireEvent.click(button("裁剪"));
     drag([15, 8], [65, 38]);
-    expect(screen.getByText("图片尺寸：100 × 60")).toBeTruthy();
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
     // 第二刀在剩下的画面里：屏幕坐标按新的显示尺寸换算
     await refit(100);
     drag([20, 20], [80, 50]);
-    expect(screen.getByText("图片尺寸：60 × 30")).toBeTruthy();
     expect([canvas.width, canvas.height]).toEqual([60, 30]);
     fireEvent.click(button("撤销"));
-    expect(screen.getByText("图片尺寸：100 × 60")).toBeTruthy();
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
     fireEvent.click(button("撤销"));
-    expect(screen.getByText("图片尺寸：200 × 100")).toBeTruthy();
+    expect([canvas.width, canvas.height]).toEqual([200, 100]);
     fireEvent.click(button("重做"));
-    expect(screen.getByText("图片尺寸：100 × 60")).toBeTruthy();
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
     fireEvent.click(button("重做"));
+    expect([canvas.width, canvas.height]).toEqual([60, 30]);
     await refit(60);
     fireEvent.click(button("保存"));
     await waitFor(() => expect(calls).toContainEqual({
@@ -580,7 +579,7 @@ describe("截图标注：快捷键与出口", () => {
     fireEvent.pointerDown(canvas, { button: 0, clientX: 20, clientY: 10 });
     fireEvent.pointerMove(canvas, { clientX: 80, clientY: 40 });
     fireEvent.pointerCancel(canvas);
-    expect(screen.getByText("图片尺寸：100 × 60")).toBeTruthy();
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
     fireEvent.click(button("撤销"));
     fireEvent.click(button("保存"));
     await waitFor(() => expect(calls).toContainEqual({

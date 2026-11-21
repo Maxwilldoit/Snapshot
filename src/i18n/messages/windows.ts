@@ -72,7 +72,6 @@ export const windowsEnglish: Record<string, string> = {
   "撤销": "Undo",
   "重做": "Redo",
   "裁剪": "Crop",
-  "图片尺寸：{width} × {height}": "Image size: {width} × {height}",
   "松开即裁剪，可继续裁剪剩下的画面；方向键调整右下角，Shift 加方向键调整左上角。": "Release to crop, then keep cropping what’s left. Arrow keys adjust the bottom-right corner; Shift with arrow keys adjusts the top-left corner.",
   "再按一次 Esc 放弃标注并关闭": "Press Esc again to discard your markup and close.",
   "复制": "Copy",

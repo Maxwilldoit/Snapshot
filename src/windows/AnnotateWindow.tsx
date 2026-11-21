@@ -1074,8 +1074,6 @@ export function AnnotateWindow() {
 
   // 导出和「已保存」确认这一小会儿只拦操作（各命令自己看 busy），不把整条工具栏变灰，免得闪一下
   const locked = !ready;
-  const frame = view.current;
-  const cropStatus = ready && frame && t("图片尺寸：{width} × {height}", { width: frame.width, height: frame.height });
   void historyTick;
   const toolButton = (value: Tool, label: string, icon: ReactNode) => (
     <button
@@ -1237,7 +1235,6 @@ export function AnnotateWindow() {
             {t("松开即裁剪，可继续裁剪剩下的画面；方向键调整右下角，Shift 加方向键调整左上角。")}
           </p>
         )}
-        {cropStatus && <output className="annotate-crop-size">{cropStatus}</output>}
         {textEditor()}
         {toast ? (
           <div key={toast.key} className={`annotate-status${toast.leaving ? " is-leaving" : ""}`} role="status">

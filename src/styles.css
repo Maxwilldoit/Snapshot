@@ -386,10 +386,6 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 .annotate-crop-help {
   position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%);
 }
-.annotate-crop-size {
-  position: absolute; right: 16px; bottom: 16px; padding: 4px 8px; border-radius: 5px;
-  background: var(--toast); color: var(--on-toast); font-size: 11px; pointer-events: none;
-}
 /* 图片加载好后直接完整显示：入场缩放/淡入在窗口刚出现时会被看成闪烁，不做入场动画 */
 /* 正在输入的文字：直接用标注的字体和颜色写在图上，虚线框提示还在编辑 */
 .annotate-text {
