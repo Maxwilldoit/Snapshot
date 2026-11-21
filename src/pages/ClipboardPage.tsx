@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { copyClipboardHistory, deleteClipboardHistory, listClipboardHistory, onClipboardHistoryChanged } from "../lib/backend";
 import { clipboardThumbUrl } from "../lib/media";
@@ -44,9 +44,9 @@ function sameClipboardRecords(a: ClipboardHistoryEntry[] | null, b: ClipboardHis
 
 function clipboardRowHeight(record: ClipboardHistoryEntry): number {
   if (record.kind === "image") {
-    return thumbDimensions(record.width, record.height).height + 19;
+    return thumbDimensions(record.width, record.height).height + 20;
   }
-  return 38;
+  return 40;
 }
 
 function previewText(text: string): string {
@@ -77,7 +77,7 @@ export function ClipboardPage() {
   const { notify, pageCache } = useApp();
   const { t } = useI18n();
   const cachedClipboard = pageCache?.clipboard ?? null;
-  const skipInitialStagger = useRef(cachedClipboard !== null).current;
+  const [staggerDone, setStaggerDone] = useState(() => cachedClipboard !== null);
   const [records, setRecords] = useState<ClipboardHistoryEntry[] | null>(() => cachedClipboard?.records ?? null);
   const recordsRef = useRef<ClipboardHistoryEntry[] | null>(records);
   recordsRef.current = records;
@@ -86,7 +86,12 @@ export function ClipboardPage() {
   const [busy, setBusy] = useState(false);
   const [hoverAnchor, setHoverAnchor] = useState<HoverPreviewAnchor | null>(null);
   const [scrollBand, setScrollBand] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 760,
+  );
+  const [dayMetrics, setDayMetrics] = useState({ firstListTop: 34, dayStepOverhead: 52 });
   const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const hoverAnchorRef = useRef<HoverPreviewAnchor | null>(null);
   hoverAnchorRef.current = hoverAnchor;
   const scrollingRef = useRef(false);
@@ -96,6 +101,14 @@ export function ClipboardPage() {
 
   const dismissHover = useCallback(() => {
     if (hoverAnchorRef.current !== null) setHoverAnchor(null);
+  }, []);
+
+  const updateQuery = useCallback((next: string) => {
+    setQuery(next);
+    setScrollBand(0);
+    if (scrollRef.current && scrollRef.current.scrollTop !== 0) {
+      scrollRef.current.scrollTop = 0;
+    }
   }, []);
 
   const handleScroll = useCallback(() => {
@@ -109,6 +122,7 @@ export function ClipboardPage() {
     const scrollEl = scrollRef.current;
     if (scrollEl) {
       const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / CLIP_SCROLL_BAND_STEP));
+      if (nextBand > 0) setStaggerDone(true);
       setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
     }
   }, [dismissHover]);
@@ -198,9 +212,65 @@ export function ClipboardPage() {
     return sorted.filter((item) => matchesSearchEntry(item.createdAt, item.kind === "text" ? [item.text] : [], query));
   }, [records, query]);
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
+  const hasGroups = records !== null && groups.length > 0;
+
+  useEffect(() => {
+    if (staggerDone || !hasGroups) return;
+    const timer = window.setTimeout(() => setStaggerDone(true), 650);
+    return () => window.clearTimeout(timer);
+  }, [staggerDone, hasGroups]);
+
+  useLayoutEffect(() => {
+    if (!hasGroups) return;
+    const scrollEl = scrollRef.current;
+    const node = listRef.current;
+    if (!scrollEl) return;
+    const measure = () => {
+      const nextViewH = Math.ceil(scrollEl.clientHeight);
+      if (nextViewH > 0) {
+        setViewportHeight((prev) => (prev === nextViewH ? prev : nextViewH));
+      }
+      const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / CLIP_SCROLL_BAND_STEP));
+      setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
+      if (node && nextViewH > 0) {
+        const lists = node.querySelectorAll<HTMLElement>(".prompt-list");
+        const firstList = lists[0];
+        if (firstList) {
+          const scrollRect = scrollEl.getBoundingClientRect();
+          const firstRect = firstList.getBoundingClientRect();
+          const measuredFirst = Math.round(firstRect.top - scrollRect.top + scrollEl.scrollTop);
+          const measuredStep =
+            lists.length >= 2
+              ? Math.round(lists[1].getBoundingClientRect().top - firstRect.bottom)
+              : 52;
+          if (measuredFirst > 0 && measuredStep > 0) {
+            setDayMetrics((prev) =>
+              prev.firstListTop === measuredFirst && prev.dayStepOverhead === measuredStep
+                ? prev
+                : { firstListTop: measuredFirst, dayStepOverhead: measuredStep },
+            );
+          }
+        }
+      }
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(scrollEl);
+    if (node) observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasGroups, groups.length]);
+
+  useLayoutEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+    const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / CLIP_SCROLL_BAND_STEP));
+    setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
+  }, [filtered.length, query, viewportHeight]);
+
   const groupLayouts = useMemo(() => {
     let startOrder = 0;
-    let y = 34; // .prompt-groups padding-top (2) + first .day margin-top (4) + .day-label (28)
+    let y = dayMetrics.firstListTop;
     return groups.map((group) => {
       const rowTops: number[] = [];
       let top = 0;
@@ -210,12 +280,12 @@ export function ClipboardPage() {
       }
       const listTop = y;
       const totalHeight = top;
-      y += totalHeight + 52; // next .day margin-top (24) + .day-label (28)
+      y += totalHeight + dayMetrics.dayStepOverhead;
       const entry = { group, rowTops, totalHeight, listTop, startIndex: startOrder };
       startOrder += group.items.length;
       return entry;
     });
-  }, [groups]);
+  }, [groups, dayMetrics]);
 
   const copyById = useCallback(async (id: string) => {
     dismissHover();
@@ -252,7 +322,7 @@ export function ClipboardPage() {
 
   const toolbar = (
     <Toolbar title={t("剪贴板")}>
-      <SearchField value={query} onChange={(next) => { setQuery(next); setScrollBand(0); }} label={t("搜索剪贴板历史")} placeholder={t("搜索内容或日期")} />
+      <SearchField value={query} onChange={updateQuery} label={t("搜索剪贴板历史")} placeholder={t("搜索内容或日期")} />
       {(records?.length ?? 0) > 0 && (
         <button
           type="button"
@@ -283,7 +353,7 @@ export function ClipboardPage() {
       return (
         <p className="empty-line mw-empty-line">
           {t("没有含「{query}」的剪贴板记录。", { query: query.trim() })}
-          <button type="button" className="link" onClick={() => setQuery("")}>{t("清除筛选")}</button>
+          <button type="button" className="link" onClick={() => updateQuery("")}>{t("清除筛选")}</button>
         </p>
       );
     }
@@ -291,12 +361,11 @@ export function ClipboardPage() {
       filtered.length > CLIP_VIRTUALIZE_THRESHOLD
       && typeof document !== "undefined"
       && document.documentElement.clientWidth > 0;
-    const viewH = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 760;
     const winTop = scrollBand * CLIP_SCROLL_BAND_STEP - CLIP_SCROLL_OVERSCAN;
-    const winBottom = (scrollBand + 1) * CLIP_SCROLL_BAND_STEP + viewH + CLIP_SCROLL_OVERSCAN;
+    const winBottom = (scrollBand + 1) * CLIP_SCROLL_BAND_STEP + viewportHeight + CLIP_SCROLL_OVERSCAN;
 
     return (
-      <div className="prompt-groups">
+      <div className="prompt-groups" ref={listRef}>
         {groupLayouts.map(({ group, rowTops, totalHeight, listTop, startIndex }) => {
           if (!virtualized) {
             return (
@@ -309,7 +378,7 @@ export function ClipboardPage() {
                     <ClipboardRow
                       key={item.id}
                       record={item}
-                      index={skipInitialStagger ? 12 + startIndex + idx : startIndex + idx}
+                      index={staggerDone ? 12 + startIndex + idx : startIndex + idx}
                       onCopy={copyById}
                       onDelete={deleteById}
                       onHoverStart={handleHoverStart}
@@ -362,7 +431,8 @@ export function ClipboardPage() {
                     <ClipboardRow
                       key={item.id}
                       record={item}
-                      index={skipInitialStagger ? 12 + startIndex + idx : startIndex + idx}
+                      index={staggerDone ? 12 + startIndex + idx : startIndex + idx}
+                      rowHeight={clipboardRowHeight(item)}
                       onCopy={copyById}
                       onDelete={deleteById}
                       onHoverStart={handleHoverStart}
@@ -381,9 +451,11 @@ export function ClipboardPage() {
     t,
     filtered.length,
     query,
+    updateQuery,
     scrollBand,
+    viewportHeight,
     groupLayouts,
-    skipInitialStagger,
+    staggerDone,
     copyById,
     deleteById,
     handleHoverStart,
@@ -416,9 +488,10 @@ export function ClipboardPage() {
   );
 }
 
-const ClipboardRow = memo(function ClipboardRow({ record, index, onCopy, onDelete, onHoverStart, onHoverEnd }: {
+const ClipboardRow = memo(function ClipboardRow({ record, index, rowHeight, onCopy, onDelete, onHoverStart, onHoverEnd }: {
   record: ClipboardHistoryEntry;
   index: number;
+  rowHeight?: number;
   onCopy: (id: string) => void;
   onDelete: (id: string) => void;
   onHoverStart: (record: ClipboardHistoryEntry, node: HTMLElement, pointerX?: number) => void;
@@ -431,8 +504,11 @@ const ClipboardRow = memo(function ClipboardRow({ record, index, onCopy, onDelet
     ? t("图片 {width} × {height}", { width: record.width, height: record.height })
     : previewText(record.text);
   const box = isImage ? thumbDimensions(record.width, record.height) : null;
+  const rowStyle = rowHeight !== undefined
+    ? (isStatic ? { height: rowHeight, boxSizing: "border-box" as const, flexShrink: 0 } : { ...stagger(index), height: rowHeight, boxSizing: "border-box" as const, flexShrink: 0 })
+    : (isStatic ? undefined : stagger(index));
   return (
-    <div className={`clip-entry${isStatic ? " is-static" : ""}`} style={isStatic ? undefined : stagger(index)}>
+    <div className={`clip-entry${isStatic ? " is-static" : ""}`} style={rowStyle}>
       <button
         type="button"
         className="clip-main"

@@ -234,7 +234,7 @@ html[data-surface="app"] .gallery { display: block; padding: 60px 24px 32px 20px
 html[data-surface="app"] .mw .day { position: relative; display: block; margin-top: 24px; padding: 0; border-top: 0; contain: layout style; }
 html[data-surface="app"] .mw .day:first-child { margin-top: 4px; }
 html[data-surface="app"] .mw .day-label { display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0; padding: 0 0 8px; background: none; }
-html[data-surface="app"] .mw .day-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text1); letter-spacing: -0.012em; }
+html[data-surface="app"] .mw .day-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text1); letter-spacing: -0.012em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html[data-surface="app"] .mw .day > .jgrid { margin-top: 0; }
 html[data-surface="app"] .jgrid { display: flex; flex-direction: column; min-width: 0; }
 

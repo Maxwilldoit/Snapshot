@@ -174,7 +174,10 @@ export function PhotoViewer({
     return () => {
       const activeId = currentIdRef.current;
       const safe = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(activeId) : activeId;
-      const target = document.querySelector<HTMLElement>(`[data-thumb-id="${safe}"]`) ?? previousFocusRef.current;
+      const target =
+        document.querySelector<HTMLElement>(`[data-thumb-id="${safe}"]`)
+        ?? (previousFocusRef.current?.isConnected ? previousFocusRef.current : null)
+        ?? document.querySelector<HTMLElement>(".history-scroll");
       target?.focus({ preventScroll: true });
     };
   }, []);

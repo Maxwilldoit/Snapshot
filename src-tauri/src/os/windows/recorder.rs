@@ -36,7 +36,7 @@ use windows::{
                 D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE,
                 D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
             },
-            Dxgi::IDXGIDevice,
+            Dxgi::{Common::DXGI_FORMAT, IDXGIDevice},
         },
         Media::Audio::{
             eCapture, eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator,
@@ -576,12 +576,19 @@ fn pack_frame_scaled(
     packed
 }
 
+struct StagingTexture {
+    width: u32,
+    height: u32,
+    format: DXGI_FORMAT,
+    texture: ID3D11Texture2D,
+}
+
 struct FrameSink {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     encoder: Encoder,
     /// 复用同尺寸/格式的 CPU staging 纹理，避免在 60–144Hz 帧回调中每帧创建并销毁 GPU 资源。
-    staging: Option<(u32, u32, i32, ID3D11Texture2D)>,
+    staging: Option<StagingTexture>,
     /// 最近一帧。窗口静止不重绘时 FrameArrived 根本不触发，
     /// 定时器就靠它补帧，保证时间轴连续、文件可播。
     latest: Option<Vec<u8>>,
@@ -794,10 +801,12 @@ pub fn start(
                 let mut desc = D3D11_TEXTURE2D_DESC::default();
                 unsafe { texture.GetDesc(&mut desc) };
                 let staging = match sink.staging.as_ref() {
-                    Some((w, h, fmt, existing))
-                        if *w == desc.Width && *h == desc.Height && *fmt == desc.Format.0 =>
+                    Some(existing)
+                        if existing.width == desc.Width
+                            && existing.height == desc.Height
+                            && existing.format == desc.Format =>
                     {
-                        existing.clone()
+                        existing.texture.clone()
                     }
                     _ => {
                         let mut staging_desc = desc;
@@ -817,8 +826,12 @@ pub fn start(
                         let Some(created) = created else {
                             return Ok(());
                         };
-                        sink.staging =
-                            Some((desc.Width, desc.Height, desc.Format.0, created.clone()));
+                        sink.staging = Some(StagingTexture {
+                            width: desc.Width,
+                            height: desc.Height,
+                            format: desc.Format,
+                            texture: created.clone(),
+                        });
                         created
                     }
                 };

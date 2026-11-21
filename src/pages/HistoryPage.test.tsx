@@ -378,3 +378,67 @@ describe("history mixes recordings into the timeline", () => {
     await waitFor(() => expect(deleted).toEqual([[recording.id]]));
   });
 });
+
+describe("virtualized large history completeness", () => {
+  it("preserves full selection, search reset while scrolled, and non-replaying stagger across 200 items", async () => {
+    const baseTime = new Date(2026, 10, 21, 12, 0).getTime();
+    const many: SnapshotRecord[] = Array.from({ length: 200 }, (_, i) => ({
+      id: `v-${i}`,
+      fileName: `v-${i}.png`,
+      appName: i === 180 ? "UniqueNeedleApp" : `App-${i % 5}`,
+      width: 1280,
+      height: 720,
+      sizeBytes: 4096,
+      createdAt: baseTime - i * 45 * 60_000,
+    }));
+    const widthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      if (this === document.documentElement) return 1044;
+      return 800;
+    });
+    const heightSpy = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600);
+    try {
+      setupTauriMock((command) => {
+        if (command === "list_snapshots") return structuredClone(many);
+        if (command === "list_recordings") return [];
+        return undefined;
+      }, { shouldMockEvents: true });
+
+      const { container } = render(<AppContext.Provider value={context}><HistoryPage /></AppContext.Provider>);
+      await waitFor(() => expect(container.querySelectorAll(".shot").length).toBeGreaterThan(0));
+
+      // 虚拟化已启用：只挂载视口与缓冲区内的部分节点，而非全部 200 条
+      const initialShots = container.querySelectorAll(".shot").length;
+      expect(initialShots).toBeLessThan(200);
+      expect(container.querySelectorAll("section.day").length).toBeGreaterThan(1);
+
+      // 向下滚动到深处再滚回顶部：首屏条目保持 is-static，不重复播放入场动画
+      const scrollEl = container.querySelector<HTMLElement>(".history-scroll")!;
+      scrollEl.scrollTop = 4000;
+      fireEvent.scroll(scrollEl);
+      scrollEl.scrollTop = 0;
+      fireEvent.scroll(scrollEl);
+      await waitFor(() => expect(container.querySelector(".shot")).toBeTruthy());
+      expect(container.querySelector(".shot")!.classList.contains("is-static")).toBe(true);
+
+      // 滚在深处时执行搜索与清除筛选：立即重置滚动位置且无空白屏
+      scrollEl.scrollTop = 5000;
+      fireEvent.scroll(scrollEl);
+      fireEvent.change(screen.getByRole("textbox", { name: "搜索截图" }), { target: { value: "UniqueNeedleApp" } });
+      expect(await screen.findByRole("button", { name: "标注：UniqueNeedleApp" })).toBeTruthy();
+      expect(scrollEl.scrollTop).toBe(0);
+
+      fireEvent.change(screen.getByRole("textbox", { name: "搜索截图" }), { target: { value: "NoSuchItemXYZ" } });
+      fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
+      await waitFor(() => expect(container.querySelectorAll(".shot").length).toBeGreaterThan(0));
+
+      // 虚拟化下的全选依然选中全部 200 条而非仅当前挂载的几十条
+      fireEvent.contextMenu(container.querySelector<HTMLElement>(".shot .tile-main")!);
+      fireEvent.click(screen.getByRole("menuitem", { name: "多选" }));
+      fireEvent.click(screen.getByRole("button", { name: "全选 200 项" }));
+      expect(screen.getByText("已选 200 项")).toBeTruthy();
+    } finally {
+      widthSpy.mockRestore();
+      heightSpy.mockRestore();
+    }
+  });
+});

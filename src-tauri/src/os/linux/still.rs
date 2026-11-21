@@ -58,10 +58,11 @@ fn capture_rect_with_cursor(x: i32, y: i32, width: u32, height: u32) -> Result<R
         let _ = std::fs::remove_file(&path);
         return Err("ffmpeg x11grab 抓带光标静帧失败".into());
     }
-    let image = image::open(&path)
+    let opened = image::open(&path);
+    let _ = std::fs::remove_file(&path);
+    let image = opened
         .map_err(|error| format!("读取光标静帧失败：{error}"))?
         .to_rgba8();
-    let _ = std::fs::remove_file(&path);
     Ok(image)
 }
 

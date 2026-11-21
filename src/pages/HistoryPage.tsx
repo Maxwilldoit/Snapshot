@@ -89,7 +89,7 @@ export function HistoryPage() {
   const { t, language } = useI18n();
   const cachedHistory = pageCache?.history ?? null;
   const cachedMeta = pageCache?.recordingMeta ?? {};
-  const skipInitialStagger = useRef(cachedHistory !== null).current;
+  const [staggerDone, setStaggerDone] = useState(() => cachedHistory !== null);
   const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(() => cachedHistory?.snapshots ?? null);
   const [recordings, setRecordings] = useState<RecordingRecord[]>(() => cachedHistory?.recordings ?? []);
   const snapshotsRef = useRef<SnapshotRecord[] | null>(snapshots);
@@ -112,6 +112,10 @@ export function HistoryPage() {
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [scrollBand, setScrollBand] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 760,
+  );
+  const [dayMetrics, setDayMetrics] = useState({ firstGridTop: 92, dayStepOverhead: 52 });
   const [gridWidth, setGridWidth] = useState(() => {
     const cached = getLastMeasuredGridWidth();
     if (cached > 0) return cached;
@@ -141,6 +145,14 @@ export function HistoryPage() {
     if (hadHover) setHoverAnchor(null);
   }, []);
 
+  const updateQuery = useCallback((next: string) => {
+    setQuery(next);
+    setScrollBand(0);
+    if (scrollRef.current && scrollRef.current.scrollTop !== 0) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, []);
+
   const handleScroll = useCallback(() => {
     scrollingRef.current = true;
     if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
@@ -152,6 +164,7 @@ export function HistoryPage() {
     const scrollEl = scrollRef.current;
     if (scrollEl) {
       const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / SCROLL_BAND_STEP));
+      if (nextBand > 0) setStaggerDone(true);
       setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
     }
   }, [dismissHoverCold]);
@@ -260,33 +273,73 @@ export function HistoryPage() {
   }, [filtered, language]);
 
   const hasGroups = items !== null && groups.length > 0;
+  useEffect(() => {
+    if (staggerDone || !hasGroups) return;
+    const timer = window.setTimeout(() => setStaggerDone(true), 650);
+    return () => window.clearTimeout(timer);
+  }, [staggerDone, hasGroups]);
+
   useLayoutEffect(() => {
     if (!hasGroups) return;
     const node = listRef.current;
+    const scrollEl = scrollRef.current;
     if (!node) return;
     const measure = () => {
       const firstGrid = node.querySelector<HTMLElement>(".jgrid");
-      const next = firstGrid
+      const nextWidth = firstGrid
         ? Math.floor(firstGrid.clientWidth)
         : Math.max(0, Math.floor(node.clientWidth - 44));
-      if (next > 0) setLastMeasuredGridWidth(next);
-      setGridWidth((prev) => (prev === next ? prev : next));
+      if (nextWidth > 0) setLastMeasuredGridWidth(nextWidth);
+      setGridWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+      if (scrollEl) {
+        const nextViewH = Math.ceil(scrollEl.clientHeight);
+        if (nextViewH > 0) {
+          setViewportHeight((prev) => (prev === nextViewH ? prev : nextViewH));
+        }
+        const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / SCROLL_BAND_STEP));
+        setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
+        if (firstGrid && nextWidth > 0) {
+          const scrollRect = scrollEl.getBoundingClientRect();
+          const firstRect = firstGrid.getBoundingClientRect();
+          const measuredFirst = Math.round(firstRect.top - scrollRect.top + scrollEl.scrollTop);
+          const grids = node.querySelectorAll<HTMLElement>(".jgrid");
+          const measuredStep =
+            grids.length >= 2
+              ? Math.round(grids[1].getBoundingClientRect().top - firstRect.bottom)
+              : 52;
+          if (measuredFirst > 0 && measuredStep > 0) {
+            setDayMetrics((prev) =>
+              prev.firstGridTop === measuredFirst && prev.dayStepOverhead === measuredStep
+                ? prev
+                : { firstGridTop: measuredFirst, dayStepOverhead: measuredStep },
+            );
+          }
+        }
+      }
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(node);
+    if (scrollEl) observer.observe(scrollEl);
     return () => observer.disconnect();
-  }, [hasGroups]);
+  }, [hasGroups, groups.length]);
+
+  useLayoutEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+    const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / SCROLL_BAND_STEP));
+    setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
+  }, [filtered.length, query, viewportHeight]);
 
   const groupLayouts = useMemo(() => {
     let startOrder = 0;
-    let y = 92; // .gallery padding-top (60) + first .day margin-top (4) + .day-label (28)
+    let y = dayMetrics.firstGridTop;
     return groups.map((group) => {
       const layout = computeJustifiedGridLayout(group.items, mediaItemSize, gridWidth);
       const gridTop = y;
       const totalHeight = layout?.totalHeight ?? 0;
-      y += totalHeight + 52; // next .day margin-top (24) + .day-label (28)
+      y += totalHeight + dayMetrics.dayStepOverhead;
       const entry = {
         group,
         layout,
@@ -296,7 +349,7 @@ export function HistoryPage() {
       startOrder += group.items.length;
       return entry;
     });
-  }, [groups, gridWidth]);
+  }, [groups, gridWidth, dayMetrics]);
 
   const exitSelecting = useCallback(() => {
     setSelecting(false);
@@ -495,7 +548,7 @@ export function HistoryPage() {
 
   const renderTile = useCallback(
     (item: MediaItem, box: { width: number; height: number }, slot: number) => {
-      const isStatic = skipInitialStagger || slot >= 12;
+      const isStatic = staggerDone || slot >= 12;
       return (
         <figure
           key={item.id}
@@ -524,7 +577,7 @@ export function HistoryPage() {
       );
     },
     [
-      skipInitialStagger,
+      staggerDone,
       leaving,
       fresh,
       selecting,
@@ -564,14 +617,13 @@ export function HistoryPage() {
       return (
         <p className="empty-line mw-empty-line">
           {t("没有含「{query}」的历史记录。", { query: query.trim() })}
-          <button type="button" className="link" onClick={() => setQuery("")}>{t("清除筛选")}</button>
+          <button type="button" className="link" onClick={() => updateQuery("")}>{t("清除筛选")}</button>
         </p>
       );
     }
     const virtualized = filtered.length > VIRTUALIZE_THRESHOLD && gridWidth > 0;
-    const viewH = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 760;
     const winTop = scrollBand * SCROLL_BAND_STEP - SCROLL_OVERSCAN;
-    const winBottom = (scrollBand + 1) * SCROLL_BAND_STEP + viewH + SCROLL_OVERSCAN;
+    const winBottom = (scrollBand + 1) * SCROLL_BAND_STEP + viewportHeight + SCROLL_OVERSCAN;
     return (
       <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
         {groupLayouts.map(({ group, layout, gridTop, startIndex }) => {
@@ -611,8 +663,10 @@ export function HistoryPage() {
     navigate,
     filtered.length,
     query,
+    updateQuery,
     gridWidth,
     scrollBand,
+    viewportHeight,
     selecting,
     groupLayouts,
     renderTile,
@@ -663,7 +717,7 @@ export function HistoryPage() {
     </Toolbar>
   ) : (
     <Toolbar title={t("历史")}>
-      <SearchField value={query} onChange={(next) => { setQuery(next); setScrollBand(0); }} label={t("搜索截图")} placeholder={t("搜索应用名或日期")} />
+      <SearchField value={query} onChange={updateQuery} label={t("搜索截图")} placeholder={t("搜索应用名或日期")} />
       <button type="button" className="tb-btn" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
         <FolderOpen aria-hidden="true" />
       </button>

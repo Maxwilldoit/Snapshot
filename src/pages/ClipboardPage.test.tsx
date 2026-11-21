@@ -161,4 +161,46 @@ describe("ClipboardPage performance, search, and hover preview", () => {
     fireEvent.scroll(container.querySelector(".clipboard-scroll")!);
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
+
+  it("virtualizes large clipboard lists with exact row heights and resets scroll on search", async () => {
+    const baseTime = new Date(2026, 10, 21, 15, 0).getTime();
+    const many: ClipboardHistoryEntry[] = Array.from({ length: 180 }, (_, i) => ({
+      id: `clip-${i}`,
+      createdAt: baseTime - i * 15 * 60_000,
+      kind: i % 10 === 0 ? "image" : "text",
+      text: i === 151 ? "deep-needle-text" : `clipboard item ${i}`,
+      width: i % 10 === 0 ? 1200 : 0,
+      height: i % 10 === 0 ? 600 : 0,
+      hash: `h-${i}`,
+    }));
+    const widthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(900);
+    const heightSpy = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600);
+    try {
+      setupTauriMock((command) => {
+        if (command === "list_clipboard_history") return structuredClone(many);
+        return undefined;
+      }, { shouldMockEvents: true });
+
+      const { container } = render(<AppContext.Provider value={context}><ClipboardPage /></AppContext.Provider>);
+      await waitFor(() => expect(container.querySelectorAll(".clip-entry").length).toBeGreaterThan(0));
+
+      const mounted = container.querySelectorAll<HTMLElement>(".clip-entry");
+      expect(mounted.length).toBeLessThan(180);
+      // 每一行虚拟化条目都带有显式像素高度，防止行高溢出重叠下一日期分组
+      for (const row of mounted) {
+        expect(row.style.height).toMatch(/^\d+px$/);
+      }
+
+      // 滚在深处时搜索并清除筛选，立即显示匹配项且无空白
+      const scrollEl = container.querySelector<HTMLElement>(".clipboard-scroll")!;
+      scrollEl.scrollTop = 3600;
+      fireEvent.scroll(scrollEl);
+      fireEvent.change(screen.getByRole("textbox", { name: "搜索剪贴板历史" }), { target: { value: "deep-needle-text" } });
+      expect(await screen.findByText("deep-needle-text")).toBeTruthy();
+      expect(scrollEl.scrollTop).toBe(0);
+    } finally {
+      widthSpy.mockRestore();
+      heightSpy.mockRestore();
+    }
+  });
 });
