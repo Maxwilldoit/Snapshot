@@ -1,15 +1,39 @@
 import { createContext, useContext } from "react";
 import type {
   ActivityEntry,
+  ClipboardHistoryEntry,
   NavPage,
   PlatformCapabilities,
+  RecordingRecord,
   RecordingStatus,
   Settings,
+  SnapshotRecord,
+  TrashEntry,
 } from "../types";
+import type { RecordingMeta } from "../lib/mediaTimeline";
 import { localizeMessage } from "../lib/i18n";
 
 export type NoticeKind = "info" | "error";
 export type Notice = { id: number; text: string; kind: NoticeKind; at: number };
+
+export type NoticeStore = {
+  get: () => Notice | null;
+  subscribe: (listener: () => void) => () => void;
+};
+
+export type PageSessionCache = {
+  history: {
+    snapshots: SnapshotRecord[];
+    recordings: RecordingRecord[];
+    recordingMeta: Record<string, RecordingMeta>;
+  } | null;
+  clipboard: {
+    records: ClipboardHistoryEntry[];
+  } | null;
+  trash: {
+    entries: TrashEntry[];
+  } | null;
+};
 
 /** 主窗口里各页面共用的东西。页面只管自己那一块，跨页的状态都从这里取 */
 export type AppContextValue = {
@@ -19,6 +43,8 @@ export type AppContextValue = {
   notify: (text: string, kind?: NoticeKind) => void;
   notice: Notice | null;
   dismissNotice: () => void;
+  noticeStore?: NoticeStore;
+  pageCache?: PageSessionCache;
   /** 启动时没注册上的快捷键 */
   conflicts: string[];
   setConflicts: (keys: string[]) => void;

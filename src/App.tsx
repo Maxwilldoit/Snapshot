@@ -10,7 +10,15 @@ import {
 import { prepareHintSound, previewHintSound, primeHintSound } from "./lib/sound";
 import { shortcutKeys } from "./lib/format";
 import { canViewTransition, viewTransition, type TransitionDirection } from "./lib/motion";
-import { AppContext, errorText, type AppContextValue, type Notice, type NoticeKind } from "./app/context";
+import {
+  AppContext,
+  errorText,
+  type AppContextValue,
+  type Notice,
+  type NoticeKind,
+  type NoticeStore,
+  type PageSessionCache,
+} from "./app/context";
 import { NoticeLine, SideNav, WindowChrome } from "./app/Shell";
 import { LoadingState } from "./components/LoadingState";
 import { useActivityLog, useRecordingStatus } from "./hooks/useLive";
@@ -60,24 +68,52 @@ export function App() {
   // 每次全局「打开 Prompt 库」都自增，让常驻的 Prompt 页切到库区块（重复触发也生效）
   const [libraryRequest, setLibraryRequest] = useState(0);
   const [viewedPetId, setViewedPetId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Notice | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [caps, setCaps] = useState<PlatformCapabilities | null>(null);
   const recentCaptureShots = useRef<string[]>([]);
   const [pendingPreviewId, setPendingPreviewId] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
+  const noticeRef = useRef<Notice | null>(null);
+  const noticeListenersRef = useRef<Set<() => void>>(new Set());
+  const pageCache = useRef<PageSessionCache>({
+    history: null,
+    clipboard: null,
+    trash: null,
+  }).current;
   const mainRef = useRef<HTMLElement>(null);
 
   const activity = useActivityLog();
   const recording = useRecordingStatus();
 
-  const notify = useCallback((text: string, kind: NoticeKind = "info") => {
-    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
-    setNotice({ id: Date.now(), text, kind, at: Date.now() });
-    noticeTimer.current = window.setTimeout(() => setNotice(null), NOTICE_MS[kind]);
+  const updateNotice = useCallback((next: Notice | null) => {
+    noticeRef.current = next;
+    noticeListenersRef.current.forEach((listener) => listener());
   }, []);
 
-  const dismissNotice = useCallback(() => setNotice(null), []);
+  const noticeStore = useMemo<NoticeStore>(
+    () => ({
+      get: () => noticeRef.current,
+      subscribe: (listener) => {
+        noticeListenersRef.current.add(listener);
+        return () => {
+          noticeListenersRef.current.delete(listener);
+        };
+      },
+    }),
+    [],
+  );
+
+  const notify = useCallback((text: string, kind: NoticeKind = "info") => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    const now = Date.now();
+    updateNotice({ id: now, text, kind, at: now });
+    noticeTimer.current = window.setTimeout(() => updateNotice(null), NOTICE_MS[kind]);
+  }, [updateNotice]);
+
+  const dismissNotice = useCallback(() => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    updateNotice(null);
+  }, [updateNotice]);
 
   useEffect(() => {
     loadSettings()
@@ -194,14 +230,18 @@ export function App() {
     return () => { void pending.then((unlisten) => unlisten()).catch(() => {}); };
   }, [navigate]);
 
+  const consumePreviewId = useCallback(() => setPendingPreviewId(null), []);
+
   const value = useMemo<AppContextValue | null>(
     () =>
       settings && {
         settings,
         onSaved: setSettings,
         notify,
-        notice,
+        notice: null,
         dismissNotice,
+        noticeStore,
+        pageCache,
         conflicts,
         setConflicts,
         caps,
@@ -211,11 +251,11 @@ export function App() {
         navigate,
         viewedPetId,
         pendingPreviewId,
-        consumePreviewId: () => setPendingPreviewId(null),
+        consumePreviewId,
       },
     [
-      settings, notify, notice, dismissNotice, conflicts, caps, activity, recording,
-      page, navigate, viewedPetId, pendingPreviewId,
+      settings, notify, dismissNotice, noticeStore, pageCache, conflicts, caps, activity, recording,
+      page, navigate, viewedPetId, pendingPreviewId, consumePreviewId,
     ],
   );
 
@@ -224,7 +264,7 @@ export function App() {
       <div className="window mw">
         <BareTitleBar />
         <LoadingState />
-        {notice && <div className="notice-line is-error" role="alert">{notice.text}</div>}
+        <NoticeLine store={noticeStore} onDismiss={dismissNotice} />
       </div>
     );
   }

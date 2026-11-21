@@ -32,14 +32,18 @@ import type { RecordingRecord, SnapshotRecord } from "../types";
 
 type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y: number } };
 
+const mediaItemSize = (item: MediaItem) => item;
+
 /** 历史：日期自然随列表滚动 + 同行等高拼图 + 右侧极简时间尺；悬停左右浮出无损原图与元信息预览，点击快照直达标注。 */
 export function HistoryPage() {
-  const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate } = useApp();
+  const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate, pageCache } = useApp();
   const { t, language } = useI18n();
-  const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(null);
-  const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
-  const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>({});
-  const metaRef = useRef<Record<string, RecordingMeta>>({});
+  const cachedHistory = pageCache?.history ?? null;
+  const skipInitialStagger = useRef(cachedHistory !== null).current;
+  const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(() => cachedHistory?.snapshots ?? null);
+  const [recordings, setRecordings] = useState<RecordingRecord[]>(() => cachedHistory?.recordings ?? []);
+  const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>(() => cachedHistory?.recordingMeta ?? {});
+  const metaRef = useRef<Record<string, RecordingMeta>>(cachedHistory?.recordingMeta ?? {});
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -53,7 +57,11 @@ export function HistoryPage() {
   const [deleting, setDeleting] = useState(false);
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<Set<string>>(new Set());
-  const known = useRef<Set<string> | null>(null);
+  const known = useRef<Set<string> | null>(
+    cachedHistory
+      ? new Set(mergeTimeline(cachedHistory.snapshots, cachedHistory.recordings, cachedHistory.recordingMeta).map((item) => item.id))
+      : null,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const flip = useFlip(listRef);
@@ -120,6 +128,12 @@ export function HistoryPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (pageCache && snapshots !== null) {
+      pageCache.history = { snapshots, recordings, recordingMeta };
+    }
+  }, [pageCache, snapshots, recordings, recordingMeta]);
 
   useEffect(() => {
     void refresh();
@@ -441,10 +455,10 @@ export function HistoryPage() {
             </div>
             <JustifiedGrid
               items={group.items}
-              size={(item) => item}
+              size={mediaItemSize}
               render={(item, box) => {
                 const slot = order++;
-                const isStatic = slot >= 12;
+                const isStatic = skipInitialStagger || slot >= 12;
                 return (
                 <figure
                   key={item.id}

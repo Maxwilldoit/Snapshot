@@ -308,9 +308,9 @@ pub struct ActiveRecording {
 impl ActiveRecording {
     pub fn exit_reason(&mut self) -> Option<String> {
         match self.child.try_wait() {
-            Ok(Some(status)) => Some(format!("录制进程已意外退出（{status}）")),
+            Ok(Some(status)) => Some(format!("录制进程意外退出（{status}）")),
             Ok(None) => None,
-            Err(error) => Some(format!("无法读取录制进程状态：{error}")),
+            Err(error) => Some(format!("录制进程意外退出：{error}")),
         }
     }
 

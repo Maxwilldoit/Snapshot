@@ -11,9 +11,9 @@ import { trashThumbUrl } from "../lib/media";
 import type { TrashEntry } from "../types";
 
 export function TrashPage() {
-  const { notify } = useApp();
+  const { notify, pageCache } = useApp();
   const { t, language } = useI18n();
-  const [entries, setEntries] = useState<TrashEntry[] | null>(null);
+  const [entries, setEntries] = useState<TrashEntry[] | null>(() => pageCache?.trash?.entries ?? null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [pending, setPending] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,6 +34,12 @@ export function TrashPage() {
       notify(errorText(error), "error");
     }
   }, [notify]);
+
+  useEffect(() => {
+    if (pageCache && entries !== null) {
+      pageCache.trash = { entries };
+    }
+  }, [pageCache, entries]);
 
   useEffect(() => {
     void refresh();

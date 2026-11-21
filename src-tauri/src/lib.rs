@@ -291,7 +291,7 @@ pub(crate) fn write_cache_atomic(path: &Path, payload: &[u8]) -> Result<(), Stri
     }
     let file_name = path
         .file_name()
-        .ok_or_else(|| "缓存文件路径缺少文件名".to_string())?;
+        .ok_or_else(|| "数据文件路径缺少文件名".to_string())?;
     let mut temp_name = file_name.to_os_string();
     temp_name.push(format!(
         ".{}.{}.tmp",

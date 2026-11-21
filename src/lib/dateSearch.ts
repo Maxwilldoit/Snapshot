@@ -1,8 +1,9 @@
 import { formatCalendarDate } from "./format";
 
-type DateMatcher = (year: number, month: number, day: number, hours: number, minutes: number, daysDiff: number, enDate: string) => boolean;
+type DateMatcher = (year: number, month: number, day: number, hours: number, minutes: number, daysDiff: number, getEnDate: () => string) => boolean;
 
 const EN_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const PARSED_QUERY_CACHE = new Map<string, DateMatcher | null>();
 
 function validMonth(m: number) {
   return m >= 1 && m <= 12;
@@ -156,16 +157,30 @@ function parseDateQuery(raw: string): DateMatcher | null {
 
   // 英文月日（至少 3 字母且以月份缩写开头，避免把普通应用名如 "a" / "ma" 误判成日期）
   if (q.length >= 3 && EN_MONTHS.some((month) => q.startsWith(month))) {
-    return (_y, _m, _d, _h, _min, _daysDiff, enDate) => enDate.includes(q);
+    return (_y, _m, _d, _h, _min, _daysDiff, getEnDate) => getEnDate().includes(q);
   }
 
   return null;
 }
 
+function getCachedDateQuery(raw: string): DateMatcher | null {
+  const q = raw.trim().toLowerCase();
+  if (!q) return null;
+  if (PARSED_QUERY_CACHE.has(q)) {
+    return PARSED_QUERY_CACHE.get(q) ?? null;
+  }
+  const parsed = parseDateQuery(q);
+  if (PARSED_QUERY_CACHE.size >= 64) {
+    PARSED_QUERY_CACHE.clear();
+  }
+  PARSED_QUERY_CACHE.set(q, parsed);
+  return parsed;
+}
+
 function evalDateMatcher(matcher: DateMatcher, timestamp: number, now: number): boolean {
   const date = new Date(timestamp);
-  const daysDiff = Math.round((startOfDay(now) - startOfDay(timestamp)) / 86_400_000);
-  const enDate = formatCalendarDate(timestamp, now, "en").toLowerCase();
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const daysDiff = Math.round((startOfDay(now) - dayStart) / 86_400_000);
   return matcher(
     date.getFullYear(),
     date.getMonth() + 1,
@@ -173,12 +188,12 @@ function evalDateMatcher(matcher: DateMatcher, timestamp: number, now: number): 
     date.getHours(),
     date.getMinutes(),
     daysDiff,
-    enDate,
+    () => formatCalendarDate(timestamp, now, "en").toLowerCase(),
   );
 }
 
 export function matchesDateQuery(timestamp: number, query: string, now = Date.now()): boolean {
-  const matcher = parseDateQuery(query);
+  const matcher = getCachedDateQuery(query);
   return matcher ? evalDateMatcher(matcher, timestamp, now) : false;
 }
 
@@ -212,7 +227,7 @@ export function matchesSearchEntry(
 
   if (matchesText(lower)) return true;
 
-  const wholeDate = parseDateQuery(lower);
+  const wholeDate = getCachedDateQuery(lower);
   if (wholeDate) return evalDateMatcher(wholeDate, createdAt, now);
 
   const tokens = lower.split(/\s+/);

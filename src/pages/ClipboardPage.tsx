@@ -44,9 +44,11 @@ function thumbDimensions(width: number, height: number): { width: number; height
  * 点一条把它放回剪贴板；可单条删除或整个清空。密码管理器标记的敏感内容不会出现在这里。
  */
 export function ClipboardPage() {
-  const { notify } = useApp();
+  const { notify, pageCache } = useApp();
   const { t } = useI18n();
-  const [records, setRecords] = useState<ClipboardHistoryEntry[] | null>(null);
+  const cachedClipboard = pageCache?.clipboard ?? null;
+  const skipInitialStagger = useRef(cachedClipboard !== null).current;
+  const [records, setRecords] = useState<ClipboardHistoryEntry[] | null>(() => cachedClipboard?.records ?? null);
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -133,6 +135,12 @@ export function ClipboardPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyRecords]);
+
+  useEffect(() => {
+    if (pageCache && records !== null) {
+      pageCache.clipboard = { records };
+    }
+  }, [pageCache, records]);
 
   useEffect(() => {
     void refresh();
@@ -227,7 +235,7 @@ export function ClipboardPage() {
                 <ClipboardRow
                   key={item.id}
                   record={item}
-                  index={order++}
+                  index={skipInitialStagger ? 12 + order++ : order++}
                   onCopy={copyById}
                   onDelete={deleteById}
                   onHoverStart={handleHoverStart}

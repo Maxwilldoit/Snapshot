@@ -8,10 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 static CURSOR_CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn display_spec() -> Result<String, String> {
-    if super::session::is_wayland_session() {
-        return Err("Wayland 会话下不支持用 x11grab 抓带光标静帧".into());
-    }
     super::session::x11_display()
+        .filter(|_| !super::session::is_wayland_session())
         .ok_or_else(|| "无 X11 DISPLAY，无法用 x11grab 抓带光标静帧".to_string())
 }
 
