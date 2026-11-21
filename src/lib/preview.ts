@@ -134,6 +134,7 @@ let settings: Settings = {
   petGravity: true,
   petHidden: false,
   shortcutsPaused: false,
+  shortcutPickWindow: false,
   shortcuts: [
     { action: "snapshot", accelerator: demo ? "CommandOrControl+Shift+A" : null },
     { action: "fullscreen", accelerator: demo ? "CommandOrControl+Shift+F" : null },

@@ -142,6 +142,9 @@ pub(crate) struct Settings {
     /// 只由用户手动切换；暂停时释放系统快捷键，但保留所有绑定。
     #[serde(default)]
     pub(crate) shortcuts_paused: bool,
+    /// 按「窗口截图」「录屏」快捷键时，在桌宠旁弹出窗口列表；关闭时沿用直接作用于上一个应用。
+    #[serde(default)]
+    pub(crate) shortcut_pick_window: bool,
     #[serde(default = "default_snapshot_format")]
     pub(crate) snapshot_format: String,
     #[serde(default)]
@@ -218,6 +221,7 @@ impl Default for Settings {
             pet_hidden: false,
             shortcuts: default_shortcut_bindings(),
             shortcuts_paused: false,
+            shortcut_pick_window: false,
             snapshot_format: default_snapshot_format(),
             save_dir: String::new(),
             recording_dir: String::new(),
@@ -265,6 +269,7 @@ pub(crate) struct PreferencesPatch {
     pub(crate) pet_wander: Option<bool>,
     pub(crate) pet_random_actions: Option<bool>,
     pub(crate) pet_gravity: Option<bool>,
+    pub(crate) shortcut_pick_window: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -666,6 +671,9 @@ fn apply_patch_fields(target: &mut Settings, prefs: &PreferencesPatch) -> Result
     }
     if let Some(value) = prefs.pet_gravity {
         target.pet_gravity = value;
+    }
+    if let Some(value) = prefs.shortcut_pick_window {
+        target.shortcut_pick_window = value;
     }
     Ok(())
 }
@@ -1162,5 +1170,23 @@ mod tests {
         };
         assert!(!adopt_custom_sound(&mut missing, &sounds));
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn shortcut_pick_window_defaults_off_and_updates_via_patch() {
+        let mut settings = Settings::default();
+        assert!(!settings.shortcut_pick_window);
+        apply_patch_fields(
+            &mut settings,
+            &PreferencesPatch {
+                shortcut_pick_window: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(settings.shortcut_pick_window);
+        let json = serde_json::to_string(&settings).unwrap();
+        let reloaded: Settings = serde_json::from_str(&json).unwrap();
+        assert!(reloaded.shortcut_pick_window);
     }
 }

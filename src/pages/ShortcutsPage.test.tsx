@@ -273,7 +273,8 @@ describe("global shortcut editing", () => {
     expect(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" })).toHaveProperty("disabled", true);
     expect(field.closest(".panel-shortcuts")?.classList.contains("is-off")).toBe(true);
     expect(screen.getByText(PAUSED_NOTE)).toBeTruthy();
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "暂停全局快捷键" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "按快捷键时在桌宠旁选窗口" })).toHaveProperty("disabled", true);
     fireEvent.click(field);
     fireEvent.keyDown(field, { key: "#", code: "Digit3", altKey: true, shiftKey: true });
     expect(save).not.toHaveBeenCalled();
@@ -317,7 +318,8 @@ describe("pause state pushed from the menu bar", () => {
     expect(await screen.findByText(PAUSED_NOTE)).toBeTruthy();
     expect(screen.queryByText("没注册上，这组键已被其他程序占用")).toBeNull();
     expect(screen.getByRole("button", { name: /快捷键：窗口截图/ })).toHaveProperty("disabled", true);
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "暂停全局快捷键" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "按快捷键时在桌宠旁选窗口" })).toHaveProperty("disabled", true);
 
     await act(async () => {
       await emit("settings-changed", structuredClone(base));
@@ -363,9 +365,14 @@ describe("pause state pushed from the menu bar", () => {
     await user.click(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：未设置" }));
     await user.keyboard("{Alt>}{Shift>}3{/Shift}{/Alt}");
     await screen.findByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+3" });
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "暂停全局快捷键" })).toBeNull();
+    const pickWindowSwitch = screen.getByRole("switch", { name: "按快捷键时在桌宠旁选窗口" });
+    expect(pickWindowSwitch.getAttribute("aria-checked")).toBe("false");
+    await user.click(pickWindowSwitch);
+    await waitFor(() => expect(pickWindowSwitch.getAttribute("aria-checked")).toBe("true"));
     const saved = await loadSettings();
     expect(saved.shortcutsPaused ?? false).toBe(false);
+    expect(saved.shortcutPickWindow).toBe(true);
     expect(saved.shortcuts.find((binding) => binding.action === "snapshot")?.accelerator).toBe("Alt+Shift+3");
   });
 });

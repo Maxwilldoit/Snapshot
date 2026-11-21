@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { saveShortcuts } from "../lib/backend";
 import { normalizeKey } from "../lib/format";
 import { Keys } from "../components/ui/Keys";
+import { Switch } from "../components/ui/Switch";
+import { usePreferences } from "../hooks/usePreferences";
 import { errorText, useApp } from "../app/context";
 import { Toolbar } from "../app/Shell";
 import { useI18n } from "../lib/i18n";
@@ -50,6 +52,7 @@ function shortcutKey(event: React.KeyboardEvent): string {
 /** 改动直接交后端校验、注册和落盘；失败恢复旧绑定。 */
 function ShortcutsPanel() {
   const { settings, onSaved, notify, conflicts, setConflicts, caps } = useApp();
+  const updatePreferences = usePreferences();
   const { t } = useI18n();
   const [shortcuts, setShortcuts] = useState(settings.shortcuts);
   const [recording, setRecording] = useState<ShortcutAction | null>(null);
@@ -244,7 +247,23 @@ function ShortcutsPanel() {
       {groups.map((group) => (
         <section key={group.title} className={`panel panel-shortcuts ${shortcutsPaused ? "is-off" : ""}`} aria-disabled={shortcutsPaused || undefined}>
           <h2 className="panel-title">{t(group.title)}</h2>
-          <div className="rows">{group.rows.map(renderRow)}</div>
+          <div className="rows">
+            {group.rows.map(renderRow)}
+            {group.title === "截图与录制" && (
+              <div className="row">
+                <label className="row-label" htmlFor="pref-shortcut-pick-window">
+                  {t("按快捷键时在桌宠旁选窗口")}
+                </label>
+                <Switch
+                  id="pref-shortcut-pick-window"
+                  label={t("按快捷键时在桌宠旁选窗口")}
+                  value={Boolean(settings.shortcutPickWindow)}
+                  disabled={shortcutsPaused}
+                  onChange={(value) => void updatePreferences({ shortcutPickWindow: value })}
+                />
+              </div>
+            )}
+          </div>
         </section>
       ))}
     </div>

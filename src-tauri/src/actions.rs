@@ -115,23 +115,47 @@ pub(crate) fn show_quick_menu(
     y: f64,
 ) -> Result<(), String> {
     *state.quick_menu_anchor.lock() = Some((x, y));
-    open_palette(&app, &state)
+    open_palette(&app, &state, None)
 }
 
 /// 全局快捷键呼出：放在光标所在屏幕的上方居中，像系统的搜索框
 pub(crate) fn show_palette_centered(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     *state.quick_menu_anchor.lock() = None;
-    open_palette(app, &state)
+    open_palette(app, &state, None)
 }
 
-fn open_palette(app: &AppHandle, state: &AppState) -> Result<(), String> {
+fn pet_anchor(app: &AppHandle, state: &AppState) -> Option<(f64, f64)> {
+    if state.settings.lock().pet_hidden {
+        return None;
+    }
+    let pet = app.get_webview_window("pet")?;
+    if !pet.is_visible().unwrap_or(false) {
+        return None;
+    }
+    let quick_menu = app.get_webview_window("quick-menu")?;
+    let position = pet.outer_position().ok()?;
+    let size = pet.outer_size().ok()?;
+    let scale = quick_menu.scale_factor().unwrap_or(1.0);
+    let cx = position.x as f64 + size.width as f64 / 2.0;
+    let cy = position.y as f64 + size.height as f64 / 2.0;
+    Some((cx / scale, cy / scale))
+}
+
+/// 快捷键选窗模式：在桌宠旁直接展开窗口选择列表（桌宠隐藏时回落到光标所在屏居中）
+pub(crate) fn show_picker_at_pet(app: &AppHandle, mode: &str) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    *state.quick_menu_anchor.lock() = pet_anchor(app, &state);
+    open_palette(app, &state, Some(mode))
+}
+
+fn open_palette(app: &AppHandle, state: &AppState, mode: Option<&str>) -> Result<(), String> {
     app.get_webview_window("quick-menu")
         .ok_or_else(|| "输入框窗口不存在".to_string())?;
     // The frontend resets content and remounts the panel on palette-opened. Wait until
     // that mount reports its measured size before showing the native window.
     state.quick_menu_pending_show.store(true, Ordering::SeqCst);
-    let _ = app.emit_to("quick-menu", "palette-opened", ());
+    let _ = app.emit_to("quick-menu", "palette-opened", mode);
 
     // If the webview is still starting, do not leave the menu permanently hidden.
     let fallback_app = app.clone();
@@ -466,6 +490,16 @@ pub(crate) fn show_main_window(app: AppHandle) {
 
 /// 执行一个全局快捷键动作（由 shortcuts.rs 的按键回调调用）。
 pub(crate) async fn perform(app: &AppHandle, action: &str) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    if state.settings.lock().shortcut_pick_window {
+        match action {
+            "snapshot" => return show_picker_at_pet(app, "capture").map(|_| String::new()),
+            "record" if !state.recorder.lock().is_active() => {
+                return show_picker_at_pet(app, "record").map(|_| String::new());
+            }
+            _ => {}
+        }
+    }
     let trace = capture_action(action).then(CaptureTrace::start);
     let result = perform_with_trace(app, action, None, trace.as_ref()).await;
     if let Some(trace) = &trace {

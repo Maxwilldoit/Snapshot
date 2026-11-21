@@ -256,6 +256,9 @@ export const onClipboardHistoryChanged = (callback: () => void) =>
 export const onRecordingChanged = (callback: (status: RecordingStatus) => void) =>
   listen<RecordingStatus>("recording-changed", ({ payload }) => callback(payload));
 
-export const onPaletteOpened = (callback: () => void) => listen("palette-opened", () => callback());
+export const onPaletteOpened = (callback: (mode: "capture" | "record" | null) => void) =>
+  listen<"capture" | "record" | null>("palette-opened", ({ payload }) =>
+    callback(payload === "capture" || payload === "record" ? payload : null),
+  );
 
 export const platformCapabilities = () => invoke<PlatformCapabilities>("platform_capabilities");

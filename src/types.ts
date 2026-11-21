@@ -135,6 +135,8 @@ export interface Settings {
   shortcuts: ShortcutBinding[];
   /** 手动暂停全局快捷键；旧设置缺省时视为未暂停 */
   shortcutsPaused?: boolean;
+  /** 按「窗口截图」「录屏」快捷键时在桌宠旁弹出窗口列表；关闭时直接作用于上一个应用 */
+  shortcutPickWindow?: boolean;
   snapshotFormat: "png" | "jpeg" | "webp";
   saveDir: string;
   recordingDir: string;

@@ -49,6 +49,10 @@ pub(crate) struct Recorder {
 }
 
 impl Recorder {
+    pub(crate) fn is_active(&self) -> bool {
+        self.active.is_some()
+    }
+
     /// 正在写的那个文件：列表和媒体协议都要避开它，免得把半截录像当成品
     pub(crate) fn active_output(&self) -> Option<PathBuf> {
         self.active.as_ref().map(|active| active.output.clone())
