@@ -1,6 +1,6 @@
 import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, RecordingRecord, SavedPrompt, Settings, SnapshotRecord } from "../types";
+import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, RecordingRecord, SavedPrompt, Settings, SnapshotRecord, TrashEntry } from "../types";
 import { demoVideos } from "./demoVideos";
 
 /**
@@ -15,11 +15,17 @@ import { demoVideos } from "./demoVideos";
 
 const params = new URLSearchParams(window.location.search);
 const demo = params.has("demo");
+const parsedDemoCount = Number.parseInt(params.get("demo") ?? "", 10);
+const demoSnapshotCount =
+  Number.isFinite(parsedDemoCount) && parsedDemoCount > 0 ? Math.max(1, parsedDemoCount - 3) : 186;
 const windowLabel = params.get("window") ?? "main";
 
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 
 const BUILTIN_PROMPT = "你是提示词改写专家。保持原意不变，将用户草稿整理为清晰、完整、可执行的指令。只输出改写后的提示词。";
+
+const demoSnapshotSvgCache = new Map<string, string>();
+const demoAppIconCache = new Map<string, string>();
 
 /** 演示截图：按记录的真实比例画一张「窗口示意图」，浏览器预览里不依赖 media:// 协议。 */
 function demoSnapshotImage(record: SnapshotRecord) {
@@ -28,8 +34,11 @@ function demoSnapshotImage(record: SnapshotRecord) {
   const bg = palette[index % palette.length];
   const w = Math.max(1, record.width);
   const h = Math.max(1, record.height);
-  const bar = Math.max(18, Math.round(h * 0.06));
   const label = record.appName.replace(/[<>&"]/g, "");
+  const cacheKey = `${bg}:${w}x${h}:${label}`;
+  const cached = demoSnapshotSvgCache.get(cacheKey);
+  if (cached) return cached;
+  const bar = Math.max(18, Math.round(h * 0.06));
   const fontSize = Math.max(12, Math.round(Math.min(w, h) * 0.055));
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
     + `<rect width="${w}" height="${h}" fill="${bg}"/>`
@@ -42,7 +51,9 @@ function demoSnapshotImage(record: SnapshotRecord) {
     + `<rect x="${w * 0.06}" y="${bar + h * 0.3}" width="${w * 0.8}" height="${Math.max(6, h * 0.03)}" rx="3" fill="rgba(0,0,0,0.08)"/>`
     + `<text x="${w * 0.06}" y="${h * 0.92}" font-family="monospace" font-size="${fontSize}" fill="rgba(0,0,0,0.4)">${w} × ${h}</text>`
     + `</svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  const uri = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  demoSnapshotSvgCache.set(cacheKey, uri);
+  return uri;
 }
 
 /** 演示来源应用稳定标识：用一个可执行文件路径冒充，仅供预览角标取图，不代表真实应用 */
@@ -52,13 +63,17 @@ function demoAppId(appName: string) {
 
 /** 演示来源应用图标：按标识取色、取首字母画一个圆角方块，让 ?demo 下的角标可见且有区分 */
 function demoAppIcon(id: string) {
+  const cached = demoAppIconCache.get(id);
+  if (cached) return cached;
   const palette = ["#4285f4", "#ea4335", "#34a853", "#fbbc05", "#9c27b0", "#00acc1", "#ff7043", "#7cb342"];
   const index = id.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
   const color = palette[index % palette.length];
   const stem = id.split("/").pop() || "app";
   const letter = (stem.replace(/[^a-zA-Z一-龥]/g, "").charAt(0) || "A").toUpperCase();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${color}"/><text x="32" y="44" font-family="sans-serif" font-size="34" font-weight="bold" fill="#fff" text-anchor="middle">${letter}</text></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  const uri = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  demoAppIconCache.set(id, uri);
+  return uri;
 }
 
 /** 演示桌宠：一只简单的猫，供侧栏头像和舞台使用 */
@@ -134,6 +149,7 @@ let settings: Settings = {
   petGravity: true,
   petHidden: false,
   shortcutsPaused: false,
+  shortcutPickWindow: false,
   shortcuts: [
     { action: "snapshot", accelerator: demo ? "CommandOrControl+Shift+A" : null },
     { action: "fullscreen", accelerator: demo ? "CommandOrControl+Shift+F" : null },
@@ -168,7 +184,7 @@ const demoApps: Array<[string, number, number, number]> = [
 ];
 
 let snapshots: SnapshotRecord[] = demo
-  ? Array.from({ length: 186 }, (_, index) => {
+  ? Array.from({ length: demoSnapshotCount }, (_, index) => {
       const [appName, width, height, sizeBytes] = demoApps[index % demoApps.length];
       const minutes = index < 4 ? [6, 33, 165, 254][index] : index < 8 ? 60 * 24 + index * 70 : 60 * 24 * 3 + index * 40;
       return { id: `snap-${index}`, fileName: `snap-${index}.png`, appName, width, height, sizeBytes, createdAt: minutesAgo(minutes), appId: demoAppId(appName) };
@@ -267,6 +283,22 @@ let clipboardHistory = demo
 const idleRecording = { active: false, target: null, startedAt: null };
 const defaultSnapshotDir = () => (demo ? "D:\\Dropbox\\工作\\2026\\截图归档\\应用快照\\原始文件" : "~/Pictures/Snapshot");
 const defaultRecordingDir = "~/Downloads";
+let trashEntries: TrashEntry[] = [];
+let trashSequence = 0;
+
+function moveToTrash(ids: string[], kind: TrashEntry["kind"]) {
+  const trashedAt = Date.now();
+  if (kind === "snapshot") {
+    const moved = snapshots.filter((record) => ids.includes(record.id));
+    trashEntries.unshift(...moved.map((record) => ({ id: `trash-${++trashSequence}`, trashedAt, kind, record } as const)));
+    snapshots = snapshots.filter((record) => !ids.includes(record.id));
+    return structuredClone(snapshots);
+  }
+  const moved = recordings.filter((record) => ids.includes(record.id));
+  trashEntries.unshift(...moved.map((record) => ({ id: `trash-${++trashSequence}`, trashedAt, kind, record } as const)));
+  recordings = recordings.filter((record) => !ids.includes(record.id));
+  return structuredClone(recordings);
+}
 
 /** 改设置的命令在预览里也要「生效」，页面才能照常来回切换 */
 function update(patch: Partial<Settings>): Settings {
@@ -403,9 +435,18 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     case "delete_clipboard_history":
       clipboardHistory = clipboardHistory.filter((item) => !(args.ids as string[]).includes(item.id));
       return structuredClone(clipboardHistory);
-    case "copy_clipboard_history":
-      if (!clipboardHistory.some((item) => item.id === args.id)) throw new Error("这条剪贴板记录已被删除");
-      return undefined;
+    case "copy_clipboard_history": {
+      const source = clipboardHistory.find((item) => item.id === args.id);
+      if (!source) throw new Error("这条剪贴板记录已被删除");
+      const now = Date.now();
+      const created = {
+        ...source,
+        id: `clip-preview-${now}-${clipboardHistory.length + 1}`,
+        createdAt: now,
+      };
+      clipboardHistory = [created, ...clipboardHistory];
+      return structuredClone(created);
+    }
     case "list_saved_prompts":
       return structuredClone(savedPrompts);
     case "save_saved_prompt": {
@@ -435,15 +476,31 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
       savedPrompts = savedPrompts.filter((prompt) => prompt.id !== args.id);
       return structuredClone(savedPrompts);
     case "delete_snapshots":
-      snapshots = snapshots.filter((item) => !(args.ids as string[]).includes(item.id));
-      return structuredClone(snapshots);
+      return moveToTrash(args.ids, "snapshot");
     case "delete_recordings":
-      recordings = recordings.filter((item) => !(args.ids as string[]).includes(item.id));
-      return structuredClone(recordings);
+      return moveToTrash(args.ids, "recording");
+    case "list_trash":
+      return structuredClone(trashEntries);
+    case "restore_trash": {
+      const entry = trashEntries.find((item) => item.id === args.id);
+      if (entry?.kind === "snapshot") snapshots.push(entry.record);
+      if (entry?.kind === "recording") recordings.push(entry.record);
+      trashEntries = trashEntries.filter((item) => item.id !== args.id);
+      return undefined;
+    }
+    case "purge_trash":
+      trashEntries = trashEntries.filter((item) => !args.ids.includes(item.id));
+      return undefined;
     case "copy_snapshot":
       return "预览模式下不会写剪贴板";
     case "annotate_snapshot":
       throw new Error("请在桌面应用中打开标注窗口");
+    case "get_annotate_session": {
+      const record = snapshots[0];
+      return record ? { id: 1, title: record.appName, imageData: demoSnapshotImage(record) } : null;
+    }
+    case "annotate_save_copy":
+      return "已存入历史记录";
     case "list_activity":
       return structuredClone(activity);
     case "list_capturable_windows":
@@ -474,11 +531,20 @@ export function installPreviewBackend() {
     const [kind, id] = path.split("/");
     if (protocol === "media") {
       if (kind === "snapshot" || kind === "thumb") {
+        if (id.startsWith("snap-")) {
+          const idx = Number.parseInt(id.slice(5), 10);
+          const fast = snapshots[idx];
+          if (fast?.id === id) return demoSnapshotImage(fast);
+        }
         const record = snapshots.find((item) => item.id === id);
         if (record) return demoSnapshotImage(record);
       }
+      if (kind === "trash-thumb") {
+        const entry = trashEntries.find((item) => item.id === id);
+        if (entry?.kind === "snapshot") return demoSnapshotImage(entry.record);
+      }
       if (kind === "recording" && demoVideos[id]) return demoVideos[id];
-      if (kind === "clipboard") {
+      if (kind === "clipboard" || kind === "clipboard-thumb") {
         const entry = clipboardHistory.find((item) => item.id === id);
         if (entry) return demoSnapshotImage({ id: entry.id, appName: "Clipboard", width: entry.width, height: entry.height } as never);
       }

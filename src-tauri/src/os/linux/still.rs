@@ -2,23 +2,38 @@
 
 use image::RgbaImage;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static CURSOR_CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn display_spec() -> Result<String, String> {
     super::session::x11_display()
+        .filter(|_| !super::session::is_wayland_session())
         .ok_or_else(|| "无 X11 DISPLAY，无法用 x11grab 抓带光标静帧".to_string())
 }
 
-fn capture_rect_with_cursor(x: i32, y: i32, width: u32, height: u32) -> Result<RgbaImage, String> {
-    if width < 2 || height < 2 {
+fn clamp_x11_rect(x: i32, y: i32, width: u32, height: u32) -> Result<(i32, i32, u32, u32), String> {
+    let crop_x = x.max(0);
+    let crop_y = y.max(0);
+    let clamped_width = width.saturating_sub(crop_x.abs_diff(x));
+    let clamped_height = height.saturating_sub(crop_y.abs_diff(y));
+    if clamped_width < 2 || clamped_height < 2 {
         return Err("截取区域太小".into());
     }
+    Ok((crop_x, crop_y, clamped_width, clamped_height))
+}
+
+fn capture_rect_with_cursor(x: i32, y: i32, width: u32, height: u32) -> Result<RgbaImage, String> {
+    let (x, y, width, height) = clamp_x11_rect(x, y, width, height)?;
     let display = display_spec()?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let path = std::env::temp_dir().join(format!("snapshot-cursor-{stamp}.png"));
+    let seq = CURSOR_CAPTURE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let path = std::env::temp_dir().join(format!("snapshot-cursor-{pid}-{stamp}-{seq}.png"));
     let input = format!("{display}+{x},{y}");
     let status = Command::new("ffmpeg")
         .args([
@@ -43,10 +58,11 @@ fn capture_rect_with_cursor(x: i32, y: i32, width: u32, height: u32) -> Result<R
         let _ = std::fs::remove_file(&path);
         return Err("ffmpeg x11grab 抓带光标静帧失败".into());
     }
-    let image = image::open(&path)
+    let opened = image::open(&path);
+    let _ = std::fs::remove_file(&path);
+    let image = opened
         .map_err(|error| format!("读取光标静帧失败：{error}"))?
         .to_rgba8();
-    let _ = std::fs::remove_file(&path);
     Ok(image)
 }
 

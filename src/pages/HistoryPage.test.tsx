@@ -105,6 +105,11 @@ describe("history opens markup directly and previews uncompressed media on hover
 
     fireEvent.scroll(document.querySelector(".history-scroll")!);
     expect(screen.queryByRole("tooltip")).toBeNull();
+
+    // 滚动过程中经过其他卡片不抢先弹出悬停大图，避免滚动掉帧
+    const secondTile = screen.getByRole("button", { name: "标注：Beta" });
+    fireEvent.pointerEnter(secondTile, { pointerType: "mouse", clientX: 240, clientY: 160 });
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("a pending screenshot opens markup directly", async () => {
@@ -282,6 +287,42 @@ describe("history selection under a filter", () => {
     expect(screen.queryByRole("button", { name: "选整组" })).toBeNull();
     expect(screen.queryByRole("button", { name: "取消整组" })).toBeNull();
   });
+
+  it("filters screenshots by numeric date, app name substring, and combined queries", async () => {
+    const dated: SnapshotRecord[] = [
+      { id: "s1", fileName: "1.png", appName: "相册", appId: "com.apple.Photos", width: 800, height: 600, sizeBytes: 100, createdAt: new Date(2026, 10, 21, 10, 0).getTime() },
+      { id: "s2", fileName: "2.png", appName: "访达", appId: "com.apple.finder", width: 800, height: 600, sizeBytes: 100, createdAt: new Date(2026, 10, 21, 12, 0).getTime() },
+      { id: "s3", fileName: "3.png", appName: "相机预览", width: 800, height: 600, sizeBytes: 100, createdAt: new Date(2026, 10, 15, 9, 0).getTime() },
+    ];
+    setupTauriMock((command) => {
+      if (command === "list_snapshots") return structuredClone(dated);
+      if (command === "list_recordings") return [];
+      return undefined;
+    }, { shouldMockEvents: true });
+
+    render(<AppContext.Provider value={context}><HistoryPage /></AppContext.Provider>);
+    await screen.findByRole("button", { name: "标注：相册" });
+    expect(screen.queryByRole("slider")).toBeNull();
+
+    const search = screen.getByRole("textbox", { name: "搜索截图" });
+
+    // 输入应用名关键字「相」→ 匹配「相册」与「相机预览」
+    fireEvent.change(search, { target: { value: "相" } });
+    expect(screen.getByRole("button", { name: "标注：相册" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "标注：相机预览" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "标注：访达" })).toBeNull();
+
+    // 输入数字日期「21」→ 定位 11 月 21 日的快照
+    fireEvent.change(search, { target: { value: "21" } });
+    expect(screen.getByRole("button", { name: "标注：相册" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "标注：访达" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "标注：相机预览" })).toBeNull();
+
+    // 输入组合「相 11-15」→ 精准命中 11 月 15 日的「相机预览」
+    fireEvent.change(search, { target: { value: "相 11-15" } });
+    expect(screen.getByRole("button", { name: "标注：相机预览" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "标注：相册" })).toBeNull();
+  });
 });
 
 describe("history mixes recordings into the timeline", () => {
@@ -335,5 +376,69 @@ describe("history mixes recordings into the timeline", () => {
     const dialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "删除 1 项" }));
     await waitFor(() => expect(deleted).toEqual([[recording.id]]));
+  });
+});
+
+describe("virtualized large history completeness", () => {
+  it("preserves full selection, search reset while scrolled, and non-replaying stagger across 200 items", async () => {
+    const baseTime = new Date(2026, 10, 21, 12, 0).getTime();
+    const many: SnapshotRecord[] = Array.from({ length: 200 }, (_, i) => ({
+      id: `v-${i}`,
+      fileName: `v-${i}.png`,
+      appName: i === 180 ? "UniqueNeedleApp" : `App-${i % 5}`,
+      width: 1280,
+      height: 720,
+      sizeBytes: 4096,
+      createdAt: baseTime - i * 45 * 60_000,
+    }));
+    const widthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      if (this === document.documentElement) return 1044;
+      return 800;
+    });
+    const heightSpy = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600);
+    try {
+      setupTauriMock((command) => {
+        if (command === "list_snapshots") return structuredClone(many);
+        if (command === "list_recordings") return [];
+        return undefined;
+      }, { shouldMockEvents: true });
+
+      const { container } = render(<AppContext.Provider value={context}><HistoryPage /></AppContext.Provider>);
+      await waitFor(() => expect(container.querySelectorAll(".shot").length).toBeGreaterThan(0));
+
+      // 虚拟化已启用：只挂载视口与缓冲区内的部分节点，而非全部 200 条
+      const initialShots = container.querySelectorAll(".shot").length;
+      expect(initialShots).toBeLessThan(200);
+      expect(container.querySelectorAll("section.day").length).toBeGreaterThan(1);
+
+      // 向下滚动到深处再滚回顶部：首屏条目保持 is-static，不重复播放入场动画
+      const scrollEl = container.querySelector<HTMLElement>(".history-scroll")!;
+      scrollEl.scrollTop = 4000;
+      fireEvent.scroll(scrollEl);
+      scrollEl.scrollTop = 0;
+      fireEvent.scroll(scrollEl);
+      await waitFor(() => expect(container.querySelector(".shot")).toBeTruthy());
+      expect(container.querySelector(".shot")!.classList.contains("is-static")).toBe(true);
+
+      // 滚在深处时执行搜索与清除筛选：立即重置滚动位置且无空白屏
+      scrollEl.scrollTop = 5000;
+      fireEvent.scroll(scrollEl);
+      fireEvent.change(screen.getByRole("textbox", { name: "搜索截图" }), { target: { value: "UniqueNeedleApp" } });
+      expect(await screen.findByRole("button", { name: "标注：UniqueNeedleApp" })).toBeTruthy();
+      expect(scrollEl.scrollTop).toBe(0);
+
+      fireEvent.change(screen.getByRole("textbox", { name: "搜索截图" }), { target: { value: "NoSuchItemXYZ" } });
+      fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
+      await waitFor(() => expect(container.querySelectorAll(".shot").length).toBeGreaterThan(0));
+
+      // 虚拟化下的全选依然选中全部 200 条而非仅当前挂载的几十条
+      fireEvent.contextMenu(container.querySelector<HTMLElement>(".shot .tile-main")!);
+      fireEvent.click(screen.getByRole("menuitem", { name: "多选" }));
+      fireEvent.click(screen.getByRole("button", { name: "全选 200 项" }));
+      expect(screen.getByText("已选 200 项")).toBeTruthy();
+    } finally {
+      widthSpy.mockRestore();
+      heightSpy.mockRestore();
+    }
   });
 });

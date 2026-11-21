@@ -1,37 +1,62 @@
 //! macOS：NSRunningApplication.icon → 指定边长的 PNG。
 //! 拿到的直接就是 PNG 字节，不必像 Windows 那样走 RgbaImage。
 
-use objc2::AnyThread;
+use objc2::{rc::autoreleasepool, AnyThread};
 use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext, NSImage,
     NSRunningApplication, NSWorkspace,
 };
 use objc2_foundation::{NSBundle, NSDictionary, NSFileManager, NSPoint, NSRect, NSSize, NSString};
-use std::{collections::HashSet, fs, path::Path};
+use parking_lot::Mutex;
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+    sync::OnceLock,
+};
+
+type ReconcileCache = HashMap<(String, String), Option<String>>;
+
+const MAX_BUNDLE_CACHE_ENTRIES: usize = 256;
+
+static ICON_DRAW_LOCK: Mutex<()> = Mutex::new(());
+static APP_NAME_BUNDLE_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+static RECONCILE_APP_ID_CACHE: OnceLock<Mutex<ReconcileCache>> = OnceLock::new();
+
+pub fn frontmost_pid() -> Option<u32> {
+    autoreleasepool(|_| {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let app = workspace.frontmostApplication()?;
+        let pid = app.processIdentifier();
+        (pid > 0).then_some(pid as u32)
+    })
+}
 
 pub fn png_for_pid(pid: u32, size: u32) -> Option<Vec<u8>> {
-    unsafe {
+    autoreleasepool(|_| unsafe {
         let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32)?;
         let icon = app.icon()?;
         downscale_to_png(&icon, size)
-    }
+    })
 }
 
 /// 进程的稳定应用标识：优先 bundle id，没有就退回 .app 路径。
 /// 应用退出后仍可据此取图标，不像 pid 那样进程一结束就失效。取不到返回 None，历史不显示角标。
 pub fn stable_id_for_pid(pid: u32) -> Option<String> {
-    let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32)?;
-    if let Some(bundle_id) = app.bundleIdentifier() {
-        return Some(bundle_id.to_string());
-    }
-    let url = app.bundleURL()?;
-    Some(url.path()?.to_string())
+    autoreleasepool(|_| {
+        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32)?;
+        if let Some(bundle_id) = app.bundleIdentifier() {
+            return Some(bundle_id.to_string());
+        }
+        let url = app.bundleURL()?;
+        Some(url.path()?.to_string())
+    })
 }
 
 /// 按稳定标识（bundle id 或 .app 路径）取图标 PNG。历史角标用，应用退出后仍有效。
 /// bundle id 经 NSWorkspace 解析到 .app 路径再取图标；应用已卸载时返回 None，历史不显示角标。
 pub fn png_for_app_id(id: &str, size: u32) -> Option<Vec<u8>> {
-    unsafe {
+    autoreleasepool(|_| unsafe {
         let workspace = NSWorkspace::sharedWorkspace();
         let ns_id = NSString::from_str(id);
         // 以 / 开头的是 .app 路径，直接取；否则当 bundle id 解析到安装路径
@@ -44,7 +69,7 @@ pub fn png_for_app_id(id: &str, size: u32) -> Option<Vec<u8>> {
         };
         let icon = workspace.iconForFile(&path);
         downscale_to_png(&icon, size)
-    }
+    })
 }
 
 fn strip_annotation_suffix(raw: &str) -> &str {
@@ -149,6 +174,21 @@ fn resolve_bundle_path_for_app_name(raw_name: &str) -> Option<String> {
     if name.is_empty() || name.contains('/') || name.contains('\\') {
         return None;
     }
+    let cache_key = name.to_lowercase();
+    let cache = APP_NAME_BUNDLE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = cache.lock().get(&cache_key).cloned() {
+        if Path::new(&cached).exists() {
+            return Some(cached);
+        }
+    }
+    let record_hit = |key: String, path: String| -> Option<String> {
+        let mut guard = cache.lock();
+        if guard.len() >= MAX_BUNDLE_CACHE_ENTRIES {
+            guard.clear();
+        }
+        guard.insert(key, path.clone());
+        Some(path)
+    };
     let workspace = NSWorkspace::sharedWorkspace();
     let running_paths: HashSet<_> = workspace
         .runningApplications()
@@ -163,16 +203,16 @@ fn resolve_bundle_path_for_app_name(raw_name: &str) -> Option<String> {
         return None;
     }
     if let Some(path) = running_paths.into_iter().next() {
-        return Some(path);
+        return record_hit(cache_key, path);
     }
 
     #[allow(deprecated)]
     if let Some(path) = workspace.fullPathForApplication(&NSString::from_str(name)) {
-        return Some(path.to_string());
+        return record_hit(cache_key, path.to_string());
     }
 
     // 兼容 CFBundleName 与包目录名不一致的应用（如 Visual Studio Code.app 的 CFBundleName 为 Code）
-    let needle = name.to_lowercase();
+    let needle = cache_key.clone();
     let mut dirs = vec![
         Path::new("/Applications").to_path_buf(),
         Path::new("/System/Applications").to_path_buf(),
@@ -200,7 +240,11 @@ fn resolve_bundle_path_for_app_name(raw_name: &str) -> Option<String> {
             }
         }
     }
-    (matched.len() == 1).then(|| matched.into_iter().next().unwrap())
+    if matched.len() == 1 {
+        record_hit(cache_key, matched.into_iter().next().unwrap())
+    } else {
+        None
+    }
 }
 
 fn stable_id_for_bundle_path(bundle_path: &str) -> String {
@@ -215,36 +259,58 @@ fn stable_id_for_bundle_path(bundle_path: &str) -> String {
 /// 早期版本在截取非前台窗口时误把「上一个前台应用」（如 Codex、Chrome）的 bundle id 写入了记录；
 /// 若当前 `app_id` 指向的已安装应用与 `app_name` 完全不符，则按真实 `app_name` 重新解析稳定标识。
 pub fn reconcile_app_id(app_name: &str, app_id: Option<&str>) -> Option<String> {
-    let base = strip_annotation_suffix(app_name);
-    if base.is_empty()
-        || matches!(base, "应用" | "App" | "滚动长截图" | "Scrolling Screenshot")
-        || base.starts_with("Display #")
-        || base.starts_with("显示器")
-    {
-        return app_id.map(str::to_string);
-    }
-    let id = app_id.map(str::trim).filter(|value| !value.is_empty())?;
-    let Some(bundle_path) = bundle_path_for_id(id) else {
-        // 目标应用可能已被卸载，保留原标识（角标加载失败时前端自动收起）
-        return Some(id.to_string());
-    };
-    if bundle_candidate_names(&bundle_path, Some(id)).contains(&base.to_lowercase()) {
-        return Some(id.to_string());
-    }
-    resolve_bundle_path_for_app_name(base).map(|path| stable_id_for_bundle_path(&path))
+    autoreleasepool(|_| {
+        let base = strip_annotation_suffix(app_name);
+        if base.is_empty()
+            || matches!(base, "应用" | "App" | "滚动长截图" | "Scrolling Screenshot")
+            || base.starts_with("Display #")
+            || base.starts_with("显示器")
+        {
+            return app_id.map(str::to_string);
+        }
+        let id = app_id.map(str::trim).filter(|value| !value.is_empty())?;
+        let cache_key = (base.to_lowercase(), id.to_string());
+        let cache = RECONCILE_APP_ID_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Some(cached) = cache.lock().get(&cache_key).cloned() {
+            return cached;
+        }
+        let resolved = match bundle_path_for_id(id) {
+            None => {
+                // 目标应用可能已被卸载，保留原标识（角标加载失败时前端自动收起）
+                Some(id.to_string())
+            }
+            Some(bundle_path) => {
+                if bundle_candidate_names(&bundle_path, Some(id)).contains(&cache_key.0) {
+                    Some(id.to_string())
+                } else {
+                    resolve_bundle_path_for_app_name(base)
+                        .map(|path| stable_id_for_bundle_path(&path))
+                }
+            }
+        };
+        let mut guard = cache.lock();
+        if guard.len() >= MAX_BUNDLE_CACHE_ENTRIES {
+            guard.clear();
+        }
+        guard.insert(cache_key, resolved.clone());
+        resolved
+    })
 }
 
 /// 兼容只有应用名的旧历史：优先匹配真实运行应用，再交给 LaunchServices 与已安装应用包解析。
 /// 不拼接或猜测 bundle id；名称无法唯一解析时不返回替代图标。
 pub fn png_for_app_name(name: &str, size: u32) -> Option<Vec<u8>> {
-    let path = resolve_bundle_path_for_app_name(name)?;
-    png_for_app_id(&path, size)
+    autoreleasepool(|_| {
+        let path = resolve_bundle_path_for_app_name(name)?;
+        png_for_app_id(&path, size)
+    })
 }
 
 /// 图标的 TIFF 里带全套尺寸（最大 1024×1024）；setSize 只改逻辑尺寸、
 /// 动不了 TIFFRepresentation 里的像素。要真压到目标边长，得把它画进
 /// 一个新的同尺寸 bitmap rep 再导出。
 unsafe fn downscale_to_png(icon: &NSImage, size: u32) -> Option<Vec<u8>> {
+    let _draw_guard = ICON_DRAW_LOCK.lock();
     let rep = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
         NSBitmapImageRep::alloc(),
         std::ptr::null_mut(),

@@ -25,29 +25,12 @@ const renderTile = (media: MediaItem) =>
     />,
   );
 
-describe("历史格子的来源应用角标", () => {
-  it("有稳定标识时左下角渲染来源应用图标", () => {
+describe("历史格子", () => {
+  it("截图缩略图不叠加来源应用图标、名称、类型或悬停时间", () => {
     setupTauriMock(() => undefined);
     const { container } = renderTile(item({ appId: "/usr/bin/google-chrome" }));
-    const icon = container.querySelector("img.tile-app") as HTMLImageElement;
-    expect(icon).toBeTruthy();
-    expect(icon.getAttribute("src")).toContain("app-icon");
-    // 不再用媒体类型图标顶替
-    expect(container.querySelector(".tile-type")).toBeNull();
-  });
-
-  it("旧记录没有标识时按来源应用名请求真实图标", () => {
-    setupTauriMock(() => undefined);
-    const { container } = renderTile(item());
-    expect(container.querySelector("img.tile-app")?.getAttribute("src")).toContain("app-name-icon");
-    expect(container.querySelector(".tile-type")).toBeNull();
-  });
-
-  it("缩略图表面干净：不叠加应用名称或右下角悬停时间遮罩", () => {
-    setupTauriMock(() => undefined);
-    const { container } = renderTile(item());
-    expect(container.querySelector(".tile-name")).toBeNull();
-    expect(container.querySelector(".tile-info, .tile-time")).toBeNull();
+    expect(container.querySelectorAll(".tile-preview img")).toHaveLength(1);
+    expect(container.querySelector(".tile-name, .tile-type, .tile-info, .tile-time")).toBeNull();
   });
 
   it("格子只有一个主入口，没有悬停操作或圆形复选框，支持右键和键盘菜单", () => {
@@ -64,22 +47,12 @@ describe("历史格子的来源应用角标", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("图标取不到（加载失败）时收起角标，不留空位也不换类型图标", () => {
-    setupTauriMock(() => undefined);
-    const { container } = renderTile(item({ appId: "/usr/bin/ghost" }));
-    const icon = container.querySelector("img.tile-app") as HTMLImageElement;
-    expect(icon).toBeTruthy();
-    fireEvent.error(icon);
-    expect(container.querySelector("img.tile-app")).toBeNull();
-    expect(container.querySelector(".tile-type")).toBeNull();
-  });
-
-  it("录屏同样按来源应用显示图标，右下角保留时长", () => {
+  it("录屏缩略图保留时长，不叠加来源应用图标", () => {
     setupTauriMock(() => undefined);
     const { container } = renderTile(
       item({ kind: "recording", appId: "/usr/bin/obs", durationMs: 65_000 }),
     );
-    expect(container.querySelector("img.tile-app")).toBeTruthy();
+    expect(container.querySelector(".tile-preview img")).toBeNull();
     expect(screen.getByText("01:05")).toBeTruthy();
   });
 });

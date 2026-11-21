@@ -13,14 +13,10 @@ afterEach(() => {
 async function editor() {
   const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
   let image = "data:image/png;base64,original";
-  let saveResult: string | null = "已保存标注图";
   setupTauriMock((command, payload) => {
     calls.push({ command, args: invokeArgs(payload) });
-    if (command === "get_annotate_image") return image;
-    if (command === "annotate_get_title") return "历史截图";
-    if (command === "annotate_save_copy") return "标注副本已保存到历史记录";
-    if (command === "annotate_copy") return "已复制标注图";
-    if (command === "annotate_save") return saveResult;
+    if (command === "get_annotate_session") return image ? { id: 1, imageData: image, title: "历史截图" } : null;
+    if (command === "annotate_save_copy") return "已存入历史记录";
   }, { currentWindow: "annotate", shouldMockEvents: true });
   vi.stubGlobal("Image", class {
     naturalWidth = 200;
@@ -53,7 +49,7 @@ async function editor() {
     getImageData, putImageData: vi.fn(),
     beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), quadraticCurveTo: vi.fn(), closePath: vi.fn(),
     stroke: vi.fn(), fill: vi.fn(), strokeRect: vi.fn(), ellipse: vi.fn(), arc: vi.fn(),
-    fillText: vi.fn(), strokeText: vi.fn(), setLineDash: vi.fn(),
+    fillText: vi.fn(), strokeText: vi.fn(), setLineDash: vi.fn(), fillRect: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: text.length * 10 })),
     set lineWidth(value: number) { lineWidths.push(value); },
     get lineWidth() { return lineWidths.at(-1) ?? 1; },
@@ -98,7 +94,17 @@ async function editor() {
     const frame = Math.max(...context.clearRect.mock.invocationCallOrder);
     return context.fillText.mock.calls.filter((_, index) => context.fillText.mock.invocationCallOrder[index] > frame).map((call) => call[0]);
   };
-  return { calls, context, canvas, drag, click, strokeStyles, lineWidths, shapeRect, frameRects, frameTexts, setImage: (value: string) => { image = value; }, cancelSave: () => { saveResult = null; } };
+  /** 裁剪后画布只显示剩下的部分：等显示尺寸落定（逻辑像素 1:1），再按实际显示大小重设坐标换算 */
+  const refit = async (expectedWidth: number) => {
+    await waitFor(() => expect(canvas.style.width).toBe(`${expectedWidth}px`));
+    const rect = () => {
+      const width = parseFloat(canvas.style.width) || 100;
+      const height = parseFloat(canvas.style.height) || 50;
+      return { left: 0, top: 0, width, height } as DOMRect;
+    };
+    vi.spyOn(canvas, "getBoundingClientRect").mockImplementation(rect);
+  };
+  return { calls, context, canvas, drag, click, refit, strokeStyles, lineWidths, shapeRect, frameRects, frameTexts, setImage: (value: string) => { image = value; } };
 }
 
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
@@ -130,9 +136,9 @@ describe("截图标注：工具", () => {
     expect(pressed("箭头")).toBe(true);
   });
 
-  it("数字键 1–8 按工具栏从左到右切换，提示里写着数字和字母", async () => {
+  it("数字键 1–9 按工具栏从左到右切换，提示里写着数字和字母", async () => {
     await editor();
-    const order = ["选择", "箭头", "矩形", "椭圆", "画笔", "荧光笔", "文字", "编号"];
+    const order = ["选择", "箭头", "矩形", "椭圆", "文字", "编号", "画笔", "荧光笔", "裁剪"];
     const shown = Array.from(screen.getByRole("group", { name: "标注工具" }).querySelectorAll("button")).map((item) => item.getAttribute("aria-label"));
     expect(shown).toEqual(order);
     order.forEach((label, index) => {
@@ -145,9 +151,43 @@ describe("截图标注：工具", () => {
     key({ key: "\"", code: "Digit2" });
     expect(pressed("箭头")).toBe(true);
     key({ key: "9", code: "Digit9" });
-    expect(pressed("箭头")).toBe(true);
+    expect(pressed("裁剪")).toBe(true);
     expect(button("箭头").title).toBe("箭头  2 / A");
-    expect(button("编号").title).toBe("编号  8 / N");
+    expect(button("编号").title).toBe("编号  6 / N");
+    expect(button("画笔").title).toBe("画笔  7 / P");
+  });
+
+  it("颜色/粗细弹层只被画笔和荧光笔唤起，悬浮不占版面；换工具、点画布或 Esc 收起", async () => {
+    const { canvas } = await editor();
+    const pop = () => screen.queryByRole("dialog", { name: "颜色和粗细" });
+    expect(pop()).toBeNull(); // 默认箭头：不弹
+    for (const letter of ["r", "o", "t", "n", "v", "c", "a"]) {
+      key({ key: letter });
+      expect(pop()).toBeNull();
+    }
+    key({ key: "p" });
+    expect(pop()).toBeTruthy();
+    expect(screen.getByRole("slider", { name: "粗细" })).toBeTruthy();
+    // 悬浮弹层：绝对定位，不在工具栏和图片之间挤出一行
+    expect((pop() as HTMLElement).className).toContain("annotate-pop");
+    // 画笔 ↔ 荧光笔互切时保持打开
+    key({ key: "h" });
+    expect(pop()).toBeTruthy();
+    // Esc 收起
+    key({ key: "Escape" });
+    expect(pop()).toBeNull();
+    // 再点画笔重新唤起；点画布开始画就收起
+    fireEvent.click(button("画笔"));
+    expect(pop()).toBeTruthy();
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(canvas);
+    expect(pop()).toBeNull();
+    // 荧光笔也能唤起
+    fireEvent.click(button("荧光笔"));
+    expect(pop()).toBeTruthy();
+    // 换到别的工具收起
+    key({ key: "r" });
+    expect(pop()).toBeNull();
   });
 
   it("编号点一下放一个，自动 1、2、3", async () => {
@@ -217,10 +257,11 @@ describe("截图标注：工具", () => {
 
   it("马赛克是颜色里的一格：矩形打码整块，真的改写原图像素，导出按原图分辨率", async () => {
     const { context, drag, calls } = await editor();
-    key({ key: "r" });
-    fireEvent.click(button("颜色和粗细"));
+    // 马赛克在画笔弹层里选：颜色对所有工具共享，选完再回矩形
+    key({ key: "p" });
     fireEvent.click(screen.getByRole("radio", { name: "马赛克" }));
     expect(screen.getByRole("radio", { name: "马赛克" }).getAttribute("aria-checked")).toBe("true");
+    key({ key: "r" });
     context.strokeRect.mockClear();
     drag([10, 5], [30, 20]);
     expect(context.strokeRect).not.toHaveBeenCalled();
@@ -234,8 +275,10 @@ describe("截图标注：工具", () => {
     expect(pixel(0, 0)).not.toEqual(pixel(0, 10));
 
     const before = context.putImageData.mock.calls.length;
-    fireEvent.click(button("复制"));
-    await waitFor(() => expect(calls).toContainEqual({ command: "annotate_copy", args: { imageData: "data:image/png;base64,edited" } }));
+    fireEvent.click(button("保存"));
+    await waitFor(() => expect(calls).toContainEqual({
+      command: "annotate_save_copy", args: { imageData: "data:image/png;base64,edited", sessionId: 1, changed: true },
+    }));
     // 导出时重画了一遍：同一块原图像素区域又被打码，坐标仍是原图像素
     const exported = context.putImageData.mock.calls.slice(before);
     expect(exported.map((call) => [call[1], call[2], call[0].width, call[0].height])).toContainEqual([20, 10, 40, 30]);
@@ -244,7 +287,6 @@ describe("截图标注：工具", () => {
   it("马赛克画笔沿笔迹打码；箭头、文字、编号用不了马赛克，照旧用上一次的颜色", async () => {
     const { context, drag, strokeStyles } = await editor();
     key({ key: "p" });
-    fireEvent.click(button("颜色和粗细"));
     fireEvent.click(screen.getByRole("radio", { name: "蓝色" }));
     fireEvent.click(screen.getByRole("radio", { name: "马赛克" }));
     context.getImageData.mockClear();
@@ -257,34 +299,34 @@ describe("截图标注：工具", () => {
     expect(strokeStyles).not.toContain("mosaic");
 
     key({ key: "a" });
-    fireEvent.click(button("颜色和粗细"));
-    const swatch = screen.getByRole("radio", { name: "马赛克" });
-    expect(swatch.getAttribute("aria-disabled")).toBe("true");
-    expect(swatch.title).toBe("马赛克只能用于矩形、椭圆、画笔和荧光笔");
-    expect(screen.getByRole("radio", { name: "蓝色" }).getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(swatch);
+    // 箭头没有弹层，也选不了马赛克：照旧用上一次的真颜色（蓝色）
+    expect(screen.queryByRole("dialog", { name: "颜色和粗细" })).toBeNull();
     strokeStyles.length = 0;
     drag([10, 30], [40, 40]);
     expect(strokeStyles).toContain("#007aff");
     // 回到画笔，马赛克还在
     key({ key: "p" });
-    fireEvent.click(button("颜色和粗细"));
     expect(screen.getByRole("radio", { name: "马赛克" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "马赛克" }).getAttribute("aria-disabled")).not.toBe("true");
   });
 
-  it("选中的方框可以直接改成马赛克，撤销回到原来的颜色", async () => {
-    const { context, drag, click, shapeRect } = await editor();
+  it("选中的方框跟着弹层改色，撤销回到原来的颜色", async () => {
+    const { context, drag, click, shapeRect, strokeStyles } = await editor();
     key({ key: "r" });
     drag([10, 5], [30, 20]);
     click(20, 5);
-    fireEvent.click(button("颜色和粗细"));
-    const puts = context.putImageData.mock.calls.length;
-    fireEvent.click(screen.getByRole("radio", { name: "马赛克" }));
-    expect(context.putImageData.mock.calls.length).toBeGreaterThan(puts);
-    expect(context.putImageData.mock.calls.at(-1)!.slice(1, 3)).toEqual([20, 10]);
-    key({ key: "Escape" });
+    // 切到画笔唤起弹层：选中还在，改色直接落到选中的方框上
+    key({ key: "p" });
+    const strokes = context.strokeRect.mock.calls.length;
+    fireEvent.click(screen.getByRole("radio", { name: "蓝色" }));
+    expect(context.strokeRect.mock.calls.length).toBeGreaterThan(strokes);
+    expect(context.strokeStyle).toBe("#007aff");
+    strokeStyles.length = 0;
     fireEvent.click(button("撤销"));
     expect(shapeRect()).toEqual([20, 10, 40, 30]);
+    // 撤销后这一帧方框重画回红色（之后的蓝色是选中虚线框）
+    expect(strokeStyles).toContain("#ff3b30");
+    expect(strokeStyles.indexOf("#ff3b30")).toBeLessThan(strokeStyles.indexOf("#007aff"));
   });
 });
 
@@ -370,21 +412,21 @@ describe("截图标注：对象编辑", () => {
   it("画完不留选中，颜色只管下一笔；点选后再改才改到那个标注上", async () => {
     const { drag, click, strokeStyles, lineWidths } = await editor();
     drag([10, 5], [30, 20]);
-    fireEvent.click(button("颜色和粗细"));
+    key({ key: "p" }); // 画笔唤起弹层改颜色
     fireEvent.click(screen.getByRole("radio", { name: "黄色" }));
     expect(strokeStyles.at(-1)).not.toBe("#ffcc00");
-    fireEvent.click(button("颜色和粗细"));
+    key({ key: "a" });
     click(20, 12.5);
-    fireEvent.click(button("颜色和粗细"));
+    key({ key: "p" });
     fireEvent.click(screen.getByRole("radio", { name: "绿色" }));
     expect(strokeStyles).toContain("#34c759");
     lineWidths.length = 0;
     fireEvent.change(screen.getByRole("slider", { name: "粗细" }), { target: { value: "7" } });
     expect(lineWidths).toContain(7);
+    // Esc 先收起弹层
     key({ key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "颜色和粗细" })).toBeNull());
+    expect(screen.queryByRole("dialog", { name: "颜色和粗细" })).toBeNull();
     const before = strokeStyles.length;
-    key({ key: "Escape" });
     key({ key: "r" });
     drag([60, 5], [80, 20]);
     expect(strokeStyles.slice(before)).toContain("#34c759");
@@ -394,7 +436,7 @@ describe("截图标注：对象编辑", () => {
     const { drag, click, lineWidths } = await editor();
     drag([10, 5], [30, 20]);
     click(20, 12.5);
-    fireEvent.click(button("颜色和粗细"));
+    key({ key: "p" }); // 弹层里调粗细，直接落到选中的方框上
     const slider = screen.getByRole("slider", { name: "粗细" }) as HTMLInputElement;
     expect([slider.min, slider.max, slider.value]).toEqual(["1", "12", "4"]);
     fireEvent.change(slider, { target: { value: "6" } });
@@ -417,7 +459,7 @@ describe("截图标注：对象编辑", () => {
 
     cleanup();
     await editor();
-    fireEvent.click(button("颜色和粗细"));
+    key({ key: "p" });
     expect((screen.getByRole("slider", { name: "粗细" }) as HTMLInputElement).value).toBe("9");
   });
 
@@ -441,48 +483,139 @@ describe("截图标注：对象编辑", () => {
 });
 
 describe("截图标注：快捷键与出口", () => {
-  it("⌘C 复制、⌘S 存入截图记录、⇧⌘S 另存为；回车不复制；成功后按钮打勾，停一下再收起窗口", async () => {
+  it("松手即裁剪，可撤销、重做和用键盘继续微调", async () => {
+    const { canvas, context, drag, refit, calls } = await editor();
+    expect(screen.queryByText(/图片尺寸/)).toBeNull();
+    drag([8, 8], [45, 35]);
+    fireEvent.click(button("裁剪"));
+    expect(document.activeElement).toBe(canvas);
+    expect([canvas.width, canvas.height]).toEqual([200, 100]);
+    drag([65, 38], [15, 8]);
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
+    fireEvent.click(button("撤销"));
+    expect([canvas.width, canvas.height]).toEqual([200, 100]);
+    fireEvent.click(button("重做"));
+    await refit(100);
+    fireEvent.keyDown(canvas, { key: "ArrowRight", shiftKey: true });
+    expect([canvas.width, canvas.height]).toEqual([99, 60]);
+
+    fireEvent.click(button("保存"));
+    await waitFor(() => expect(calls).toContainEqual({
+      command: "annotate_save_copy", args: { imageData: "data:image/png;base64,edited", sessionId: 1, changed: true },
+    }));
+    // 导出直接按取景框重画：从原图 (31,16) 取 99×60，标注仍用原图坐标
+    expect(context.drawImage).toHaveBeenLastCalledWith(expect.anything(), 31, 16, 99, 60, 31, 16, 99, 60);
+    expect(context.moveTo).toHaveBeenCalledWith(16, 16);
+  });
+
+  it("裁完还能接着裁：第二刀落在第一刀里，撤销逐步退回", async () => {
+    const { canvas, drag, refit, calls } = await editor();
+    fireEvent.click(button("裁剪"));
+    drag([15, 8], [65, 38]);
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
+    // 第二刀在剩下的画面里：屏幕坐标按新的显示尺寸换算
+    await refit(100);
+    drag([20, 20], [80, 50]);
+    expect([canvas.width, canvas.height]).toEqual([60, 30]);
+    fireEvent.click(button("撤销"));
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
+    fireEvent.click(button("撤销"));
+    expect([canvas.width, canvas.height]).toEqual([200, 100]);
+    fireEvent.click(button("重做"));
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
+    fireEvent.click(button("重做"));
+    expect([canvas.width, canvas.height]).toEqual([60, 30]);
+    await refit(60);
+    fireEvent.click(button("保存"));
+    await waitFor(() => expect(calls).toContainEqual({
+      command: "annotate_save_copy", args: { imageData: "data:image/png;base64,edited", sessionId: 1, changed: true },
+    }));
+  });
+
+  it("裁剪后标注坐标不漂移：裁剪前画的框还在原处，裁剪后还能继续画", async () => {
+    const { context, drag, refit } = await editor();
+    key({ key: "r" });
+    drag([20, 10], [40, 25]);
+    key({ key: "c" });
+    drag([15, 8], [65, 38]);
+    await refit(100);
+    // 画布整体平移到取景框 (30,16)：原来的框（原图 40,20）仍按原图坐标画
+    expect(context.setTransform).toHaveBeenLastCalledWith(1, 0, 0, 1, -30, -16);
+    const frame = Math.max(...context.clearRect.mock.invocationCallOrder);
+    const rects = context.strokeRect.mock.calls.filter((_, index) => context.strokeRect.mock.invocationCallOrder[index] > frame);
+    expect(rects).toContainEqual([40, 20, 40, 30]);
+    key({ key: "a" });
+    drag([20, 20], [60, 40]);
+    // 屏幕 (20,20) → 取景框内 (20,20) → 原图 (50,36)
+    expect(context.moveTo).toHaveBeenCalledWith(50, 36);
+    expect(context.moveTo).toHaveBeenCalledWith(90, 56);
+  });
+
+  it("裁剪后马赛克仍按原图坐标取像素：读写换算回画布坐标，不越界", async () => {
+    const { context, drag, refit } = await editor();
+    key({ key: "p" });
+    fireEvent.click(screen.getByRole("radio", { name: "马赛克" }));
+    key({ key: "r" });
+    drag([20, 10], [40, 25]); // 原图 (40,20)–(80,50)
+    key({ key: "c" });
+    drag([15, 8], [65, 38]); // 取景框 (30,16) 100×60
+    await refit(100);
+    context.getImageData.mockClear();
+    context.putImageData.mockClear();
+    // 撤销再重做裁剪：两帧都按取景框重画马赛克
+    fireEvent.click(button("撤销"));
+    fireEvent.click(button("重做"));
+    // 马赛克区域原图 x:40–80 → 画布 x:10–50；y:20–50 → 画布 y:4–34
+    const reads = context.getImageData.mock.calls;
+    expect(reads).toContainEqual([10, 4, 40, 30]);
+    const puts = context.putImageData.mock.calls;
+    expect(puts.some((call) => call[1] === 10 && call[2] === 4)).toBe(true);
+  });
+
+  it("撤销唯一的裁剪后，保存不会要求替换原图", async () => {
+    const { canvas, drag, calls } = await editor();
+    fireEvent.click(button("裁剪"));
+    drag([15, 8], [65, 38]);
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 20, clientY: 10 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 40 });
+    fireEvent.pointerCancel(canvas);
+    expect([canvas.width, canvas.height]).toEqual([100, 60]);
+    fireEvent.click(button("撤销"));
+    fireEvent.click(button("保存"));
+    await waitFor(() => expect(calls).toContainEqual({
+      command: "annotate_save_copy", args: { imageData: "data:image/png;base64,edited", sessionId: 1, changed: false },
+    }));
+  });
+
+  it("⌘S 或「保存」存入历史；回车不保存；成功后按钮打勾，停一下再收起窗口", async () => {
     const { drag, calls } = await editor();
     const count = (command: string) => calls.filter((call) => call.command === command).length;
     const reopen = async () => {
       await act(async () => { await emit("annotate-ready"); });
       await waitFor(() => expect(button("箭头").disabled).toBe(false));
     };
+    // 出口只有「保存」：复制、另存为、存入截图记录都不在了
+    expect(screen.queryByRole("button", { name: "复制" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "另存为…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "存入截图记录" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "颜色和粗细" })).toBeNull();
     drag([10, 5], [30, 20]);
-    key({ key: "Enter" }); // 画完顺手按回车：不复制、不收窗
-    expect(count("annotate_copy")).toBe(0);
-    key({ key: "c", metaKey: true, ctrlKey: true });
-    await waitFor(() => expect(count("annotate_copy")).toBe(1));
-    expect(await screen.findByText("已复制")).toBeTruthy();
-    expect(await screen.findByText("已复制标注图")).toBeTruthy();
+    key({ key: "Enter" }); // 画完顺手按回车：不保存、不收窗
+    expect(count("annotate_save_copy")).toBe(0);
+    key({ key: "s", metaKey: true, ctrlKey: true });
+    await waitFor(() => expect(count("annotate_save_copy")).toBe(1));
+    expect(await screen.findByText("已保存")).toBeTruthy();
+    expect(await screen.findByText("已存入历史记录")).toBeTruthy();
     // 确认期间不重复导出，也还没收起
-    key({ key: "c", metaKey: true, ctrlKey: true });
-    expect(count("annotate_copy")).toBe(1);
+    key({ key: "s", metaKey: true, ctrlKey: true });
+    expect(count("annotate_save_copy")).toBe(1);
     expect(count("annotate_close")).toBe(0);
     await waitFor(() => expect(count("annotate_close")).toBe(1));
 
     await reopen();
-    expect(button("复制").textContent).toBe("复制");
-    fireEvent.click(button("复制"));
-    await waitFor(() => expect(count("annotate_copy")).toBe(2));
-    await reopen();
-    key({ key: "s", metaKey: true, ctrlKey: true });
-    await waitFor(() => expect(count("annotate_save_copy")).toBe(1));
-    await reopen();
-    key({ key: "S", metaKey: true, ctrlKey: true, shiftKey: true });
-    await waitFor(() => expect(count("annotate_save")).toBe(1));
-  });
-
-  it("另存为取消：不收起窗口，标注都还在，可以接着改", async () => {
-    const { drag, calls, cancelSave } = await editor();
-    cancelSave();
-    drag([10, 5], [30, 20]);
-    fireEvent.click(button("另存为…"));
-    expect(await screen.findByText("已取消另存，标注仍保留")).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve, 260));
-    expect(calls.some((call) => call.command === "annotate_close")).toBe(false);
-    expect(button("撤销").disabled).toBe(false);
-    expect(button("复制").disabled).toBe(false);
+    expect(button("保存").textContent).toBe("保存");
+    fireEvent.click(button("保存"));
+    await waitFor(() => expect(count("annotate_save_copy")).toBe(2));
   });
 
   it("Esc：先取消选中；没画过直接关闭；画过要再按一次", async () => {
@@ -503,7 +636,7 @@ describe("截图标注：快捷键与出口", () => {
   it("工具栏不重复「关闭」；再次打开时清掉旧标注和撤销记录", async () => {
     const { drag } = await editor();
     expect(screen.queryByRole("button", { name: "关闭" })).toBeNull();
-    expect(button("复制").className).toContain("is-primary");
+    expect(button("保存").className).toContain("is-primary");
     drag([10, 5], [30, 20]);
     await act(async () => { await emit("annotate-ready"); });
     await waitFor(() => expect(button("箭头").disabled).toBe(false));
@@ -514,10 +647,9 @@ describe("截图标注：快捷键与出口", () => {
     const { setImage, calls } = await editor();
     setImage("");
     await act(async () => { await emit("annotate-ready"); });
-    expect(button("存入截图记录").disabled).toBe(true);
-    expect(button("复制").disabled).toBe(true);
+    expect(button("保存").disabled).toBe(true);
     expect(screen.getByText("没有待标注的截图")).toBeTruthy();
-    key({ key: "c", metaKey: true, ctrlKey: true });
-    expect(calls.some((call) => call.command === "annotate_copy")).toBe(false);
+    key({ key: "s", metaKey: true, ctrlKey: true });
+    expect(calls.some((call) => call.command === "annotate_save_copy")).toBe(false);
   });
 });

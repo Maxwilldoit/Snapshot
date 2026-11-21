@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, Circle, Download, Highlighter, History, MousePointer2, MoveUpRight, PenLine, Redo2, Square, Type, Undo2 } from "lucide-react";
+import { Check, Circle, Crop, Highlighter, MousePointer2, MoveUpRight, PenLine, Redo2, Square, Type, Undo2 } from "lucide-react";
 import { localizeMessage, useI18n, useWindowTitle } from "../lib/i18n";
 import {
   COLORS,
@@ -10,6 +10,8 @@ import {
   SIZE_MAX,
   SIZE_MIN,
   clampSize,
+  commitCrop,
+  cropBounds,
   handleAt,
   isTooSmall,
   lineHeight,
@@ -24,10 +26,12 @@ import {
   type DrawTool,
   type Handle,
   type Point,
+  type Rect,
   type Shape,
   type Size,
   type TextShape,
   type Tool,
+  type Viewport,
 } from "../lib/annotate/model";
 import { renderScene, textFont, textMeasurer, isLightColor } from "../lib/annotate/render";
 import { fontSize } from "../lib/annotate/model";
@@ -36,8 +40,8 @@ import { fontSize } from "../lib/annotate/model";
 const ESC_CONFIRM_MS = 2000;
 const HISTORY_LIMIT = 100;
 /** 动效时长（毫秒）：都很短，只为看清发生了什么，不让人等 */
-const MOTION = { appear: 140, fade: 120, handles: 120, pop: 110, toast: 140 };
-/** 复制/保存成功后，按钮打勾 + 提示停留这么久再收起窗口 */
+const MOTION = { appear: 140, fade: 120, handles: 120, toast: 140 };
+/** 保存成功后，按钮打勾 + 提示停留这么久再收起窗口 */
 const DONE_MS = 450;
 /** 点中对象的容差、把手的抓取半径（屏幕像素）：细箭头、小把手也好抓 */
 const HIT_SLOP = 8;
@@ -58,12 +62,14 @@ type Drag =
   | { kind: "move"; id: number; before: Shape[]; start: Point; origin: Shape; moved: boolean }
   | { kind: "resize"; id: number; before: Shape[]; handle: Handle; origin: Shape; moved: boolean };
 type Editing = { id: number; isNew: boolean; before: Shape[] };
-type Finish = "annotate_copy" | "annotate_save_copy" | "annotate_save";
+/** 标注始终用原图坐标；裁剪只收紧取景框，所以裁完还能接着裁、撤销一步退回上一个取景框 */
+type EditState = { shapes: Shape[]; view: Viewport };
+type AnnotationSession = { id: number; title: string; imageData: string };
 type Toast = { text: string; key: number; leaving: boolean };
 
-/** 工具栏从左到右的顺序：数字键 1–8 按这个顺序，字母键是同一组工具的助记别名 */
-const TOOL_ORDER: Tool[] = ["select", "arrow", "rect", "ellipse", "pen", "highlight", "text", "step"];
-const TOOL_LETTERS: Record<string, Tool> = { v: "select", a: "arrow", r: "rect", o: "ellipse", p: "pen", h: "highlight", t: "text", n: "step" };
+/** 工具栏从左到右的顺序：数字键 1–9 按这个顺序，字母键是同一组工具的助记别名 */
+const TOOL_ORDER: Tool[] = ["select", "arrow", "rect", "ellipse", "text", "step", "pen", "highlight", "crop"];
+const TOOL_LETTERS: Record<string, Tool> = { v: "select", a: "arrow", r: "rect", o: "ellipse", p: "pen", h: "highlight", t: "text", n: "step", c: "crop" };
 const letterOf = (tool: Tool) => Object.keys(TOOL_LETTERS).find((letter) => TOOL_LETTERS[letter] === tool)!.toUpperCase();
 /** 按物理键位认数字（数字行和小键盘都行），AZERTY 之类不按 ⇧ 也出数字的键盘照样能用 */
 const toolForKey = (event: KeyboardEvent): Tool | undefined => {
@@ -116,14 +122,18 @@ export function AnnotateWindow() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLTextAreaElement | null>(null);
-  const styleRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const stylePopRef = useRef<HTMLDivElement | null>(null);
   const original = useRef<HTMLImageElement | null>(null);
   const ratioRef = useRef(1);
   const loadVersion = useRef(0);
   const nextId = useRef(1);
   const drag = useRef<Drag | null>(null);
-  const past = useRef<Shape[][]>([]);
-  const future = useRef<Shape[][]>([]);
+  const view = useRef<Viewport | null>(null);
+  const cropDrag = useRef<{ anchor: Point; bounds: Rect } | null>(null);
+  const sessionId = useRef<number | null>(null);
+  const past = useRef<EditState[]>([]);
+  const future = useRef<EditState[]>([]);
   const escArmedAt = useRef(0);
   const toolsRef = useRef<HTMLDivElement | null>(null);
   // 只在屏幕上的动效状态：放在 ref 里，由逐帧绘制读取，不触发 React 重渲染
@@ -153,10 +163,11 @@ export function AnnotateWindow() {
   const [size, setSize] = useState<Size>(loadSize);
   /** 拖粗细滑杆时实时改选中的对象，松手才记一步撤销 */
   const sizeBefore = useRef<Shape[] | null>(null);
-  const [styleOpen, setStyleOpenState] = useState(false);
-  const [styleClosing, setStyleClosing] = useState(false);
+  /** 颜色/粗细弹层：只在画笔、荧光笔时出现，悬浮在工具下方，不占版面 */
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [styleX, setStyleX] = useState<number | null>(null);
   const [pill, setPill] = useState<{ x: number; width: number; animate: boolean } | null>(null);
-  const [done, setDone] = useState<Finish | null>(null);
+  const [done, setDone] = useState(false);
   const [title, setTitle] = useState("");
   // 工具栏放工具，来源应用名写进窗口标题（调度中心、窗口菜单里看得到）
   useWindowTitle(title ? t("标注 · {app}", { app: title }) : t("标注截图"));
@@ -175,21 +186,6 @@ export function AnnotateWindow() {
     if (hideAfter) toastTimer.current = window.setTimeout(() => setStatus(""), hideAfter);
   }, []);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
-
-  const setStyleOpen = useCallback((next: boolean | ((open: boolean) => boolean)) => {
-    setStyleOpenState((open) => {
-      const value = typeof next === "function" ? next(open) : next;
-      if (open && !value) setStyleClosing(true);
-      if (value) setStyleClosing(false);
-      return value;
-    });
-  }, []);
-  // 弹层收起时先缩小淡出，再卸载
-  useEffect(() => {
-    if (!styleClosing) return;
-    const timer = window.setTimeout(() => setStyleClosing(false), reducedMotion() ? 0 : MOTION.pop);
-    return () => window.clearTimeout(timer);
-  }, [styleClosing]);
 
   const setShapes = (next: Shape[]) => {
     shapesRef.current = next;
@@ -218,11 +214,18 @@ export function AnnotateWindow() {
   };
 
   /** 一步可撤销的编辑：记下编辑前的样子，新的编辑让重做失效 */
-  const commit = (before: Shape[], next: Shape[]) => {
-    past.current = [...past.current, before].slice(-HISTORY_LIMIT);
+  const commit = (before: Shape[], next: Shape[], nextView = view.current) => {
+    past.current = [...past.current, { shapes: before, view: view.current! }].slice(-HISTORY_LIMIT);
     future.current = [];
+    view.current = nextView;
+    if (nextView && canvasRef.current) {
+      canvasRef.current.width = nextView.width;
+      canvasRef.current.height = nextView.height;
+      setNatural({ width: nextView.width, height: nextView.height });
+    }
     setShapes(next);
     setHistoryTick((value) => value + 1);
+    schedule();
   };
 
   const loadImage = useCallback(async () => {
@@ -231,6 +234,9 @@ export function AnnotateWindow() {
     setNatural(null);
     setStatus(t("正在读取截图…"));
     drag.current = null;
+    cropDrag.current = null;
+    view.current = null;
+    sessionId.current = null;
     original.current = null;
     past.current = [];
     future.current = [];
@@ -241,22 +247,17 @@ export function AnnotateWindow() {
     setSelectedState(null);
     editingRef.current = null;
     setEditingState(null);
-    setStyleOpenState(false);
-    setStyleClosing(false);
-    setDone(null);
+    setDone(false);
     setBusy(false);
     hoverRef.current = null;
     appearRef.current.clear();
     ghostsRef.current = [];
     setHistoryTick((value) => value + 1);
     try {
-      const [dataUrl, nextTitle] = await Promise.all([
-        invoke<string | null>("get_annotate_image"),
-        invoke<string>("annotate_get_title"),
-      ]);
+      const session = await invoke<AnnotationSession | null>("get_annotate_session");
       if (version !== loadVersion.current) return;
-      setTitle(nextTitle);
-      if (!dataUrl) {
+      setTitle(session?.title ?? "");
+      if (!session) {
         const canvas = canvasRef.current;
         canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
         setStatus(t("没有待标注的截图"));
@@ -272,6 +273,10 @@ export function AnnotateWindow() {
         // 截图是按屏幕像素密度拍的：粗细、字号按逻辑点换算，Retina 上看起来和普通屏一样大
         ratioRef.current = Math.max(1, window.devicePixelRatio || 1);
         original.current = img;
+        view.current = { x: 0, y: 0, width: img.naturalWidth, height: img.naturalHeight };
+        sessionId.current = session.id;
+        // 先把首帧画进位图再显示：不然画布会先以空白示人、下一帧才补上图，看起来闪一下
+        paintRef.current();
         setNatural({ width: img.naturalWidth, height: img.naturalHeight });
         setReady(true);
         setStatus("");
@@ -279,7 +284,7 @@ export function AnnotateWindow() {
       img.onerror = () => {
         if (version === loadVersion.current) setStatus(t("图片加载失败"));
       };
-      img.src = dataUrl;
+      img.src = session.imageData;
     } catch (error) {
       if (version === loadVersion.current) setStatus(localizeMessage(error instanceof Error ? error.message : String(error)));
     }
@@ -375,6 +380,8 @@ export function AnnotateWindow() {
       image: original.current,
       width: canvas.width,
       height: canvas.height,
+      offsetX: view.current?.x ?? 0,
+      offsetY: view.current?.y ?? 0,
       shapes: shapesRef.current,
       ratio: ratioRef.current,
       selectedId,
@@ -386,6 +393,21 @@ export function AnnotateWindow() {
       ghosts: ghosts.map((ghost) => ({ shape: ghost.shape, index: ghost.index, alpha: 1 - easeOut(ghost.value) })),
       selectionProgress,
     });
+    const box = cropDrag.current?.bounds;
+    if (box) {
+      const right = box.x + box.w;
+      const bottom = box.y + box.h;
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 0, 0, 0.56)";
+      ctx.fillRect(0, 0, canvas.width, box.y);
+      ctx.fillRect(0, bottom, canvas.width, canvas.height - bottom);
+      ctx.fillRect(0, box.y, box.x, box.h);
+      ctx.fillRect(right, box.y, canvas.width - right, box.h);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = screenScale();
+      ctx.strokeRect(box.x, box.y, box.w, box.h);
+      ctx.restore();
+    }
     if (animating) schedule();
   };
   const paintRef = useRef(paint);
@@ -409,12 +431,17 @@ export function AnnotateWindow() {
   function canvasPoint(event: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
-    // 拖出画布也照样跟手，但点落在图片边上，不会画到图外面去
+    // 拖出画布也照样跟手，但点落在图片边上，不会画到图外面去；返回的是原图坐标（含取景框偏移）
+    const offsetX = view.current?.x ?? 0;
+    const offsetY = view.current?.y ?? 0;
     return {
-      x: Math.max(0, Math.min(canvas.width, (event.clientX - rect.left) * (canvas.width / rect.width))),
-      y: Math.max(0, Math.min(canvas.height, (event.clientY - rect.top) * (canvas.height / rect.height))),
+      x: offsetX + Math.max(0, Math.min(canvas.width, (event.clientX - rect.left) * (canvas.width / rect.width))),
+      y: offsetY + Math.max(0, Math.min(canvas.height, (event.clientY - rect.top) * (canvas.height / rect.height))),
     };
   }
+
+  /** 原图坐标 → 画布（当前取景框）坐标，给裁剪选区用 */
+  const toCanvas = (point: Point): Point => ({ x: point.x - (view.current?.x ?? 0), y: point.y - (view.current?.y ?? 0) });
 
   /** 把手的抓取半径：一般 11px；对象很小时收窄，免得想拖边线移动却抓到了角 */
   const handleReach = (shape: Shape, unit: number) => {
@@ -462,7 +489,7 @@ export function AnnotateWindow() {
   // ---------- 指针 ----------
 
   function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!ready || busy || event.button !== 0 || drag.current) return;
+    if (!ready || busy || event.button !== 0 || drag.current || cropDrag.current) return;
     setStyleOpen(false);
     endSize();
     escArmedAt.current = 0;
@@ -476,6 +503,14 @@ export function AnnotateWindow() {
     const before = shapesRef.current;
     const selected = shapeById(selectedRef.current);
     event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    if (tool === "crop") {
+      const canvas = event.currentTarget;
+      const local = toCanvas(point);
+      cropDrag.current = { anchor: local, bounds: cropBounds(local, local, canvas.width, canvas.height) };
+      schedule();
+      return;
+    }
 
     // 已经选中的那个：在任何工具下都能直接拖把手、拖本身
     const handle = selected ? handleAt(selected, point, handleReach(selected, unit)) : null;
@@ -526,6 +561,10 @@ export function AnnotateWindow() {
   function hoverCursor(point: Point) {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    if (tool === "crop") {
+      canvas.style.cursor = "crosshair";
+      return;
+    }
     const unit = screenScale();
     const selected = shapeById(selectedRef.current);
     const handle = selected ? handleAt(selected, point, handleReach(selected, unit)) : null;
@@ -548,6 +587,12 @@ export function AnnotateWindow() {
 
   function onPointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
     const point = canvasPoint(event);
+    if (cropDrag.current) {
+      const canvas = event.currentTarget;
+      cropDrag.current.bounds = cropBounds(cropDrag.current.anchor, toCanvas(point), canvas.width, canvas.height);
+      schedule();
+      return;
+    }
     const current = drag.current;
     if (!current) {
       if (ready) hoverCursor(point);
@@ -583,6 +628,16 @@ export function AnnotateWindow() {
   }
 
   function onPointerUp() {
+    const cropSelection = cropDrag.current?.bounds;
+    if (cropSelection) {
+      cropDrag.current = null;
+      const min = Math.max(1, MIN_DRAG * screenScale());
+      if (cropSelection.w >= min && cropSelection.h >= min) {
+        applyCrop(cropSelection);
+      }
+      schedule();
+      return;
+    }
     const current = drag.current;
     drag.current = null;
     if (!current) return;
@@ -601,8 +656,38 @@ export function AnnotateWindow() {
     }
   }
 
+  /** 松手即裁：选区外立刻裁掉，之后还能在剩下的画面里继续裁；撤销退回上一个取景框 */
+  function applyCrop(selection: Rect) {
+    if (!view.current) return;
+    const next = commitCrop(view.current, selection);
+    if (next.x === view.current.x && next.y === view.current.y && next.width === view.current.width && next.height === view.current.height) return;
+    select(null);
+    commit(shapesRef.current, shapesRef.current, next);
+  }
+
+  function nudgeCrop(key: string, moveStart: boolean) {
+    const canvas = canvasRef.current;
+    if (!canvas || cropDrag.current || !view.current) return;
+    const box = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+    const start = { x: box.x, y: box.y };
+    const end = { x: box.x + box.w, y: box.y + box.h };
+    const point = moveStart ? start : end;
+    point.x += key === "ArrowLeft" ? -1 : key === "ArrowRight" ? 1 : 0;
+    point.y += key === "ArrowUp" ? -1 : key === "ArrowDown" ? 1 : 0;
+    if (start.x >= end.x || start.y >= end.y) return;
+    const next = cropBounds(start, end, canvas.width, canvas.height);
+    if (next.x === box.x && next.y === box.y && next.w === box.w && next.h === box.h) return;
+    if (next.w === 0 || next.h === 0) return;
+    applyCrop(next);
+  }
+
   /** 拖到一半按 Esc：这一笔/这次拖动作废，回到按下前 */
   function cancelDrag() {
+    if (cropDrag.current) {
+      cropDrag.current = null;
+      schedule();
+      return true;
+    }
     const current = drag.current;
     if (!current) return false;
     drag.current = null;
@@ -619,7 +704,7 @@ export function AnnotateWindow() {
   }
 
   function onDoubleClick(event: React.MouseEvent<HTMLCanvasElement>) {
-    if (!ready || busy) return;
+    if (!ready || busy || tool === "crop") return;
     const hit = topHit(shapesRef.current, canvasPoint(event), HIT_SLOP * screenScale(), ratioRef.current, measure());
     if (hit?.type === "text") startEditing(hit, false, shapesRef.current);
   }
@@ -629,27 +714,41 @@ export function AnnotateWindow() {
   function undo() {
     endSize();
     if (editingRef.current) commitText();
-    if (!ready || busy || drag.current || !past.current.length) return;
+    if (!ready || busy || drag.current || cropDrag.current || !past.current.length) return;
     const previous = past.current[past.current.length - 1];
     past.current = past.current.slice(0, -1);
-    future.current = [...future.current, shapesRef.current];
-    animateDiff(shapesRef.current, previous);
-    setShapes(previous);
-    if (!previous.some((shape) => shape.id === selectedRef.current)) select(null);
+    future.current = [...future.current, { shapes: shapesRef.current, view: view.current! }];
+    animateDiff(shapesRef.current, previous.shapes);
+    restoreView(previous);
+    if (!previous.shapes.some((shape) => shape.id === selectedRef.current)) select(null);
     setHistoryTick((value) => value + 1);
+    schedule();
   }
 
   function redo() {
     endSize();
     if (editingRef.current) commitText();
-    if (!ready || busy || drag.current || !future.current.length) return;
+    if (!ready || busy || drag.current || cropDrag.current || !future.current.length) return;
     const next = future.current[future.current.length - 1];
     future.current = future.current.slice(0, -1);
-    past.current = [...past.current, shapesRef.current];
-    animateDiff(shapesRef.current, next);
-    setShapes(next);
-    if (!next.some((shape) => shape.id === selectedRef.current)) select(null);
+    past.current = [...past.current, { shapes: shapesRef.current, view: view.current! }];
+    animateDiff(shapesRef.current, next.shapes);
+    restoreView(next);
+    if (!next.shapes.some((shape) => shape.id === selectedRef.current)) select(null);
     setHistoryTick((value) => value + 1);
+    schedule();
+  }
+
+  /** 撤销/重做共用：取景框和画布尺寸一起回到那一步的样子 */
+  function restoreView(state: EditState) {
+    view.current = state.view;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.width = state.view.width;
+      canvas.height = state.view.height;
+    }
+    setNatural({ width: state.view.width, height: state.view.height });
+    setShapes(state.shapes);
   }
 
   function removeSelected() {
@@ -701,16 +800,19 @@ export function AnnotateWindow() {
     sizeBefore.current = null;
     if (before && before !== shapesRef.current) commit(before, shapesRef.current);
   }
-  // 弹层收起（点外面、Esc、开始画）时把还没记的粗细变化记上
-  useEffect(() => {
-    if (!styleOpen) endSize();
-  }, [styleOpen]);
 
   function chooseTool(next: Tool) {
-    if (busy) return;
+    if (busy || drag.current || cropDrag.current) return;
     if (editingRef.current) commitText();
+    endSize();
     setTool(next);
-    if (next !== "select") {
+    setStyleOpen(next === "pen" || next === "highlight");
+    if (canvasRef.current) {
+      canvasRef.current.style.cursor = next === "crop" ? "crosshair" : "";
+      if (next === "crop") canvasRef.current.focus({ preventScroll: true });
+    }
+    // 画笔/荧光笔带着弹层来：留着选中，弹层里改颜色/粗细直接落到选中的那个上
+    if (next !== "select" && next !== "pen" && next !== "highlight") {
       select(null);
       if (hoverRef.current) {
         hoverRef.current = null;
@@ -722,50 +824,55 @@ export function AnnotateWindow() {
   // ---------- 导出 ----------
 
   /** 按原图分辨率重画一遍（不带选中框），所以 Retina 截图导出也是清晰的原尺寸 */
-  async function exportPng(): Promise<string> {
+  function exportPng() {
     const canvas = canvasRef.current;
-    if (!canvas || !ready || !original.current) throw new Error(t("截图尚未加载完成"));
+    const frame = view.current;
+    if (!canvas || !ready || !original.current || !frame) throw new Error(t("截图尚未加载完成"));
     const list = editingRef.current ? commitText() : shapesRef.current;
     const output = document.createElement("canvas");
     output.width = canvas.width;
     output.height = canvas.height;
     const ctx = output.getContext("2d");
     if (!ctx) throw new Error(t("截图尚未加载完成"));
-    renderScene(ctx, { image: original.current, width: output.width, height: output.height, shapes: list, ratio: ratioRef.current });
-    return output.toDataURL("image/png");
+    renderScene(ctx, {
+      image: original.current,
+      width: output.width,
+      height: output.height,
+      offsetX: frame.x,
+      offsetY: frame.y,
+      shapes: list,
+      ratio: ratioRef.current,
+    });
+    const cropped = frame.x !== 0 || frame.y !== 0 || frame.width !== original.current.naturalWidth || frame.height !== original.current.naturalHeight;
+    return { imageData: output.toDataURL("image/png"), changed: list.length > 0 || cropped };
   }
 
   /**
-   * 三个出口共用：导出当前画面交给后端。成功后按钮打勾、底部给一句结果，
-   * 停留不到半秒再收起窗口，确认「真的复制/存好了」。另存为取消时什么都不收。
+   * 唯一的出口：导出当前画面存进历史（编辑版替换原图，原图进回收站）。
+   * 成功后按钮打勾、底部给一句结果，停留不到半秒再收起窗口。
    */
-  async function finish(command: Finish) {
-    if (!ready || busy) return;
+  async function finish() {
+    if (!ready || busy || drag.current || cropDrag.current) return;
     const version = loadVersion.current;
     setBusy(true);
     setStatus("");
     try {
-      const imageData = await exportPng();
-      const message = await invoke<string | null>(command, { imageData });
+      const message = await invoke<string>("annotate_save_copy", { ...exportPng(), sessionId: sessionId.current });
       if (version !== loadVersion.current) return;
-      if (message == null) {
-        setStatus(t("已取消另存，标注仍保留"), 2400);
-        setBusy(false);
-        return;
-      }
-      setDone(command);
+      setDone(true);
       setStatus(localizeMessage(message));
       window.setTimeout(() => {
         if (version === loadVersion.current) void close();
       }, reducedMotion() ? 200 : DONE_MS);
     } catch (error) {
+      if (version !== loadVersion.current) return;
       setStatus(localizeMessage(error instanceof Error ? error.message : String(error)), 4000);
       setBusy(false);
     }
   }
 
   async function close() {
-    await invoke("annotate_close");
+    await invoke("annotate_close", { sessionId: sessionId.current });
   }
 
   function onEscape() {
@@ -779,8 +886,14 @@ export function AnnotateWindow() {
       select(null);
       return;
     }
+    if (tool === "crop") {
+      chooseTool("select");
+      return;
+    }
     const now = Date.now();
-    if (!shapesRef.current.length || now - escArmedAt.current < ESC_CONFIRM_MS) {
+    const frame = view.current;
+    const cropped = frame && original.current && (frame.width !== original.current.naturalWidth || frame.height !== original.current.naturalHeight);
+    if ((!shapesRef.current.length && !cropped) || now - escArmedAt.current < ESC_CONFIRM_MS) {
       escArmedAt.current = 0;
       void close();
       return;
@@ -794,12 +907,12 @@ export function AnnotateWindow() {
     if (event.isComposing) return;
     const command = isMac ? event.metaKey : event.ctrlKey;
     const key = event.key.toLowerCase();
-    // 正在打字：只有存/关窗口这几个整窗命令穿过来，其余（⌘Z、⌘C、Delete、方向键、单键）都归输入框
+    // 正在打字：只有存/关窗口这几个整窗命令穿过来，其余（⌘Z、Delete、方向键、单键）都归输入框
     if (event.target instanceof HTMLTextAreaElement) {
       if (command && (key === "s" || key === "w")) {
         event.preventDefault();
         if (key === "w") void close();
-        else void finish(event.shiftKey ? "annotate_save" : "annotate_save_copy");
+        else void finish();
       }
       return;
     }
@@ -816,12 +929,9 @@ export function AnnotateWindow() {
     } else if (command && key === "y" && !isMac) {
       event.preventDefault();
       redo();
-    } else if (command && key === "c" && !event.shiftKey) {
-      event.preventDefault();
-      void finish("annotate_copy");
     } else if (command && key === "s") {
       event.preventDefault();
-      void finish(event.shiftKey ? "annotate_save" : "annotate_save_copy");
+      void finish();
     } else if (command && key === "w") {
       event.preventDefault();
       void close();
@@ -830,11 +940,14 @@ export function AnnotateWindow() {
     } else if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
       removeSelected();
+    } else if (event.key.startsWith("Arrow") && tool === "crop" && event.target === canvasRef.current) {
+      event.preventDefault();
+      nudgeCrop(event.key, event.shiftKey);
     } else if (event.key.startsWith("Arrow") && selectedRef.current != null) {
       event.preventDefault();
       nudge(event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0, event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0);
     } else if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
-      // 回车只用来改选中的文字；复制用 ⌘C 或「复制」按钮，免得画完顺手一按就把窗口收了
+      // 回车只用来改选中的文字；保存用 ⌘S 或「保存」按钮，免得画完顺手一按就把窗口收了
       const selected = shapeById(selectedRef.current);
       if (selected?.type === "text") {
         event.preventDefault();
@@ -851,15 +964,41 @@ export function AnnotateWindow() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 颜色/粗细弹层：点到外面就收起
+  // 弹层收起（点画布、点外面、Esc、换工具）时把还没记的粗细变化记上
+  useEffect(() => {
+    if (!styleOpen) endSize();
+  }, [styleOpen]);
+
+  // 点到弹层外面就收起（工具按钮自己的点击不算外面，不然切画笔/荧光笔会先收再开）
   useEffect(() => {
     if (!styleOpen) return;
     const onDown = (event: PointerEvent) => {
-      if (!styleRef.current?.contains(event.target as Node)) setStyleOpen(false);
+      const target = event.target as Node;
+      if (stylePopRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest("[data-tool='pen'], [data-tool='highlight']")) return;
+      setStyleOpen(false);
     };
     window.addEventListener("pointerdown", onDown, true);
     return () => window.removeEventListener("pointerdown", onDown, true);
   }, [styleOpen]);
+
+  // 弹层水平对准当前工具按钮，夹在窗口内；垂直悬浮在工具栏下方，不挤占图片
+  useLayoutEffect(() => {
+    if (!styleOpen) return;
+    const place = () => {
+      const root = rootRef.current;
+      const pop = stylePopRef.current;
+      const button = toolsRef.current?.querySelector<HTMLElement>(`[data-tool="${tool}"]`);
+      if (!root || !pop || !button) return;
+      const center = button.offsetLeft + button.offsetWidth / 2 + (toolsRef.current?.offsetLeft ?? 0);
+      const half = pop.offsetWidth / 2;
+      const max = root.clientWidth - half - 8;
+      setStyleX(Math.max(half + 8, Math.min(max, center)));
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [styleOpen, tool, ready]);
 
   // 输入框一出现就拿到焦点（等这次按下的默认行为过去，不然焦点会被画布抢走）
   const editingId = editing?.id ?? null;
@@ -904,8 +1043,8 @@ export function AnnotateWindow() {
         wrap="off"
         spellCheck={false}
         style={{
-          left: canvas.offsetLeft + editingShape.x / unit,
-          top: canvas.offsetTop + editingShape.y / unit,
+          left: canvas.offsetLeft + (editingShape.x - (view.current?.x ?? 0)) / unit,
+          top: canvas.offsetTop + (editingShape.y - (view.current?.y ?? 0)) / unit,
           font: textFont(editingShape, ratio).replace(/[\d.]+px/, `${font}px`),
           lineHeight: `${lineHeight(editingShape.size, ratio) / unit}px`,
           color: editingShape.color,
@@ -933,7 +1072,7 @@ export function AnnotateWindow() {
     setPill((current) => (current && current.x === next.x && current.width === next.width ? current : { ...next, animate: current != null && !reducedMotion() }));
   }, [tool, ready]);
 
-  // 导出和「已复制」确认这一小会儿只拦操作（各命令自己看 busy），不把整条工具栏变灰，免得闪一下
+  // 导出和「已保存」确认这一小会儿只拦操作（各命令自己看 busy），不把整条工具栏变灰，免得闪一下
   const locked = !ready;
   void historyTick;
   const toolButton = (value: Tool, label: string, icon: ReactNode) => (
@@ -964,7 +1103,7 @@ export function AnnotateWindow() {
   const swatchFill = (value: string) => (value === MOSAIC ? undefined : value);
 
   return (
-    <div className={`annotate-root${isMac ? " is-mac" : ""}${busy ? " is-busy" : ""}`}>
+    <div ref={rootRef} className={`annotate-root${isMac ? " is-mac" : ""}${busy ? " is-busy" : ""}`}>
       <header className="annotate-toolbar" data-tauri-drag-region>
         <div className="annotate-group is-tools" role="group" aria-label={t("标注工具")} ref={toolsRef}>
           {pill ? (
@@ -979,84 +1118,13 @@ export function AnnotateWindow() {
           {toolButton("arrow", t("箭头"), <MoveUpRight aria-hidden="true" />)}
           {toolButton("rect", t("矩形"), <Square aria-hidden="true" />)}
           {toolButton("ellipse", t("椭圆"), <Circle aria-hidden="true" />)}
+          {toolButton("text", t("文字"), <Type aria-hidden="true" />)}
+          {toolButton("step", t("编号"), <StepIcon />)}
+          <span className="annotate-sep" aria-hidden="true" />
           {toolButton("pen", t("画笔"), <PenLine aria-hidden="true" />)}
           {toolButton("highlight", t("荧光笔"), <Highlighter aria-hidden="true" />)}
           <span className="annotate-sep" aria-hidden="true" />
-          {toolButton("text", t("文字"), <Type aria-hidden="true" />)}
-          {toolButton("step", t("编号"), <StepIcon />)}
-        </div>
-        <span className="annotate-sep" aria-hidden="true" />
-        <div className="annotate-style" ref={styleRef}>
-          <button
-            type="button"
-            className="an-btn is-icon"
-            aria-label={t("颜色和粗细")}
-            title={t("颜色和粗细")}
-            aria-haspopup="true"
-            aria-expanded={styleOpen}
-            disabled={locked}
-            onClick={() => setStyleOpen((open) => !open)}
-          >
-            <span
-              className={`an-swatch${shownColor === MOSAIC ? " is-mosaic" : ""}`}
-              style={{ background: swatchFill(shownColor), width: 8 + shownSize * 0.75, height: 8 + shownSize * 0.75 }}
-            />
-          </button>
-          {(styleOpen || styleClosing) && (
-            <div
-              className={`annotate-pop${styleOpen ? "" : " is-closing"}`}
-              role="dialog"
-              aria-label={t("颜色和粗细")}
-              aria-hidden={styleOpen ? undefined : true}
-            >
-              <div className="annotate-swatches" role="radiogroup" aria-label={t("颜色")}>
-                {COLORS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={shownColor === value}
-                    aria-label={colorNames[value]}
-                    title={colorNames[value]}
-                    className={`annotate-swatch${shownColor === value ? " is-on" : ""}`}
-                    style={{ background: value }}
-                    onClick={() => applyColor(value)}
-                  />
-                ))}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={shownColor === MOSAIC}
-                  aria-label={t("马赛克")}
-                  title={mosaicAllowed ? t("马赛克") : t("马赛克只能用于矩形、椭圆、画笔和荧光笔")}
-                  aria-disabled={!mosaicAllowed}
-                  className={`annotate-swatch is-mosaic${shownColor === MOSAIC ? " is-on" : ""}`}
-                  onClick={() => applyColor(MOSAIC)}
-                />
-              </div>
-              <div className="annotate-size">
-                <input
-                  type="range"
-                  aria-label={t("粗细")}
-                  min={SIZE_MIN}
-                  max={SIZE_MAX}
-                  step={0.5}
-                  value={shownSize}
-                  style={{ "--an-size": `${((shownSize - SIZE_MIN) / (SIZE_MAX - SIZE_MIN)) * 100}%` } as React.CSSProperties}
-                  onChange={(event) => applySize(Number(event.target.value))}
-                  onPointerUp={endSize}
-                  onKeyUp={endSize}
-                  onBlur={endSize}
-                />
-                <span className="annotate-size-preview" aria-hidden="true">
-                  <span
-                    className={shownColor === MOSAIC ? "is-mosaic" : undefined}
-                    style={{ width: dot(shownSize, 3, 16), height: dot(shownSize, 3, 16), background: swatchFill(shownColor) }}
-                  />
-                </span>
-              </div>
-            </div>
-          )}
+          {toolButton("crop", t("裁剪"), <Crop aria-hidden="true" />)}
         </div>
         <span className="annotate-sep" aria-hidden="true" />
         <div className="annotate-group">
@@ -1069,43 +1137,104 @@ export function AnnotateWindow() {
         </div>
         <span className="annotate-fill" data-tauri-drag-region />
         <div className="annotate-group is-actions">
-          <button type="button" className={`an-btn is-icon${done === "annotate_save" ? " is-done" : ""}`} aria-label={t("另存为…")} title={`${t("另存为…")}  ${shift}${mod}S`} disabled={locked} onClick={() => void finish("annotate_save")}>
-            {done === "annotate_save" ? <Check aria-hidden="true" className="an-check" /> : <Download aria-hidden="true" />}
-          </button>
-          <button type="button" className={`an-btn is-icon${done === "annotate_save_copy" ? " is-done" : ""}`} aria-label={t("存入截图记录")} title={`${t("存入截图记录")}  ${mod}S`} disabled={locked} onClick={() => void finish("annotate_save_copy")}>
-            {done === "annotate_save_copy" ? <Check aria-hidden="true" className="an-check" /> : <History aria-hidden="true" />}
-          </button>
           <button
             type="button"
-            className={`an-btn is-primary${done === "annotate_copy" ? " is-done" : ""}`}
-            aria-label={t("复制")}
-            title={`${t("复制")}  ${mod}C`}
+            className={`an-btn is-primary${done ? " is-done" : ""}`}
+            aria-label={t("保存")}
+            title={`${t("保存")}  ${mod}S`}
             disabled={locked}
-            onClick={() => void finish("annotate_copy")}
+            onClick={() => void finish()}
           >
-            {done === "annotate_copy" ? (
+            {done ? (
               <>
                 <Check aria-hidden="true" className="an-check" />
-                {t("已复制")}
+                {t("已保存")}
               </>
-            ) : t("复制")}
+            ) : t("保存")}
           </button>
         </div>
       </header>
+      {styleOpen && (tool === "pen" || tool === "highlight") && (
+        <div
+          ref={stylePopRef}
+          className="annotate-pop"
+          role="dialog"
+          aria-label={t("颜色和粗细")}
+          style={{ left: styleX ?? undefined, visibility: styleX == null ? "hidden" : undefined }}
+        >
+          <div className="annotate-swatches" role="radiogroup" aria-label={t("颜色")}>
+            {COLORS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={shownColor === value}
+                aria-label={colorNames[value]}
+                title={colorNames[value]}
+                className={`annotate-swatch${shownColor === value ? " is-on" : ""}`}
+                style={{ background: value }}
+                disabled={locked}
+                onClick={() => applyColor(value)}
+              />
+            ))}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={shownColor === MOSAIC}
+              aria-label={t("马赛克")}
+              title={mosaicAllowed ? t("马赛克") : t("马赛克只能用于矩形、椭圆、画笔和荧光笔")}
+              aria-disabled={!mosaicAllowed}
+              className={`annotate-swatch is-mosaic${shownColor === MOSAIC ? " is-on" : ""}`}
+              disabled={locked}
+              onClick={() => applyColor(MOSAIC)}
+            />
+          </div>
+          <span className="annotate-sep" aria-hidden="true" />
+          <div className="annotate-size">
+            <input
+              type="range"
+              aria-label={t("粗细")}
+              min={SIZE_MIN}
+              max={SIZE_MAX}
+              step={0.5}
+              value={shownSize}
+              disabled={locked}
+              style={{ "--an-size": `${((shownSize - SIZE_MIN) / (SIZE_MAX - SIZE_MIN)) * 100}%` } as CSSProperties}
+              onChange={(event) => applySize(Number(event.target.value))}
+              onPointerUp={endSize}
+              onKeyUp={endSize}
+              onBlur={endSize}
+            />
+            <span className="annotate-size-preview" aria-hidden="true">
+              <span
+                className={shownColor === MOSAIC ? "is-mosaic" : undefined}
+                style={{ width: dot(shownSize, 3, 16), height: dot(shownSize, 3, 16), background: swatchFill(shownColor) }}
+              />
+            </span>
+          </div>
+        </div>
+      )}
       <div className="annotate-stage" ref={stageRef}>
         <canvas
           ref={canvasRef}
           aria-label={t("截图标注画布")}
+          aria-describedby={tool === "crop" ? "annotate-crop-help" : undefined}
           className={`annotate-canvas${ready ? "" : " is-empty"}`}
+          tabIndex={tool === "crop" && ready ? 0 : -1}
           style={display ? { width: display.width, height: display.height } : undefined}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerCancel={cancelDrag}
           onPointerLeave={onPointerLeave}
           onDoubleClick={onDoubleClick}
           onContextMenu={(event) => event.preventDefault()}
         />
+        {tool === "crop" && (
+          <p className="annotate-crop-help" id="annotate-crop-help">
+            {t("松开即裁剪，可继续裁剪剩下的画面；方向键调整右下角，Shift 加方向键调整左上角。")}
+          </p>
+        )}
         {textEditor()}
         {toast ? (
           <div key={toast.key} className={`annotate-status${toast.leaving ? " is-leaving" : ""}`} role="status">

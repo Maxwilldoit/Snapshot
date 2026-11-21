@@ -1,13 +1,12 @@
 import { memo, useState } from "react";
-import { appIconUrl, appNameIconUrl, recordingUrl, thumbUrl } from "../lib/media";
+import { recordingUrl, thumbUrl } from "../lib/media";
 import { formatDuration } from "../lib/format";
 import { useI18n } from "../lib/i18n";
 import type { MediaItem, RecordingMeta } from "../lib/mediaTimeline";
 
 /**
  * 历史拼图中的一格：按给定 boxWidth × boxHeight 完整铺满同行等高格位。
- * 普通横竖图严丝合缝铺满圆角卡片；超长滚动截图（is-narrow）居中衬底完整呈现，不裁成细条。
- * 左下角显示来源应用图标，录屏右下角显示时长；拍摄时间与规格统一在悬停预览窗展示。
+ * 缩略图表面保持纯粹无遮挡（仅录屏保留右下角时长），来源应用小图标与规格统一在悬停预览窗展示。
  */
 export const MediaTile = memo(function MediaTile({
   item,
@@ -36,13 +35,10 @@ export const MediaTile = memo(function MediaTile({
 }) {
   const { t } = useI18n();
   const [failed, setFailed] = useState(false);
-  const [iconFailed, setIconFailed] = useState(false);
   const isRecording = item.kind === "recording";
   const rawRatio = item.width > 0 && item.height > 0 ? item.width / item.height : 16 / 9;
   const narrow = rawRatio < 0.34 || (typeof boxWidth === "number" && boxWidth < 52);
   const label = item.appName;
-  const iconSrc = item.appId ? appIconUrl(item.appId, 20) : appNameIconUrl(item.appName, 20);
-  const hasIcon = !iconFailed;
 
   function openMenu(anchor: HTMLElement, point?: { x: number; y: number }) {
     const box = anchor.getBoundingClientRect();
@@ -55,7 +51,7 @@ export const MediaTile = memo(function MediaTile({
 
   return (
     <div
-      className={`tile ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${hasIcon ? "has-app-icon" : ""} ${narrow ? "is-narrow" : ""} ${failed ? "is-failed" : ""}`}
+      className={`tile ${selected ? "is-selected" : ""} ${selecting ? "is-selecting" : ""} ${narrow ? "is-narrow" : ""} ${failed ? "is-failed" : ""}`}
       style={sizeStyle}
     >
       <button
@@ -114,18 +110,6 @@ export const MediaTile = memo(function MediaTile({
             !failed && (
               <img src={thumbUrl(item.id)} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setFailed(true)} />
             )
-          )}
-          {hasIcon && (
-            <img
-              className="tile-app"
-              src={iconSrc}
-              alt=""
-              aria-hidden="true"
-              loading="lazy"
-              decoding="async"
-              draggable={false}
-              onError={() => setIconFailed(true)}
-            />
           )}
           {isRecording && item.durationMs != null && (
             <span className="tile-duration mono">{formatDuration(item.durationMs)}</span>

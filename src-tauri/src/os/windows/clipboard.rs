@@ -6,6 +6,10 @@ pub(crate) fn supported() -> bool {
     false
 }
 
+pub(crate) fn current_marker() -> Option<String> {
+    None
+}
+
 pub(crate) fn sample(_last_marker: &str) -> Option<Sample> {
     None
 }

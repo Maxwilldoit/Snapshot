@@ -3,8 +3,8 @@
  * 画布只在显示和导出时把它们画出来（render.ts），原图像素从不被改写。
  */
 
-export type Tool = "select" | "arrow" | "rect" | "ellipse" | "pen" | "highlight" | "text" | "step";
-export type DrawTool = Exclude<Tool, "select">;
+export type Tool = "select" | "arrow" | "rect" | "ellipse" | "pen" | "highlight" | "text" | "step" | "crop";
+export type DrawTool = Exclude<Tool, "select" | "crop">;
 /** 粗细：线条的逻辑点数（1–12，线性），字号、编号、荧光笔、马赛克块都按它等比换算 */
 export type Size = number;
 export type Point = { x: number; y: number };
@@ -60,6 +60,29 @@ const normalize = (a: Point, b: Point): Rect => ({
   w: Math.abs(b.x - a.x),
   h: Math.abs(b.y - a.y),
 });
+
+export function cropBounds(start: Point, end: Point, width: number, height: number): Rect {
+  const clamp = (point: Point) => ({
+    x: Math.max(0, Math.min(width, Math.round(point.x))),
+    y: Math.max(0, Math.min(height, Math.round(point.y))),
+  });
+  return normalize(clamp(start), clamp(end));
+}
+
+/** 连续裁剪：每次提交都把选区外的部分裁掉；撤销恢复的是上一个取景框 */
+export type Viewport = { x: number; y: number; width: number; height: number };
+
+/** 松手时把裁剪落到取景框上：选区换算回原图坐标，取整后不会越出上一个取景框 */
+export function commitCrop(view: Viewport, selection: Rect): Viewport {
+  const x = Math.min(view.x + view.width, Math.max(view.x, view.x + Math.round(selection.x)));
+  const y = Math.min(view.y + view.height, Math.max(view.y, view.y + Math.round(selection.y)));
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.min(view.x + view.width - x, Math.round(selection.w))),
+    height: Math.max(1, Math.min(view.y + view.height - y, Math.round(selection.h))),
+  };
+}
 
 /** ⇧：矩形/椭圆变成正方形 */
 export function squareFrom(anchor: Point, point: Point): Point {

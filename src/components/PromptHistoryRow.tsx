@@ -1,10 +1,11 @@
+import { memo } from "react";
 import { formatClock } from "../lib/format";
 import { stagger } from "../lib/motion";
 import { useI18n } from "../lib/i18n";
 import type { PromptHistoryEntry } from "../types";
 
 /** 统一历史流里的一条 Prompt：摘要保留两条预览，展开后显示完整原文与结果。 */
-export function PromptHistoryRow({
+export const PromptHistoryRow = memo(function PromptHistoryRow({
   record,
   index,
 }: {
@@ -12,8 +13,9 @@ export function PromptHistoryRow({
   index: number;
 }) {
   const { t } = useI18n();
+  const isStatic = index >= 12;
   return (
-    <details className="prompt-entry history-prompt-item" style={stagger(index)}>
+    <details className={`prompt-entry history-prompt-item${isStatic ? " is-static" : ""}`} style={isStatic ? undefined : stagger(index)}>
       <summary className="prompt-summary">
         <time className="mono small quiet">{formatClock(record.createdAt)}</time>
         <span className="prompt-preview">
@@ -40,4 +42,4 @@ export function PromptHistoryRow({
       </div>
     </details>
   );
-}
+});

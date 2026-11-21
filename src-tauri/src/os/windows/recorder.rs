@@ -36,7 +36,7 @@ use windows::{
                 D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE,
                 D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
             },
-            Dxgi::IDXGIDevice,
+            Dxgi::{Common::DXGI_FORMAT, IDXGIDevice},
         },
         Media::Audio::{
             eCapture, eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator,
@@ -576,10 +576,19 @@ fn pack_frame_scaled(
     packed
 }
 
+struct StagingTexture {
+    width: u32,
+    height: u32,
+    format: DXGI_FORMAT,
+    texture: ID3D11Texture2D,
+}
+
 struct FrameSink {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     encoder: Encoder,
+    /// 复用同尺寸/格式的 CPU staging 纹理，避免在 60–144Hz 帧回调中每帧创建并销毁 GPU 资源。
+    staging: Option<StagingTexture>,
     /// 最近一帧。窗口静止不重绘时 FrameArrived 根本不触发，
     /// 定时器就靠它补帧，保证时间轴连续、文件可播。
     latest: Option<Vec<u8>>,
@@ -753,6 +762,7 @@ pub fn start(
         device,
         context,
         encoder,
+        staging: None,
         latest: None,
     })));
     let stopped = Arc::new(AtomicBool::new(false));
@@ -787,20 +797,43 @@ pub fn start(
                     return Ok(());
                 };
 
-                // 采集纹理在 GPU 上且不可 CPU 读，先拷进一张 staging 纹理再映射
+                // 采集纹理在 GPU 上且不可 CPU 读，先拷进一张复用的 staging 纹理再映射
                 let mut desc = D3D11_TEXTURE2D_DESC::default();
                 unsafe { texture.GetDesc(&mut desc) };
-                desc.Usage = D3D11_USAGE_STAGING;
-                desc.BindFlags = 0;
-                desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
-                desc.MiscFlags = 0;
-                let mut staging: Option<ID3D11Texture2D> = None;
-                if unsafe { sink.device.CreateTexture2D(&desc, None, Some(&mut staging)) }.is_err()
-                {
-                    return Ok(());
-                }
-                let Some(staging) = staging else {
-                    return Ok(());
+                let staging = match sink.staging.as_ref() {
+                    Some(existing)
+                        if existing.width == desc.Width
+                            && existing.height == desc.Height
+                            && existing.format == desc.Format =>
+                    {
+                        existing.texture.clone()
+                    }
+                    _ => {
+                        let mut staging_desc = desc;
+                        staging_desc.Usage = D3D11_USAGE_STAGING;
+                        staging_desc.BindFlags = 0;
+                        staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+                        staging_desc.MiscFlags = 0;
+                        let mut created: Option<ID3D11Texture2D> = None;
+                        if unsafe {
+                            sink.device
+                                .CreateTexture2D(&staging_desc, None, Some(&mut created))
+                        }
+                        .is_err()
+                        {
+                            return Ok(());
+                        }
+                        let Some(created) = created else {
+                            return Ok(());
+                        };
+                        sink.staging = Some(StagingTexture {
+                            width: desc.Width,
+                            height: desc.Height,
+                            format: desc.Format,
+                            texture: created.clone(),
+                        });
+                        created
+                    }
                 };
                 unsafe { sink.context.CopyResource(&staging, &texture) };
 

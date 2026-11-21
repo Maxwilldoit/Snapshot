@@ -1,6 +1,13 @@
 use super::settings::{default_appearance_id, emit_settings, persist_settings, Settings};
 use super::*;
 use serde::Deserialize;
+use std::sync::OnceLock;
+
+type PetDurationCache = HashMap<(String, String), u64>;
+type PetAlphaCache = HashMap<(String, String), Vec<u8>>;
+
+static PET_DURATION_CACHE: OnceLock<Mutex<PetDurationCache>> = OnceLock::new();
+static PET_ALPHA_CACHE: OnceLock<Mutex<PetAlphaCache>> = OnceLock::new();
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -146,8 +153,14 @@ fn is_derived_cache_name(name: &str, id: &str) -> bool {
 }
 
 /// 形象删掉、或者重新导入时，把由它派生出来的缓存一起清掉：
-/// 缩略图、走路动作、抠过背景的素材
+/// 缩略图、走路动作、抠过背景的素材，以及内存中的时长与透明通道缓存
 fn remove_derived_cache(dir: &Path, id: &str) {
+    if let Some(cache) = PET_DURATION_CACHE.get() {
+        cache.lock().retain(|(asset_id, _), _| asset_id != id);
+    }
+    if let Some(cache) = PET_ALPHA_CACHE.get() {
+        cache.lock().retain(|(asset_id, _), _| asset_id != id);
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -172,42 +185,45 @@ fn commit(app: &AppHandle, state: &AppState, settings: &mut Settings) -> Result<
 }
 
 #[tauri::command]
-pub(crate) fn select_pet_appearance(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<Settings, String> {
-    let mut settings = state.settings.lock();
-    if id != "app-icon" {
-        let asset = settings
-            .pet_assets
-            .iter_mut()
-            .find(|asset| asset.id == id)
-            .ok_or_else(|| "找不到这个形象".to_string())?;
-        if !Path::new(&asset.path).is_file() {
-            return Err("这个形象的素材文件找不到了".into());
+pub(crate) async fn select_pet_appearance(app: AppHandle, id: String) -> Result<Settings, String> {
+    on_worker(app, move |app, state| {
+        let mut settings = state.settings.lock();
+        if id != "app-icon" {
+            let asset = settings
+                .pet_assets
+                .iter_mut()
+                .find(|asset| asset.id == id)
+                .ok_or_else(|| "找不到这个形象".to_string())?;
+            if !Path::new(&asset.path).is_file() {
+                return Err("这个形象的素材文件找不到了".into());
+            }
+            asset.last_used_at = now_millis();
         }
-        asset.last_used_at = now_millis();
-    }
-    settings.selected_appearance_id = id;
-    settings.pet_hidden = false;
-    let result = commit(&app, &state, &mut settings)?;
-    show_pet(&app);
-    Ok(result)
+        settings.selected_appearance_id = id;
+        settings.pet_hidden = false;
+        let result = commit(app, state, &mut settings)?;
+        drop(settings);
+        show_pet(app);
+        Ok(result)
+    })
+    .await
 }
 
 /// 把桌宠整个收起来：选中的形象保留，应用照常运行。
 /// 再选任意形象（包括同一只）即恢复显示，见 select_pet_appearance。
 #[tauri::command]
-pub(crate) fn hide_pet(app: AppHandle, state: State<'_, AppState>) -> Result<Settings, String> {
-    let mut settings = state.settings.lock();
-    settings.pet_hidden = true;
-    let result = commit(&app, &state, &mut settings)?;
-    drop(settings);
-    if let Some(window) = app.get_webview_window("pet") {
-        let _ = window.hide();
-    }
-    Ok(result)
+pub(crate) async fn hide_pet(app: AppHandle) -> Result<Settings, String> {
+    on_worker(app, move |app, state| {
+        let mut settings = state.settings.lock();
+        settings.pet_hidden = true;
+        let result = commit(app, state, &mut settings)?;
+        drop(settings);
+        if let Some(window) = app.get_webview_window("pet") {
+            let _ = window.hide();
+        }
+        Ok(result)
+    })
+    .await
 }
 
 fn show_pet(app: &AppHandle) {
@@ -668,27 +684,26 @@ pub(crate) fn set_pet_hitbox(
 }
 
 #[tauri::command]
-pub(crate) fn delete_pet_asset(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<Settings, String> {
-    if id == "app-icon" {
-        return Err("默认应用图标不可删除".into());
-    }
-    let mut settings = state.settings.lock();
-    let position = settings
-        .pet_assets
-        .iter()
-        .position(|asset| asset.id == id)
-        .ok_or_else(|| "找不到这个形象".to_string())?;
-    let removed = settings.pet_assets.remove(position);
-    remove_owned_file(&state, &removed.path);
-    remove_derived_cache(pets_dir(&state), &removed.id);
-    if settings.selected_appearance_id == id {
-        settings.selected_appearance_id = default_appearance_id();
-    }
-    commit(&app, &state, &mut settings)
+pub(crate) async fn delete_pet_asset(app: AppHandle, id: String) -> Result<Settings, String> {
+    on_worker(app, move |app, state| {
+        if id == "app-icon" {
+            return Err("默认应用图标不可删除".into());
+        }
+        let mut settings = state.settings.lock();
+        let position = settings
+            .pet_assets
+            .iter()
+            .position(|asset| asset.id == id)
+            .ok_or_else(|| "找不到这个形象".to_string())?;
+        let removed = settings.pet_assets.remove(position);
+        remove_owned_file(state, &removed.path);
+        remove_derived_cache(pets_dir(state), &removed.id);
+        if settings.selected_appearance_id == id {
+            settings.selected_appearance_id = default_appearance_id();
+        }
+        commit(app, state, &mut settings)
+    })
+    .await
 }
 
 /// 形象架上的静态缩略图：默认 GIF 动作的第一帧。WebM 由前端用暂停的视频显示首帧。
@@ -718,7 +733,14 @@ pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, Stri
     );
     let png = capture::encode_png(&small)?;
     fs::create_dir_all(pets_dir(state)).map_err(|error| error.to_string())?;
-    let _ = fs::write(&path, &png);
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let partial = path.with_extension(format!(
+        "partial{}",
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    if fs::write(&partial, &png).is_ok() && fs::rename(&partial, &path).is_err() {
+        let _ = fs::remove_file(&partial);
+    }
     Ok(png)
 }
 
@@ -824,42 +846,61 @@ fn read_raw_animation(
     Ok((entry_name, bytes))
 }
 
+/// 读出 WebM 动画的独立透明通道并缓存（macOS 视频合成用），避免每次切换动作都重新解压 ZIP 并重封装 EBML。
+pub(crate) fn read_alpha_animation(
+    state: &AppState,
+    id: &str,
+    entry: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    find_asset(state, id)?;
+    let cache_key = (id.to_string(), entry.unwrap_or_default().to_string());
+    let cache = PET_ALPHA_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = cache.lock().get(&cache_key).cloned() {
+        return Ok(cached);
+    }
+    let raw = read_animation(state, id, entry)?;
+    let extracted = pet_alpha::extract(&raw)?;
+    let mut guard = cache.lock();
+    if guard.len() >= 32 {
+        guard.clear();
+    }
+    guard.insert(cache_key, extracted.clone());
+    Ok(extracted)
+}
+
 /// 一轮 GIF 的总时长。按浏览器常见的处理方式，把 0 延时帧视为 100ms、
 /// 小于 20ms 的帧至少留 20ms；单帧素材则展示 1 秒。
 fn gif_duration_ms(bytes: &[u8]) -> Result<u64, String> {
-    pet_walk::validate_gif_budget(bytes)?;
-    let options = gif::DecodeOptions::new();
-    let mut decoder = options
-        .read_info(Cursor::new(bytes))
-        .map_err(|error| format!("读取 GIF 时长失败：{error}"))?;
-    let mut frames = 0u64;
-    let mut total = 0u64;
-    while let Some(frame) = decoder
-        .next_frame_info()
-        .map_err(|error| format!("读取 GIF 帧失败：{error}"))?
-    {
-        frames += 1;
-        let delay = u64::from(frame.delay) * 10;
-        total += if delay == 0 { 100 } else { delay.max(20) };
-    }
-    if frames == 0 {
-        return Err("GIF 里没有可播放的帧".into());
-    }
-    Ok(if frames == 1 { 1000 } else { total })
+    pet_walk::validate_gif_budget_and_duration(bytes)
 }
 
 /// 前端按一轮动画的时长决定何时回到待机，避免固定 3 秒把长动作截断。
 #[tauri::command]
-pub(crate) fn pet_animation_duration(
-    state: State<'_, AppState>,
+pub(crate) async fn pet_animation_duration(
+    app: AppHandle,
     id: String,
     entry: String,
 ) -> Result<u64, String> {
-    let (entry_name, bytes) = read_raw_animation(&state, &id, Some(&entry))?;
-    if is_pet_webm(&entry_name) {
-        return Err("WebM 时长由前端读取视频元数据".into());
-    }
-    gif_duration_ms(&bytes)
+    on_worker(app, move |_app, state| {
+        find_asset(state, &id)?;
+        let cache_key = (id.clone(), entry.clone());
+        let cache = PET_DURATION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Some(duration) = cache.lock().get(&cache_key).copied() {
+            return Ok(duration);
+        }
+        let (entry_name, bytes) = read_raw_animation(state, &id, Some(&entry))?;
+        if is_pet_webm(&entry_name) {
+            return Err("WebM 时长由前端读取视频元数据".into());
+        }
+        let duration = gif_duration_ms(&bytes)?;
+        let mut guard = cache.lock();
+        if guard.len() >= 256 {
+            guard.clear();
+        }
+        guard.insert(cache_key, duration);
+        Ok(duration)
+    })
+    .await
 }
 
 /// 拖动桌宠时播的走路动作（媒体协议用）。横穿画布的改成原地走（见 pet_walk），

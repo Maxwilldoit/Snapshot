@@ -41,6 +41,9 @@ export type Scene = {
   image: CanvasImageSource;
   width: number;
   height: number;
+  /** 取景框左上角在原图里的位置：连续裁剪后画布只显示这一块，标注仍用原图坐标 */
+  offsetX?: number;
+  offsetY?: number;
   shapes: Shape[];
   /** 截图的像素密度：标注的粗细、字号按逻辑点换算到原图像素 */
   ratio: number;
@@ -117,15 +120,17 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, { type: 
 function drawMosaic(ctx: CanvasRenderingContext2D, box: Rect, block: number, scene: Scene, alpha: number, mask?: (layer: CanvasRenderingContext2D) => void) {
   // 按形状裁的（椭圆、笔迹）把格子对齐到整张图：边画边长时，已经打好的格子不会跟着跳
   const grid = mask ? block : 1;
-  const x = Math.max(0, Math.floor(box.x / grid) * grid);
-  const y = Math.max(0, Math.floor(box.y / grid) * grid);
-  const right = Math.min(scene.width, Math.ceil((box.x + box.w) / grid) * grid);
-  const bottom = Math.min(scene.height, Math.ceil((box.y + box.h) / grid) * grid);
+  const offsetX = scene.offsetX ?? 0;
+  const offsetY = scene.offsetY ?? 0;
+  const x = Math.max(offsetX, Math.floor(box.x / grid) * grid);
+  const y = Math.max(offsetY, Math.floor(box.y / grid) * grid);
+  const right = Math.min(offsetX + scene.width, Math.ceil((box.x + box.w) / grid) * grid);
+  const bottom = Math.min(offsetY + scene.height, Math.ceil((box.y + box.h) / grid) * grid);
   if (right - x < 1 || bottom - y < 1) return;
-  const region = ctx.getImageData(x, y, right - x, bottom - y);
+  const region = ctx.getImageData(x - offsetX, y - offsetY, right - x, bottom - y);
   pixelate(region.data, region.width, region.height, block);
   if (!mask && (alpha >= 1 || typeof document === "undefined")) {
-    ctx.putImageData(region, x, y);
+    ctx.putImageData(region, x - offsetX, y - offsetY);
     return;
   }
   // putImageData 不认透明度也不认形状：放到小画布上裁好形状，再按透明度贴回来
@@ -138,12 +143,12 @@ function drawMosaic(ctx: CanvasRenderingContext2D, box: Rect, block: number, sce
   layerCtx.putImageData(region, 0, 0);
   if (mask) {
     layerCtx.save();
-    layerCtx.translate(-x, -y);
+    layerCtx.translate(offsetX - x, offsetY - y);
     layerCtx.globalCompositeOperation = "destination-in";
     mask(layerCtx);
     layerCtx.restore();
   }
-  ctx.drawImage(layer, x, y);
+  ctx.drawImage(layer, x - offsetX, y - offsetY);
 }
 
 function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, scene: Scene, alpha = 1, scale = 1) {
@@ -286,9 +291,13 @@ function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape, scene: Scene
 
 /** 画一帧：原图 + 按顺序的所有标注（+ 屏幕上才有的选中框） */
 export function renderScene(ctx: CanvasRenderingContext2D, scene: Scene) {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, scene.width, scene.height);
-  ctx.drawImage(scene.image, 0, 0);
+  const offsetX = scene.offsetX ?? 0;
+  const offsetY = scene.offsetY ?? 0;
+  // 平移到取景框坐标系：标注、选中框都用原图坐标，马赛克读写像素时自己换算回画布坐标
+  ctx.setTransform(1, 0, 0, 1, -offsetX, -offsetY);
+  ctx.clearRect(offsetX, offsetY, scene.width, scene.height);
+  // 底图也在平移后的坐标系里画：drawImage 的目的地同样受变换影响，写原图坐标才不会二次偏移
+  ctx.drawImage(scene.image, offsetX, offsetY, scene.width, scene.height, offsetX, offsetY, scene.width, scene.height);
   const layers: Array<{ shape: Shape; alpha: number }> = scene.shapes.map((shape) => ({ shape, alpha: scene.alpha?.get(shape.id) ?? 1 }));
   // 淡出的对象插回原来的层级，盖在它上面的马赛克等不会跟着跳
   for (const ghost of [...(scene.ghosts ?? [])].sort((a, b) => a.index - b.index)) {

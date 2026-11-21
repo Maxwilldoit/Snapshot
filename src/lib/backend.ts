@@ -17,6 +17,7 @@ import type {
   Settings,
   ShortcutBinding,
   SnapshotRecord,
+  TrashEntry,
 } from "../types";
 
 export const setInterfaceLanguage = (language: "zh" | "en") =>
@@ -199,6 +200,10 @@ export const listRecordings = () => invoke<RecordingRecord[]>("list_recordings")
 /** 删掉选中的几段录像，返回删完后的列表 */
 export const deleteRecordings = (ids: string[]) => invoke<RecordingRecord[]>("delete_recordings", { ids });
 
+export const listTrash = () => invoke<TrashEntry[]>("list_trash");
+export const restoreTrash = (id: string) => invoke<void>("restore_trash", { id });
+export const purgeTrash = (ids: string[]) => invoke<void>("purge_trash", { ids });
+
 /** 把历史里的一张重新放回剪贴板 */
 export const copySnapshot = (id: string) => invoke<string>("copy_snapshot", { id });
 
@@ -243,7 +248,8 @@ export const listClipboardHistory = () => invoke<ClipboardHistoryEntry[]>("list_
 
 export const deleteClipboardHistory = (ids: string[]) => invoke<ClipboardHistoryEntry[]>("delete_clipboard_history", { ids });
 
-export const copyClipboardHistory = (id: string) => invoke<void>("copy_clipboard_history", { id });
+export const copyClipboardHistory = (id: string) =>
+  invoke<ClipboardHistoryEntry>("copy_clipboard_history", { id });
 
 export const onClipboardHistoryChanged = (callback: () => void) =>
   listen("clipboard-history-changed", () => callback());
@@ -251,6 +257,9 @@ export const onClipboardHistoryChanged = (callback: () => void) =>
 export const onRecordingChanged = (callback: (status: RecordingStatus) => void) =>
   listen<RecordingStatus>("recording-changed", ({ payload }) => callback(payload));
 
-export const onPaletteOpened = (callback: () => void) => listen("palette-opened", () => callback());
+export const onPaletteOpened = (callback: (mode: "capture" | "record" | null) => void) =>
+  listen<"capture" | "record" | null>("palette-opened", ({ payload }) =>
+    callback(payload === "capture" || payload === "record" ? payload : null),
+  );
 
 export const platformCapabilities = () => invoke<PlatformCapabilities>("platform_capabilities");

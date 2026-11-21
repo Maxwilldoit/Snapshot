@@ -1,7 +1,7 @@
-import { useMemo, useRef, type ReactNode } from "react";
+import { useContext, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { usePresence } from "../lib/motion";
-import { errorText, useApp } from "./context";
+import { AppContext, errorText, useApp, type NoticeStore } from "./context";
 import { selectPetAppearance } from "../lib/backend";
 import { WindowControls } from "../components/WindowTitleBar";
 import { usePetImport } from "./usePetImport";
@@ -78,6 +78,7 @@ export function SideNav() {
     { page: "history", label: t("历史") },
     ...(caps?.clipboardHistory?.available ? [{ page: "clipboard" as const, label: t("剪贴板") }] : []),
     { page: "prompts", label: t("Prompt") },
+    { page: "trash", label: t("回收站") },
   ];
   const prefs: NavItem[] = [
     { page: "capture", label: t("截图与录制") },
@@ -156,9 +157,19 @@ export function SideNav() {
   );
 }
 
+const emptyNoticeSubscribe = () => () => {};
+const getNullNotice = () => null;
+
 /** 一句话提示浮在窗口底部正中：普通的自己消失，出错的留着等你关 */
-export function NoticeLine() {
-  const { notice: live, dismissNotice } = useApp();
+export function NoticeLine({ store, onDismiss }: { store?: NoticeStore; onDismiss?: () => void }) {
+  const app = useContext(AppContext);
+  const activeStore = store ?? app?.noticeStore;
+  const externalNotice = useSyncExternalStore(
+    activeStore ? activeStore.subscribe : emptyNoticeSubscribe,
+    activeStore ? activeStore.get : getNullNotice,
+  );
+  const live = activeStore ? externalNotice : (app?.notice ?? null);
+  const dismissNotice = onDismiss ?? app?.dismissNotice ?? (() => {});
   const { t } = useI18n();
   // 到时间或点了关闭：往下沉一点淡出，而不是啪一下没了
   const { item: notice, leaving } = usePresence(live);

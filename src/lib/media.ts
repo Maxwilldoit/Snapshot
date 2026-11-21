@@ -9,13 +9,15 @@ const media = (path: string) => convertFileSrc(path, "media");
 
 export const snapshotUrl = (id: string) => media(`snapshot/${id}`);
 
-/** 180px 高的缩略图，列表用它；老快照没有时后端现做一张 */
+/** 适配高分屏照片墙的高清缩略图，列表用它；老快照没有时后端现做一张 */
 export const thumbUrl = (id: string) => media(`thumb/${id}`);
+export const trashThumbUrl = (id: string) => media(`trash-thumb/${id}`);
 
 /** 录屏成品；后端支持 Range，`#t=0.1` 让 video 元素停在第一帧当封面 */
 export const recordingUrl = (id: string) => media(`recording/${id}`);
 
-/** 剪贴板历史里存的图片（PNG） */
+/** 剪贴板历史列表用的轻量缩略图（JPEG）；悬停无损预览与放回剪贴板使用原 PNG */
+export const clipboardThumbUrl = (id: string) => media(`clipboard-thumb/${id}`);
 export const clipboardImageUrl = (id: string) => media(`clipboard/${id}`);
 
 /** 不指定动作时由后端取该形象的默认动作 */

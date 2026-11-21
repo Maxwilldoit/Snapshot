@@ -16,6 +16,10 @@ pub(crate) fn supported() -> bool {
     true
 }
 
+pub(crate) fn current_marker() -> Option<String> {
+    autoreleasepool(|_| Some(NSPasteboard::generalPasteboard().changeCount().to_string()))
+}
+
 pub(crate) fn sample(last_marker: &str) -> Option<Sample> {
     // 裸线程没有 CFRunLoop 自动清理池，每轮采样显式包裹 autoreleasepool 释放 AppKit 临时对象。
     autoreleasepool(|_| unsafe { read_sample(last_marker) })

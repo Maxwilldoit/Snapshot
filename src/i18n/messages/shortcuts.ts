@@ -10,6 +10,7 @@ export const shortcutsEnglish: Record<string, string> = {
   "没注册上，这组键已被其他程序占用": "Another app is using this shortcut.",
   "只按了 {rejection}。至少要带上 Ctrl、Alt、Shift 中的一个": "{rejection} alone won’t work. Add Control, Shift, or Alt (Option).",
   "暂停全局快捷键": "Pause Shortcuts",
+  "按快捷键时在桌宠旁选窗口": "Pick a window next to the pet on shortcut",
   "按下快捷键…": "Press keys…",
   "开机时静默启动": "Open quietly at login",
 

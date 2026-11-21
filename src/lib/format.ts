@@ -62,49 +62,53 @@ function startOfDay(timestamp: number): number {
   return date.getTime();
 }
 
+const EN_SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatEnShortDate(date: Date, sameYear: boolean): string {
+  const month = EN_SHORT_MONTHS[date.getMonth()];
+  const day = date.getDate();
+  return sameYear ? `${month} ${day}` : `${month} ${day}, ${date.getFullYear()}`;
+}
+
 /** 实际月日，非本年才带年份；预览使用日历日期，不替换成「今天 / 昨天」。 */
 export function formatCalendarDate(timestamp: number, now = Date.now(), language: Language = getActiveLanguage()): string {
   const date = new Date(timestamp);
   const sameYear = date.getFullYear() === new Date(now).getFullYear();
   if (language === "en") {
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      ...(sameYear ? {} : { year: "numeric" }),
-    });
+    return formatEnShortDate(date, sameYear);
   }
   return `${sameYear ? "" : `${date.getFullYear()}年`}${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
 /** 今天 / 昨天 / 9 月 21 日 / 2025 年 12 月 3 日 */
-function dayLabel(timestamp: number, now = Date.now()): string {
-  const days = Math.round((startOfDay(now) - startOfDay(timestamp)) / 86_400_000);
+function dayLabel(timestamp: number, dayStart: number, nowStart: number, nowYear: number): string {
+  const days = Math.round((nowStart - dayStart) / 86_400_000);
   if (getActiveLanguage() === "en") {
     if (days === 0) return "Today";
     if (days === 1) return "Yesterday";
     const date = new Date(timestamp);
-    const sameYear = date.getFullYear() === new Date(now).getFullYear();
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      ...(sameYear ? {} : { year: "numeric" }),
-    });
+    return formatEnShortDate(date, date.getFullYear() === nowYear);
   }
   if (days === 0) return "今天";
   if (days === 1) return "昨天";
   const date = new Date(timestamp);
-  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  const sameYear = date.getFullYear() === nowYear;
   return `${sameYear ? "" : `${date.getFullYear()} 年 `}${date.getMonth() + 1} 月 ${date.getDate()} 日`;
 }
 
 /** 按天分组，保持原顺序（调用方先按时间倒序排好） */
 export function groupByDay<T>(items: T[], at: (item: T) => number, now = Date.now()) {
   const groups: Array<{ key: string; label: string; items: T[] }> = [];
+  if (items.length === 0) return groups;
+  const nowStart = startOfDay(now);
+  const nowYear = new Date(now).getFullYear();
   for (const item of items) {
-    const key = String(startOfDay(at(item)));
+    const timestamp = at(item);
+    const dayStart = startOfDay(timestamp);
+    const key = String(dayStart);
     const last = groups[groups.length - 1];
     if (last && last.key === key) last.items.push(item);
-    else groups.push({ key, label: dayLabel(at(item), now), items: [item] });
+    else groups.push({ key, label: dayLabel(timestamp, dayStart, nowStart, nowYear), items: [item] });
   }
   return groups;
 }

@@ -93,6 +93,7 @@ fn recording_response(
         Ok((total, span, bytes)) => {
             let builder = Response::builder()
                 .header(header::CONTENT_TYPE, "video/mp4")
+                .header(header::CONTENT_LENGTH, bytes.len().to_string())
                 .header(header::ACCEPT_RANGES, "bytes")
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
                 .header(header::CACHE_CONTROL, "max-age=31536000, immutable");
@@ -133,10 +134,20 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
             immutable: true,
             bytes: snapshots::read_thumbnail(&state, rest)?,
         }),
+        "trash-thumb" => Ok(Media {
+            mime: "image/jpeg",
+            immutable: true,
+            bytes: trash::read_thumbnail(&state, rest)?,
+        }),
         "clipboard" => Ok(Media {
             mime: "image/png",
             immutable: true,
             bytes: clipboard_history::read_image(&state, rest)?,
+        }),
+        "clipboard-thumb" => Ok(Media {
+            mime: "image/jpeg",
+            immutable: true,
+            bytes: clipboard_history::read_thumbnail(&state, rest)?,
         }),
         "pet-thumb" => Ok(Media {
             mime: "image/png",
@@ -148,11 +159,10 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
                 Some((id, entry)) => (id, Some(entry)),
                 None => (rest, None),
             };
-            let bytes = pet::read_animation(&state, id, entry)?;
             let bytes = if kind == "pet-alpha" {
-                pet_alpha::extract(&bytes)?
+                pet::read_alpha_animation(&state, id, entry)?
             } else {
-                bytes
+                pet::read_animation(&state, id, entry)?
             };
             Ok(Media {
                 mime: pet::animation_mime(&bytes),
@@ -189,7 +199,7 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
                 .parse::<u32>()
                 .map_err(|_| "图标尺寸无效".to_string())?
                 .clamp(16, 256);
-            let bytes = os::app_icon_png(pid, size).ok_or("这个进程没有可用的图标")?;
+            let bytes = process_icon_bytes(&state, pid, size).ok_or("这个进程没有可用的图标")?;
             Ok(Media {
                 mime: "image/png",
                 immutable: false,
@@ -230,6 +240,30 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
     }
 }
 
+const MAX_ICON_CACHE_ENTRIES: usize = 256;
+
+/// 按进程 pid 取图标：先解析实时进程的稳定应用标识（bundle id / exe 路径）作缓存键，
+/// 既避免 PID 被系统复用后命中旧进程图标，又避免与 `app-icon` 静态包图标键冲突；缓存容量封顶。
+fn process_icon_bytes(state: &AppState, pid: u32, size: u32) -> Option<Vec<u8>> {
+    if let Some(stable_id) = os::app_stable_id(pid) {
+        let key = format!("pid-icon/{size}/{stable_id}");
+        if let Some(bytes) = state.app_icons.lock().get(&key) {
+            return Some(bytes.clone());
+        }
+        if let Some(bytes) =
+            os::app_icon_png(pid, size).or_else(|| os::app_icon_for_id(&stable_id, size))
+        {
+            let mut cache = state.app_icons.lock();
+            if cache.len() >= MAX_ICON_CACHE_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(key, bytes.clone());
+            return Some(bytes);
+        }
+    }
+    os::app_icon_png(pid, size)
+}
+
 /// 历史角标图标：先查内存缓存，没有再按稳定标识取一次并缓存。
 /// 应用退出后图标不变，进程重启再取一次即可，不落盘——内存缓存最轻。
 fn app_icon_bytes(state: &AppState, kind: &str, id: &str, size: u32) -> Option<Vec<u8>> {
@@ -246,7 +280,11 @@ fn app_icon_bytes(state: &AppState, kind: &str, id: &str, size: u32) -> Option<V
     } else {
         os::app_icon_for_id(id, size)
     }?;
-    state.app_icons.lock().insert(key, bytes.clone());
+    let mut cache = state.app_icons.lock();
+    if cache.len() >= MAX_ICON_CACHE_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(key, bytes.clone());
     Some(bytes)
 }
 

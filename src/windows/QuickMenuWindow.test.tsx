@@ -603,4 +603,29 @@ describe("快捷菜单：窗口列表秒开", () => {
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
     now.mockRestore();
   });
+
+  it("快捷键直开窗口列表模式时直接展示对应窗口列表，Esc 直接收起", async () => {
+    const { calls, user } = await renderPalette((command) => {
+      if (command === "list_capturable_windows") return windowList;
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "run_action") return "ok";
+      return undefined;
+    });
+    const { emit } = await import("@tauri-apps/api/event");
+    await act(async () => {
+      await emit("palette-opened", "capture");
+    });
+    await screen.findByRole("listbox", { name: "选择要截取的窗口" });
+    expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "全屏截图" })).toBeNull();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(calls.some((call) => call.command === "hide_quick_menu")).toBe(true));
+
+    await act(async () => {
+      await emit("palette-opened", "record");
+    });
+    await screen.findByRole("listbox", { name: "选择要录制的窗口" });
+    expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
+  });
 });

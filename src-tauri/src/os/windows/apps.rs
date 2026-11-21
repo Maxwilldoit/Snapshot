@@ -503,8 +503,8 @@ fn shortcut_aumid(link: &Path) -> Option<String> {
 
 /// 快捷方式的真实目标。走 IShellLink 解析，和资源管理器同一条路径：
 /// 命令行、事件查看器这类快捷键没有 LinkInfo，光解析文件格式会漏掉。
+/// 调用方（`installed_apps`）已初始化当前线程的 COM 公寓，无需对每个 `.lnk` 重复进出。
 fn shortcut_target(link: &Path) -> Option<(String, String)> {
-    let _com = ComApartment::enter();
     unsafe {
         let shell_link: IShellLinkW =
             CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
@@ -735,6 +735,7 @@ mod tests {
     /// 同一份名单里不该出现同一个可执行文件两次（Tailscale 有两个快捷方式）。
     #[test]
     fn no_target_appears_twice() {
+        let _com = ComApartment::enter();
         let apps = installed_apps();
         let mut targets = HashSet::new();
         for app in &apps {

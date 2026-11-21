@@ -54,6 +54,7 @@ export function QuickMenuWindow() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [caps, setCaps] = useState<PlatformCapabilities | null>(null);
   const [view, setView] = useState<View>("menu");
+  const [directPicker, setDirectPicker] = useState(false);
   const [cursor, setCursor] = useState(0);
   const [pickerMode, setPickerMode] = useState<"capture" | "record">("capture");
   const [windows, setWindows] = useState<CapturableWindow[] | null>(null);
@@ -80,6 +81,7 @@ export function QuickMenuWindow() {
   const windowListRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<number | null>(null);
   const pickerToken = useRef(0);
+  const openPickerRef = useRef<(mode: "capture" | "record", force?: boolean) => Promise<void>>(async () => {});
   const lastQuickMenuSize = useRef<{ width: number; height: number } | null>(null);
 
   const refresh = useCallback(() => {
@@ -91,10 +93,11 @@ export function QuickMenuWindow() {
       .catch(() => {});
   }, []);
 
-  const reset = useCallback(() => {
+  const reset = useCallback((initialView: View = "menu", direct = false) => {
     if (hideTimer.current !== null) window.clearTimeout(hideTimer.current);
     runToken.current += 1;
-    setView("menu");
+    setView(initialView);
+    setDirectPicker(direct);
     setCursor(0);
     setStatus(null);
     setWindows(null);
@@ -112,8 +115,14 @@ export function QuickMenuWindow() {
 
   useEffect(() => {
     refresh();
-    const opened = onPaletteOpened(() => {
-      reset();
+    const opened = onPaletteOpened((mode) => {
+      if (mode === "capture" || mode === "record") {
+        reset("windows", true);
+        refresh();
+        void openPickerRef.current(mode);
+        return;
+      }
+      reset("menu", false);
       refresh();
       // 菜单一出来就提前读窗口列表，选「快照」「录制」时多半已经读好了
       prefetchWindows();
@@ -221,6 +230,7 @@ export function QuickMenuWindow() {
     }
     rootRef.current?.focus();
   }
+  openPickerRef.current = openPicker;
 
   async function authorizeCapture() {
     const token = ++pickerToken.current;
@@ -241,6 +251,10 @@ export function QuickMenuWindow() {
   function leavePicker() {
     pickerToken.current += 1;
     setPickerLoading(false);
+    if (directPicker) {
+      void hideQuickMenu();
+      return;
+    }
     setView("menu");
     rootRef.current?.focus();
   }
@@ -276,7 +290,7 @@ export function QuickMenuWindow() {
     try {
       const next = await toggleRecording(item.id);
       setRecording(next);
-      setView("menu");
+      if (!directPicker) setView("menu");
       const message = next.message?.trim();
       showStatus({
         kind: "ok",
@@ -566,9 +580,11 @@ export function QuickMenuWindow() {
             <>
               {view === "windows" && (
                 <div className="palette-window-head">
-                  <button type="button" className="palette-back" aria-label={t("返回")} onClick={leavePicker}>
-                    <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
-                  </button>
+                  {!directPicker && (
+                    <button type="button" className="palette-back" aria-label={t("返回")} onClick={leavePicker}>
+                      <svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1L1 6l5 5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
+                    </button>
+                  )}
                   <span className="palette-window-heading">
                     {t(pickerMode === "capture" ? "选择要截取的窗口" : "选择要录制的窗口")}
                   </span>

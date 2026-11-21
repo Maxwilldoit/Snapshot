@@ -14,6 +14,11 @@ pub(crate) fn supported() -> bool {
     super::session::x11_display().is_some()
 }
 
+/// Linux X11 无全局变更计数；写回剪贴板后依赖表头哈希跳过重复采集，无需额外读取剪贴板。
+pub(crate) fn current_marker() -> Option<String> {
+    None
+}
+
 fn contains_secret_mime(list: &str) -> bool {
     list.lines().any(|line| {
         let mime = line.trim();

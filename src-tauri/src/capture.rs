@@ -266,56 +266,26 @@ pub(crate) fn finalize_capture(
     }
 }
 
-fn save_image_as_dialog(
-    app: &AppHandle,
-    image: &RgbaImage,
-    format_setting: &str,
-) -> Result<bool, String> {
-    use tauri_plugin_dialog::DialogExt;
-    let (format, ext) = snapshots::snapshot_format_parts(format_setting);
-    let suggested = format!("snapshot-{}.{}", Local::now().format("%Y%m%d-%H%M%S"), ext);
-    #[allow(unused_mut)]
-    let mut dialog = app
-        .dialog()
-        .file()
-        .set_file_name(&suggested)
-        .add_filter("Image", &[ext, "png", "jpg", "webp"]);
-    // Linux：标注窗口是置顶的，不挂父窗口的话 GTK 保存对话框会被压在它下面
-    #[cfg(target_os = "linux")]
-    if let Some(window) = app.get_webview_window("annotate") {
-        dialog = dialog.set_parent(&window);
-    }
-    let picked = dialog.blocking_save_file();
-    let Some(file_path) = picked else {
-        return Ok(false); // 用户取消另存，保留标注画布。
-    };
-    let path = file_path.into_path().map_err(|error| error.to_string())?;
-    // 用户在对话框里改了扩展名就按扩展名存；认不出或不支持的扩展名才回退偏好格式
-    let format = ImageFormat::from_path(&path)
-        .ok()
-        .filter(|guessed| {
-            matches!(
-                guessed,
-                ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP
-            )
-        })
-        .unwrap_or(format);
-    snapshots::write_image(image, &path, format).map_err(|error| format!("另存为失败：{error}"))?;
-    Ok(true)
+pub(crate) struct AnnotateSession {
+    id: u64,
+    png: Vec<u8>,
+    source: snapshots::SnapshotSource,
 }
 
 pub(crate) fn open_annotate_window(
     app: &AppHandle,
     state: &AppState,
     image: &RgbaImage,
-    title: &str,
-    app_id: Option<String>,
+    source: snapshots::SnapshotSource,
 ) -> Result<(), String> {
     let png = encode_png(image)?;
-    *state.annotate_png.lock() = Some(png);
-    *state.annotate_title.lock() = title.to_string();
-    // 标注副本存进历史时沿用来源应用的稳定标识，角标才跟原图一致
-    *state.annotate_app_id.lock() = app_id;
+    static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+    let title = source.record.app_name.clone();
+    *state.annotate_session.lock() = Some(AnnotateSession {
+        id: SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        png,
+        source,
+    });
     let window = app
         .get_webview_window("annotate")
         .ok_or_else(|| "标注窗口不存在".to_string())?;
@@ -394,18 +364,46 @@ fn annotate_window_logical_size(
 
 #[tauri::command]
 pub(crate) fn get_annotate_image(state: State<'_, AppState>) -> Result<Option<String>, String> {
-    let Some(png) = state.annotate_png.lock().clone() else {
-        return Ok(None);
-    };
-    Ok(Some(format!(
-        "data:image/png;base64,{}",
-        BASE64.encode(png)
-    )))
+    Ok(state
+        .annotate_session
+        .lock()
+        .as_ref()
+        .map(annotate_data_url))
 }
 
 #[tauri::command]
 pub(crate) fn annotate_get_title(state: State<'_, AppState>) -> String {
-    state.annotate_title.lock().clone()
+    state
+        .annotate_session
+        .lock()
+        .as_ref()
+        .map(|session| session.source.record.app_name.clone())
+        .unwrap_or_default()
+}
+
+fn annotate_data_url(session: &AnnotateSession) -> String {
+    format!("data:image/png;base64,{}", BASE64.encode(&session.png))
+}
+
+#[tauri::command]
+pub(crate) fn get_annotate_session(state: State<'_, AppState>) -> Option<Value> {
+    state.annotate_session.lock().as_ref().map(|session| {
+        json!({
+            "id": session.id,
+            "title": session.source.record.app_name,
+            "imageData": annotate_data_url(session),
+        })
+    })
+}
+
+fn active_session(
+    session: &Option<AnnotateSession>,
+    session_id: Option<u64>,
+) -> Result<&AnnotateSession, String> {
+    session
+        .as_ref()
+        .filter(|session| session_id.is_none_or(|id| id == session.id))
+        .ok_or_else(|| "待标注的截图已更换，请重新打开标注".into())
 }
 
 fn decode_png_base64(data: &str) -> Result<RgbaImage, String> {
@@ -421,109 +419,55 @@ fn decode_png_base64(data: &str) -> Result<RgbaImage, String> {
         .map_err(|error| format!("标注图解析失败：{error}"))
 }
 
-/// 标注图存进历史时的名字：「来源 · 标注」，跟着界面语言走。复制顺带存的和「存入截图记录」用同一个。
-fn markup_title(state: &AppState) -> String {
-    let source = state.annotate_title.lock().clone();
-    format!("{source} · {}", ui_text("标注", "Markup"))
-}
-
-#[tauri::command]
-pub(crate) async fn annotate_copy(app: AppHandle, image_data: String) -> Result<String, String> {
-    on_worker(app, move |app, state| {
-        annotate_copy_now(app, state, image_data)
-    })
-    .await
-}
-
-fn annotate_copy_now(
+fn keep_markup(
     app: &AppHandle,
     state: &AppState,
-    image_data: String,
+    session: &AnnotateSession,
+    image: &RgbaImage,
+    changed: Option<bool>,
 ) -> Result<String, String> {
-    let image = decode_png_base64(&image_data)?;
-    // 存历史失败不拦着复制，但要说出来：不然用户以为历史里有这张
-    let title = markup_title(state);
-    let app_id = state.annotate_app_id.lock().clone();
-    let archived = snapshots::store_snapshot(state, &image, &title, app_id);
-    let archive_error = match &archived {
-        Err(error) => {
-            activity::record_error(
-                app,
-                ui_text("保存到历史记录失败", "Couldn’t save to History"),
-                error,
-            );
-            Some(error.clone())
-        }
-        Ok(_) => None,
-    };
-    let snapshot_id = archived.as_ref().ok().map(|record| record.id.clone());
-    if snapshot_id.is_some() {
-        let _ = app.emit("snapshots-changed", ());
+    if changed == Some(false) {
+        return Ok(session.source.record.id.clone());
     }
-    activity::record(
-        app,
-        activity::Activity::new("capture", ui_text("标注图", "Marked-up image"))
-            .meta(format!("{} × {}", image.width(), image.height()))
-            .snapshot(snapshot_id.clone()),
-    );
-    clipboard::copy_image(image)?;
-    // 窗口由前端在按钮打勾、提示停留片刻后收起（annotate_close），这里不立刻隐藏
-    if let Some(error) = archive_error {
-        return Ok(format!("已复制，但没能存进历史记录：{error}"));
-    }
-    if interface_is_english() {
-        return Ok("Copied.".into());
-    }
-    Ok("已复制标注图".into())
+    let edited = snapshots::replace_snapshot(state, &session.source, image)?;
+    let _ = app.emit("snapshots-changed", ());
+    Ok(edited.id)
 }
 
-/// 另存为。返回 `None` 表示用户在对话框里取消了：标注保留、窗口不收起。
-/// 必须是 async：同步命令跑在主线程，Linux 上 `blocking_save_file` 会等主线程弹 GTK 对话框而卡死。
-#[tauri::command]
-pub(crate) async fn annotate_save(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    image_data: String,
-) -> Result<Option<String>, String> {
-    let image = decode_png_base64(&image_data)?;
-    let format = state.settings.lock().snapshot_format.clone();
-    if !save_image_as_dialog(&app, &image, &format)? {
-        return Ok(None);
-    }
-    Ok(Some(ui_text("已保存标注图", "Image saved.").into()))
-}
-
+/// 标注窗口唯一的出口：编辑版存入历史并替换原图（原图移入回收站）。
 #[tauri::command]
 pub(crate) async fn annotate_save_copy(
     app: AppHandle,
     image_data: String,
+    session_id: Option<u64>,
+    changed: Option<bool>,
 ) -> Result<String, String> {
     on_worker(app, move |app, state| {
-        annotate_save_copy_now(app, state, image_data)
+        let image = decode_png_base64(&image_data)?;
+        let current = state.annotate_session.lock();
+        keep_markup(
+            app,
+            state,
+            active_session(&current, session_id)?,
+            &image,
+            changed,
+        )?;
+        Ok(ui_text("已存入历史记录", "Saved to History").into())
     })
     .await
 }
 
-fn annotate_save_copy_now(
-    app: &AppHandle,
-    state: &AppState,
-    image_data: String,
-) -> Result<String, String> {
-    let image = decode_png_base64(&image_data)?;
-    let title = markup_title(state);
-    let app_id = state.annotate_app_id.lock().clone();
-    snapshots::store_snapshot(state, &image, &title, app_id)?;
-    let _ = app.emit("snapshots-changed", ());
-    Ok(ui_text("标注副本已保存到历史记录", "Saved a copy to History.").into())
-}
-
 #[tauri::command]
-pub(crate) fn annotate_close(app: AppHandle, state: State<'_, AppState>) {
-    hide_annotate_window(&app, &state);
+pub(crate) fn annotate_close(app: AppHandle, state: State<'_, AppState>, session_id: Option<u64>) {
+    hide_annotate_window(&app, &state, session_id);
 }
 
-fn hide_annotate_window(app: &AppHandle, state: &AppState) {
-    *state.annotate_png.lock() = None;
+fn hide_annotate_window(app: &AppHandle, state: &AppState, session_id: Option<u64>) {
+    let mut current = state.annotate_session.lock();
+    if session_id.is_some() && active_session(&current, session_id).is_err() {
+        return;
+    }
+    *current = None;
     if let Some(window) = app.get_webview_window("annotate") {
         let _ = window.hide();
     }
@@ -532,7 +476,7 @@ fn hide_annotate_window(app: &AppHandle, state: &AppState) {
 /// 标题栏的关闭键只隐藏标注窗；窗口本身留给下一次截图或历史预览复用。
 pub(crate) fn conceal_annotate_window(app: &AppHandle) {
     if let Some(state) = app.try_state::<AppState>() {
-        hide_annotate_window(app, &state);
+        hide_annotate_window(app, &state, None);
     }
 }
 

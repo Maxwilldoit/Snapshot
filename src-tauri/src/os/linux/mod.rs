@@ -22,7 +22,10 @@ use std::{path::Path, process::Command};
 
 pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
 pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
-pub(crate) use clipboard::{sample as clipboard_sample, supported as clipboard_history_supported};
+pub(crate) use clipboard::{
+    current_marker as clipboard_marker, sample as clipboard_sample,
+    supported as clipboard_history_supported,
+};
 pub(crate) use scrolling::capture_scrolling_window;
 pub(crate) use window::restore_minimized;
 
@@ -41,9 +44,8 @@ pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[
 pub(crate) struct Recording(recording::ActiveRecording);
 
 impl Recording {
-    /// ffmpeg 中途退出目前不单独检测，停止时一并收尾
     pub(crate) fn exit_reason(&mut self) -> Option<String> {
-        None
+        self.0.exit_reason()
     }
 
     pub(crate) fn stop(self) -> Result<(), String> {

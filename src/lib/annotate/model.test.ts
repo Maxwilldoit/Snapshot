@@ -5,6 +5,8 @@ import {
   SIZE_MAX,
   SIZE_MIN,
   clampSize,
+  commitCrop,
+  cropBounds,
   fontSize,
   handleAt,
   highlightWidth,
@@ -45,6 +47,18 @@ describe("标注对象", () => {
     expect(snapped.y).toBeCloseTo(0);
     const diagonal = snapAngle({ x: 0, y: 0 }, { x: 50, y: 45 });
     expect(diagonal.x).toBeCloseTo(diagonal.y);
+  });
+
+  it("连续裁剪：选区换算回原图坐标，取景框只收紧不越界", () => {
+    const full = { x: 0, y: 0, width: 200, height: 100 };
+    const first = commitCrop(full, cropBounds({ x: 30, y: 16 }, { x: 130, y: 76 }, 200, 100));
+    expect(first).toEqual({ x: 30, y: 16, width: 100, height: 60 });
+    // 第二刀的坐标是相对第一个取景框的：叠回去仍在原图坐标里
+    const second = commitCrop(first, cropBounds({ x: 20, y: 20 }, { x: 80, y: 50 }, 100, 60));
+    expect(second).toEqual({ x: 50, y: 36, width: 60, height: 30 });
+    // 拖出边界也收在取景框内；再小也保留 1px
+    expect(commitCrop(first, { x: -10, y: -10, w: 500, h: 500 })).toEqual(first);
+    expect(commitCrop(first, { x: 99.4, y: 59.4, w: 0.2, h: 0.2 })).toEqual({ x: 129, y: 75, width: 1, height: 1 });
   });
 
   it("空心矩形只认边线，里面留给继续画；箭头认线段附近", () => {

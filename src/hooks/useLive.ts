@@ -23,7 +23,10 @@ export function useActivityLog() {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   useEffect(() => {
     listActivity()
-      .then((list) => setEntries(Array.isArray(list) ? list : []))
+      .then((list) => {
+        const next = Array.isArray(list) ? list : [];
+        setEntries((current) => (current.length === 0 && next.length === 0 ? current : next));
+      })
       .catch(() => {});
   }, []);
   useTauriListener(() =>
@@ -34,14 +37,31 @@ export function useActivityLog() {
 
 const idle: RecordingStatus = { active: false, target: null, startedAt: null };
 
+function sameRecordingStatus(left: RecordingStatus, right: RecordingStatus): boolean {
+  return (
+    left.active === right.active &&
+    left.target === right.target &&
+    left.startedAt === right.startedAt &&
+    left.message === right.message
+  );
+}
+
 export function useRecordingStatus() {
   const [status, setStatus] = useState<RecordingStatus>(idle);
   useEffect(() => {
     getRecordingStatus()
-      .then((value) => setStatus(value ?? idle))
+      .then((value) => {
+        const next = value ?? idle;
+        setStatus((current) => (sameRecordingStatus(current, next) ? current : next));
+      })
       .catch(() => {});
   }, []);
-  useTauriListener(() => onRecordingChanged((value) => setStatus(value ?? idle)));
+  useTauriListener(() =>
+    onRecordingChanged((value) => {
+      const next = value ?? idle;
+      setStatus((current) => (sameRecordingStatus(current, next) ? current : next));
+    }),
+  );
   return status;
 }
 
