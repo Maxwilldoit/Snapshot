@@ -515,7 +515,7 @@ export function installPreviewBackend() {
         if (entry?.kind === "snapshot") return demoSnapshotImage(entry.record);
       }
       if (kind === "recording" && demoVideos[id]) return demoVideos[id];
-      if (kind === "clipboard") {
+      if (kind === "clipboard" || kind === "clipboard-thumb") {
         const entry = clipboardHistory.find((item) => item.id === id);
         if (entry) return demoSnapshotImage({ id: entry.id, appName: "Clipboard", width: entry.width, height: entry.height } as never);
       }

@@ -15,6 +15,10 @@ const MAX_ENTRIES: usize = 500;
 const MAX_TEXT_CHARS: usize = 100_000;
 /// 单张图片像素上限（宽 × 高），约 8K 截图；解码前先按文件头尺寸拦截，避免占满内存。
 const MAX_IMAGE_PIXELS: u64 = 40_000_000;
+/// 剪贴板列表缩略图尺寸上限（列表显示 max 200×64 CSS，按 2× Retina 留足清晰度）
+const CLIP_THUMB_MAX_WIDTH: u32 = 420;
+const CLIP_THUMB_MAX_HEIGHT: u32 = 144;
+const CLIP_THUMB_JPEG_QUALITY: u8 = 88;
 const POLL_INTERVAL: Duration = Duration::from_millis(1000);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -103,7 +107,7 @@ impl ClipboardHistory {
         width: u32,
         height: u32,
         hash: String,
-        png: Option<&[u8]>,
+        image: Option<(&[u8], Option<&[u8]>)>,
     ) -> Result<ClipboardHistoryEntry, String> {
         self.counter += 1;
         let created_at = now_millis();
@@ -116,10 +120,13 @@ impl ClipboardHistory {
             height,
             hash,
         };
-        if let Some(bytes) = png {
+        if let Some((bytes, thumb)) = image {
             fs::create_dir_all(&self.dir).map_err(|error| error.to_string())?;
             fs::write(self.dir.join(format!("{}.png", entry.id)), bytes)
                 .map_err(|error| error.to_string())?;
+            if let Some(thumb_bytes) = thumb {
+                let _ = fs::write(thumb_path(&self.dir, &entry.id), thumb_bytes);
+            }
         }
 
         let mut next = Vec::with_capacity(self.entries.len().min(MAX_ENTRIES) + 1);
@@ -132,8 +139,8 @@ impl ClipboardHistory {
         };
 
         if let Err(error) = write_json_atomic(&self.path, &next) {
-            if png.is_some() {
-                let _ = fs::remove_file(self.dir.join(format!("{}.png", entry.id)));
+            if image.is_some() {
+                remove_image_files(&self.dir, &entry.id);
             }
             return Err(error);
         }
@@ -141,7 +148,7 @@ impl ClipboardHistory {
         self.entries = next;
         for old in evicted {
             if old.kind == "image" {
-                let _ = fs::remove_file(self.dir.join(format!("{}.png", old.id)));
+                remove_image_files(&self.dir, &old.id);
             }
         }
         Ok(entry)
@@ -161,11 +168,57 @@ impl ClipboardHistory {
         self.entries = kept;
         for item in &removed {
             if item.kind == "image" {
-                let _ = fs::remove_file(self.dir.join(format!("{}.png", item.id)));
+                remove_image_files(&self.dir, &item.id);
             }
         }
         Ok(())
     }
+}
+
+fn thumb_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.thumb.jpg"))
+}
+
+fn remove_image_files(dir: &Path, id: &str) {
+    let _ = fs::remove_file(dir.join(format!("{id}.png")));
+    let _ = fs::remove_file(thumb_path(dir, id));
+}
+
+fn clipboard_thumb_size(width: u32, height: u32) -> (u32, u32) {
+    let width = width.max(1);
+    let height = height.max(1);
+    if width <= CLIP_THUMB_MAX_WIDTH && height <= CLIP_THUMB_MAX_HEIGHT {
+        return (width, height);
+    }
+    let scale = (CLIP_THUMB_MAX_WIDTH as f64 / width as f64)
+        .min(CLIP_THUMB_MAX_HEIGHT as f64 / height as f64);
+    (
+        ((width as f64 * scale).round() as u32).max(1),
+        ((height as f64 * scale).round() as u32).max(1),
+    )
+}
+
+/// 生成剪贴板列表专用轻量缩略图：透明像素压到白底避免黑块，再以 JPEG 编码。
+fn encode_thumbnail(image: &RgbaImage) -> Result<Vec<u8>, String> {
+    let (tw, th) = clipboard_thumb_size(image.width(), image.height());
+    let resized = image::imageops::thumbnail(image, tw, th);
+    let rgb = image::RgbImage::from_fn(tw, th, |x, y| {
+        let [r, g, b, a] = resized.get_pixel(x, y).0;
+        let alpha = u16::from(a);
+        let inv = 255 - alpha;
+        image::Rgb([
+            ((u16::from(r) * alpha + 255 * inv) / 255) as u8,
+            ((u16::from(g) * alpha + 255 * inv) / 255) as u8,
+            ((u16::from(b) * alpha + 255 * inv) / 255) as u8,
+        ])
+    });
+    let mut bytes = Vec::new();
+    let mut encoder =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, CLIP_THUMB_JPEG_QUALITY);
+    encoder
+        .encode_image(&rgb)
+        .map_err(|error| error.to_string())?;
+    Ok(bytes)
 }
 
 pub(crate) fn hash_bytes(bytes: &[u8]) -> String {
@@ -270,7 +323,7 @@ fn capture_sample(
     }
 
     if let Some(raw_image) = sample.image.as_ref() {
-        // 解码与 PNG 压缩全部放在互斥锁之外，避免阻塞主线程列表读取与 media:// 图片加载。
+        // 解码与 PNG/缩略图压缩全部放在互斥锁之外，避免阻塞主线程列表读取与 media:// 图片加载。
         let Some(rgba) = decode_bounded_image(raw_image) else {
             return Ok(None);
         };
@@ -286,6 +339,7 @@ fn capture_sample(
             }
         }
         let png = crate::capture::encode_png(&rgba)?;
+        let thumb = encode_thumbnail(&rgba).ok();
         let mut history = state.clipboard_history.lock();
         if history.is_head_hash(&hash) {
             return Ok(None);
@@ -294,7 +348,14 @@ fn capture_sample(
             return Ok(Some(promoted));
         }
         return history
-            .push("image", String::new(), width, height, hash, Some(&png))
+            .push(
+                "image",
+                String::new(),
+                width,
+                height,
+                hash,
+                Some((&png, thumb.as_deref())),
+            )
             .map(Some);
     }
 
@@ -364,6 +425,32 @@ pub(crate) fn read_image(state: &AppState, id: &str) -> Result<Vec<u8>, String> 
         history.dir.join(format!("{}.png", entry.id))
     };
     fs::read(path).map_err(|_| "记录的图片文件已丢失".to_string())
+}
+
+/// media:// 协议取剪贴板列表缩略图：命中磁盘缓存直接返回；旧记录缺缩略图时按原图现做并落盘缓存。
+pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
+    let (thumb, original) = {
+        let history = state.clipboard_history.lock();
+        let entry = history
+            .entries
+            .iter()
+            .find(|item| item.id == id && item.kind == "image")
+            .ok_or("记录不存在")?;
+        (
+            thumb_path(&history.dir, &entry.id),
+            history.dir.join(format!("{}.png", entry.id)),
+        )
+    };
+    if let Ok(bytes) = fs::read(&thumb) {
+        return Ok(bytes);
+    }
+    let bytes = fs::read(&original).map_err(|_| "记录的图片文件已丢失".to_string())?;
+    let image = image::load_from_memory(&bytes)
+        .map_err(|error| format!("无法读取记录的图片：{error}"))?
+        .to_rgba8();
+    let encoded = encode_thumbnail(&image)?;
+    let _ = fs::write(&thumb, &encoded);
+    Ok(encoded)
 }
 
 #[cfg(test)]
@@ -456,6 +543,7 @@ mod tests {
         let mut history = dir.history();
         let img = RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255]));
         let png = crate::capture::encode_png(&img).unwrap();
+        let thumb = encode_thumbnail(&img).unwrap();
         let image_entry = history
             .push(
                 "image",
@@ -463,18 +551,21 @@ mod tests {
                 2,
                 2,
                 hash_rgba(2, 2, img.as_raw()),
-                Some(&png),
+                Some((&png, Some(&thumb))),
             )
             .unwrap();
         let text_entry = history
             .push("text", "keep".into(), 0, 0, hash_bytes(b"keep"), None)
             .unwrap();
         let image_path = history.dir.join(format!("{}.png", image_entry.id));
+        let thumb_file = thumb_path(&history.dir, &image_entry.id);
         assert!(image_path.exists());
+        assert!(thumb_file.exists());
         history
             .remove(std::slice::from_ref(&image_entry.id))
             .unwrap();
         assert!(!image_path.exists());
+        assert!(!thumb_file.exists());
         assert_eq!(history.entries.len(), 1);
         assert_eq!(history.entries[0].id, text_entry.id);
     }
@@ -492,7 +583,7 @@ mod tests {
                 2,
                 2,
                 hash_rgba(2, 2, img.as_raw()),
-                Some(&png),
+                Some((&png, None)),
             )
             .unwrap();
         let image_path = history.dir.join(format!("{}.png", image_entry.id));
@@ -531,6 +622,18 @@ mod tests {
             format!("entry-{}", MAX_ENTRIES + 2)
         );
         assert!(!history.entries.iter().any(|item| item.text == "entry-0"));
+    }
+
+    #[test]
+    fn clipboard_thumbnails_bound_dimensions_and_encode_valid_jpeg() {
+        assert_eq!(clipboard_thumb_size(2560, 1440), (256, 144));
+        assert_eq!(clipboard_thumb_size(2400, 300), (420, 53));
+        assert_eq!(clipboard_thumb_size(100, 80), (100, 80));
+
+        let sample = RgbaImage::from_pixel(320, 200, image::Rgba([20, 120, 210, 128]));
+        let bytes = encode_thumbnail(&sample).unwrap();
+        let decoded = image::load_from_memory_with_format(&bytes, ImageFormat::Jpeg).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (230, 144));
     }
 
     #[test]

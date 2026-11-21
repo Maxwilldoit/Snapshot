@@ -143,6 +143,11 @@ fn serve(app: &AppHandle, path: &str) -> Result<Media, String> {
             immutable: true,
             bytes: clipboard_history::read_image(&state, rest)?,
         }),
+        "clipboard-thumb" => Ok(Media {
+            mime: "image/jpeg",
+            immutable: true,
+            bytes: clipboard_history::read_thumbnail(&state, rest)?,
+        }),
         "pet-thumb" => Ok(Media {
             mime: "image/png",
             immutable: false,

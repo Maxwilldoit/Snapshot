@@ -216,7 +216,7 @@ html[data-surface="app"] .history-page .mw-empty-line { margin-top: 80px; }
 html[data-surface="app"] .trash-list { list-style: none; margin: 0; padding: 8px 20px 24px; }
 html[data-surface="app"] .trash-row {
   display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 0; border-bottom: 1px solid var(--sep);
-  contain: layout style paint; content-visibility: auto; contain-intrinsic-size: auto 63px;
+  contain: layout style;
 }
 html[data-surface="app"] .trash-thumb {
   position: relative; flex: 0 0 66px; height: 42px; display: grid; place-items: center;
@@ -371,19 +371,23 @@ html[data-surface="app"] .mw-empty-line { margin: 28px 24px 0; color: var(--text
 
 /* ---------- Prompt 记录 ---------- */
 
+html[data-surface="app"] .clipboard-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
+html[data-surface="app"] .clipboard-scroll {
+  flex: 1 1 auto; min-width: 0; min-height: 0; scrollbar-width: none;
+}
+html[data-surface="app"] .clipboard-scroll::-webkit-scrollbar { display: none; }
+html[data-surface="app"] .clipboard-page .timeline-scrubber { top: 12px; }
+html[data-surface="app"] .clipboard-page .prompt-groups { padding: 2px 28px 32px 24px; }
+
 html[data-surface="app"] .prompt-groups { padding: 2px 24px 32px; }
 html[data-surface="app"] .clip-entry {
   display: flex; align-items: center; gap: 4px; min-width: 0;
   border-bottom: 0.5px solid var(--sep);
-  contain: layout style paint;
+  contain: layout style;
   animation: rise-in var(--t-open, 320ms) var(--ease-enter, ease-out) both;
   animation-delay: calc(var(--i, 0) * var(--stagger, 24ms));
 }
-html[data-surface="app"] .clip-entry.is-static {
-  animation: none;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 44px;
-}
+html[data-surface="app"] .clip-entry.is-static { animation: none; }
 html[data-surface="app"] .clip-main {
   display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 14px; align-items: center;
   flex: 1 1 auto; min-width: 0; padding: 9px 4px; border: 0; background: none;
@@ -392,8 +396,8 @@ html[data-surface="app"] .clip-main {
 html[data-surface="app"] .clip-main:hover { background: var(--fill); color: var(--text1); }
 html[data-surface="app"] .clip-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 html[data-surface="app"] .clip-thumb {
-  display: block; max-height: 64px; max-width: 200px; width: auto; height: auto;
-  border-radius: 4px; outline: 0.5px solid var(--sep); justify-self: start;
+  display: block; max-height: 64px; max-width: 200px;
+  border-radius: 4px; background: var(--stage); object-fit: contain; outline: 0.5px solid var(--sep); justify-self: start;
 }
 html[data-surface="app"] .clip-delete {
   display: grid; place-items: center; flex: 0 0 auto; width: 26px; height: 26px;
@@ -404,12 +408,8 @@ html[data-surface="app"] .clip-delete svg { width: 14px; height: 14px; }
 html[data-surface="app"] .clip-entry:hover .clip-delete, html[data-surface="app"] .clip-delete:focus-visible { opacity: 1; }
 html[data-surface="app"] .clip-delete:hover { background: var(--fill); color: var(--red); }
 html[data-surface="app"] .prompt-list { display: flex; flex-direction: column; }
-html[data-surface="app"] .mw .prompt-entry { border-bottom: 0.5px solid var(--sep); border-radius: 0; contain: layout style paint; }
-html[data-surface="app"] .mw .prompt-entry.is-static {
-  animation: none;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 66px;
-}
+html[data-surface="app"] .mw .prompt-entry { border-bottom: 0.5px solid var(--sep); border-radius: 0; contain: layout style; }
+html[data-surface="app"] .mw .prompt-entry.is-static { animation: none; }
 html[data-surface="app"] .mw .prompt-entry:last-child { border-bottom-color: var(--sep); }
 html[data-surface="app"] .mw .prompt-summary { grid-template-columns: 52px minmax(0, 1fr) auto; gap: 14px; padding: 12px 4px; cursor: default; }
 html[data-surface="app"] .mw .prompt-summary time { padding-top: 2px; font-size: 11px; color: var(--text3); }
