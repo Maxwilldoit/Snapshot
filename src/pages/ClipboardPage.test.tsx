@@ -43,7 +43,7 @@ const context: AppContextValue = {
   consumePreviewId: () => {},
 };
 
-describe("ClipboardPage performance and timeline scrubber", () => {
+describe("ClipboardPage performance, search, and hover preview", () => {
   it("uses lightweight clipboard thumbnails with explicit dimensions, truncates huge text, and copies on row click", async () => {
     const hugeText = `${"alpha ".repeat(200)}needle-at-end`;
     const entries: ClipboardHistoryEntry[] = [
@@ -71,11 +71,11 @@ describe("ClipboardPage performance and timeline scrubber", () => {
     fireEvent.click(textSpan.closest("button")!);
     await waitFor(() => expect(copied).toHaveBeenCalledWith("clip-long"));
 
-    const scroller = container.querySelector<HTMLElement>(".clipboard-scroll")!;
-    Object.defineProperty(scroller, "scrollHeight", { value: 1400, configurable: true });
-    Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
-    fireEvent(window, new Event("resize"));
-    expect(await screen.findByRole("slider", { name: "时间定位" })).toBeTruthy();
+    // 输入数字日期可定位当天条目（包含图片条目）
+    expect(screen.queryByRole("slider")).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索剪贴板历史" }), { target: { value: "21" } });
+    expect(screen.getByRole("img", { name: "图片 2560 × 1440" })).toBeTruthy();
+    expect(container.querySelector(".clip-text")).toBeNull();
   });
 
   it("defers showing the recopied entry until returning to the page and keeps the original entry", async () => {

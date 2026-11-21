@@ -12,11 +12,11 @@ import {
   openSnapshotsDir,
 } from "../lib/backend";
 import { formatBytes, groupByDay } from "../lib/format";
+import { appIdSearchName, matchesSearchEntry } from "../lib/dateSearch";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
 import { JustifiedGrid } from "../components/JustifiedGrid";
 import { HoverPreview, type HoverPreviewAnchor } from "../components/HoverPreview";
-import { TimelineScrubber } from "../components/TimelineScrubber";
 import { PhotoViewer } from "../components/PhotoViewer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { LoadingState } from "../components/LoadingState";
@@ -61,7 +61,6 @@ export function HistoryPage() {
   const hoveredTargetRef = useRef<{ id: string; node: HTMLElement; pointerX?: number } | null>(null);
   const hoverAnchorRef = useRef<HoverPreviewAnchor | null>(null);
   hoverAnchorRef.current = hoverAnchor;
-  const scrubberActiveRef = useRef(false);
   const scrollingRef = useRef(false);
   const scrollIdleTimerRef = useRef<number | null>(null);
 
@@ -159,9 +158,9 @@ export function HistoryPage() {
     [snapshots, recordings, recordingMeta],
   );
   const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
     const all = items ?? [];
-    return needle ? all.filter((item) => item.appName.toLowerCase().includes(needle)) : all;
+    if (!query.trim()) return all;
+    return all.filter((item) => matchesSearchEntry(item.createdAt, [item.appName, appIdSearchName(item.appId)], query));
   }, [items, query]);
   const groups = useMemo(() => {
     void language;
@@ -222,7 +221,7 @@ export function HistoryPage() {
   }, []);
 
   const handleHoverStart = useCallback((item: MediaItem, node: HTMLElement, pointerX?: number) => {
-    if (selectingRef.current || scrubberActiveRef.current || scrollingRef.current || !node.isConnected) return;
+    if (selectingRef.current || scrollingRef.current || !node.isConnected) return;
     hoveredTargetRef.current = { id: item.id, node, pointerX };
     const rect = node.getBoundingClientRect();
     const latest = filteredRef.current.find((entry) => entry.id === item.id) ?? item;
@@ -396,7 +395,7 @@ export function HistoryPage() {
     </Toolbar>
   ) : (
     <Toolbar title={t("历史")}>
-      <SearchField value={query} onChange={setQuery} label={t("搜索截图")} />
+      <SearchField value={query} onChange={setQuery} label={t("搜索截图")} placeholder={t("搜索应用名或日期")} />
       <button type="button" className="tb-btn" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
         <FolderOpen aria-hidden="true" />
       </button>
@@ -436,7 +435,7 @@ export function HistoryPage() {
     body = (
       <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
         {groups.map((group) => (
-          <section className="day" key={group.key} data-day-key={group.key} aria-label={group.label}>
+          <section className="day" key={group.key} aria-label={group.label}>
             <div className="day-label">
               <h2 className="day-title">{group.label}</h2>
             </div>
@@ -490,16 +489,6 @@ export function HistoryPage() {
         >
           {body}
         </div>
-        {groups.length > 0 && (
-          <TimelineScrubber
-            groups={groups}
-            scrollRef={scrollRef}
-            onInteractChange={(active) => {
-              scrubberActiveRef.current = active;
-              if (active) dismissHoverCold();
-            }}
-          />
-        )}
       </div>
 
       {hoverAnchor && !selecting && !contextMenu && !confirming && !previewId && (

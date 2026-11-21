@@ -287,6 +287,42 @@ describe("history selection under a filter", () => {
     expect(screen.queryByRole("button", { name: "选整组" })).toBeNull();
     expect(screen.queryByRole("button", { name: "取消整组" })).toBeNull();
   });
+
+  it("filters screenshots by numeric date, app name substring, and combined queries", async () => {
+    const dated: SnapshotRecord[] = [
+      { id: "s1", fileName: "1.png", appName: "相册", appId: "com.apple.Photos", width: 800, height: 600, sizeBytes: 100, createdAt: new Date(2026, 10, 21, 10, 0).getTime() },
+      { id: "s2", fileName: "2.png", appName: "访达", appId: "com.apple.finder", width: 800, height: 600, sizeBytes: 100, createdAt: new Date(2026, 10, 21, 12, 0).getTime() },
+      { id: "s3", fileName: "3.png", appName: "相机预览", width: 800, height: 600, sizeBytes: 100, createdAt: new Date(2026, 10, 15, 9, 0).getTime() },
+    ];
+    setupTauriMock((command) => {
+      if (command === "list_snapshots") return structuredClone(dated);
+      if (command === "list_recordings") return [];
+      return undefined;
+    }, { shouldMockEvents: true });
+
+    render(<AppContext.Provider value={context}><HistoryPage /></AppContext.Provider>);
+    await screen.findByRole("button", { name: "标注：相册" });
+    expect(screen.queryByRole("slider")).toBeNull();
+
+    const search = screen.getByRole("textbox", { name: "搜索截图" });
+
+    // 输入应用名关键字「相」→ 匹配「相册」与「相机预览」
+    fireEvent.change(search, { target: { value: "相" } });
+    expect(screen.getByRole("button", { name: "标注：相册" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "标注：相机预览" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "标注：访达" })).toBeNull();
+
+    // 输入数字日期「21」→ 定位 11 月 21 日的快照
+    fireEvent.change(search, { target: { value: "21" } });
+    expect(screen.getByRole("button", { name: "标注：相册" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "标注：访达" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "标注：相机预览" })).toBeNull();
+
+    // 输入组合「相 11-15」→ 精准命中 11 月 15 日的「相机预览」
+    fireEvent.change(search, { target: { value: "相 11-15" } });
+    expect(screen.getByRole("button", { name: "标注：相机预览" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "标注：相册" })).toBeNull();
+  });
 });
 
 describe("history mixes recordings into the timeline", () => {

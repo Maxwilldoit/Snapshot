@@ -4,6 +4,8 @@ export const historyEnglish: Record<string, string> = {
   "复制一段文字或一张图片，稍等片刻就会出现在这里。密码管理器标记的敏感内容不会被记录。": "Copy some text or an image and it will show up here in a moment. Content marked sensitive by password managers is never recorded.",
   "正在读取剪贴板历史…": "Loading clipboard history…",
   "搜索剪贴板历史": "Search clipboard history",
+  "搜索应用名或日期": "Search app or date",
+  "搜索内容或日期": "Search content or date",
   "没有含「{query}」的剪贴板记录。": "No clipboard entries match “{query}”.",
   "放回剪贴板": "Copy back to clipboard",
   "已放回剪贴板": "Copied back to clipboard",
@@ -67,7 +69,6 @@ export const historyEnglish: Record<string, string> = {
   "选择：{label}": "Select {label}",
   "标注：{label}": "Markup {label}",
   "播放：{label}": "Play {label}",
-  "时间定位": "Timeline",
 
   "原文": "Original",
   "润色文": "Enhanced",

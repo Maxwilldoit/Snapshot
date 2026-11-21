@@ -3,12 +3,12 @@ import { Trash2 } from "lucide-react";
 import { copyClipboardHistory, deleteClipboardHistory, listClipboardHistory, onClipboardHistoryChanged } from "../lib/backend";
 import { clipboardThumbUrl } from "../lib/media";
 import { formatClock, groupByDay } from "../lib/format";
+import { matchesSearchEntry } from "../lib/dateSearch";
 import { stagger } from "../lib/motion";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { HoverPreview, type HoverPreviewAnchor } from "../components/HoverPreview";
 import { LoadingState } from "../components/LoadingState";
 import { SearchField } from "../components/SearchField";
-import { TimelineScrubber } from "../components/TimelineScrubber";
 import { Toolbar } from "../app/Shell";
 import { errorText, useApp } from "../app/context";
 import { useI18n } from "../lib/i18n";
@@ -54,7 +54,6 @@ export function ClipboardPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const hoverAnchorRef = useRef<HoverPreviewAnchor | null>(null);
   hoverAnchorRef.current = hoverAnchor;
-  const scrubberActiveRef = useRef(false);
   const scrollingRef = useRef(false);
   const scrollIdleTimerRef = useRef<number | null>(null);
   // 本页内点击「放回剪贴板」生成的新条目暂不在当前视图插入，等离开本页再回来时自然显示。
@@ -92,7 +91,7 @@ export function ClipboardPage() {
   }, [hoverAnchor, confirmClear, dismissHover]);
 
   const handleHoverStart = useCallback((record: ClipboardHistoryEntry, node: HTMLElement, pointerX?: number) => {
-    if (record.kind !== "image" || scrollingRef.current || scrubberActiveRef.current || !node.isConnected) return;
+    if (record.kind !== "image" || scrollingRef.current || !node.isConnected) return;
     const anchorEl = node.querySelector<HTMLElement>(".clip-thumb") ?? node;
     const rect = anchorEl.getBoundingClientRect();
     setHoverAnchor({
@@ -145,9 +144,8 @@ export function ClipboardPage() {
 
   const filtered = useMemo(() => {
     const sorted = [...(records ?? [])].sort((a, b) => b.createdAt - a.createdAt);
-    const needle = query.trim().toLowerCase();
-    if (!needle) return sorted;
-    return sorted.filter((item) => item.kind === "text" && item.text.toLowerCase().includes(needle));
+    if (!query.trim()) return sorted;
+    return sorted.filter((item) => matchesSearchEntry(item.createdAt, item.kind === "text" ? [item.text] : [], query));
   }, [records, query]);
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
 
@@ -183,7 +181,7 @@ export function ClipboardPage() {
 
   const toolbar = (
     <Toolbar title={t("剪贴板")}>
-      <SearchField value={query} onChange={setQuery} label={t("搜索剪贴板历史")} />
+      <SearchField value={query} onChange={setQuery} label={t("搜索剪贴板历史")} placeholder={t("搜索内容或日期")} />
       {(records?.length ?? 0) > 0 && (
         <button
           type="button"
@@ -220,7 +218,7 @@ export function ClipboardPage() {
     body = (
       <div className="prompt-groups">
         {groups.map((group) => (
-          <section className="day" key={group.key} data-day-key={group.key} aria-label={group.label}>
+          <section className="day" key={group.key} aria-label={group.label}>
             <div className="day-label">
               <h2 className="day-title">{group.label}</h2>
             </div>
@@ -250,16 +248,6 @@ export function ClipboardPage() {
         <div className="mw-scroll clipboard-scroll" ref={scrollRef} onScroll={handleScroll}>
           {body}
         </div>
-        {groups.length > 0 && (
-          <TimelineScrubber
-            groups={groups}
-            scrollRef={scrollRef}
-            onInteractChange={(active) => {
-              scrubberActiveRef.current = active;
-              if (active) dismissHover();
-            }}
-          />
-        )}
       </div>
       {hoverAnchor && !confirmClear && <HoverPreview anchor={hoverAnchor} />}
       {confirmClear && (

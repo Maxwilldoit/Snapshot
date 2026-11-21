@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { LibraryBig, Settings2 } from "lucide-react";
 import { listPromptHistory, onPromptHistoryChanged } from "../lib/backend";
 import { groupByDay } from "../lib/format";
+import { matchesSearchEntry } from "../lib/dateSearch";
 import { PromptHistoryRow } from "../components/PromptHistoryRow";
 import { LoadingState } from "../components/LoadingState";
 import { Toolbar } from "../app/Shell";
@@ -51,10 +52,9 @@ export function PromptsPage({ active = true, libraryRequest = 0 }: { active?: bo
   }, [refresh]);
 
   const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
     const sorted = [...(records ?? [])].sort((a, b) => b.createdAt - a.createdAt);
-    if (!needle) return sorted;
-    return sorted.filter((item) => [item.original, item.polished, item.template].some((text) => text.toLowerCase().includes(needle)));
+    if (!query.trim()) return sorted;
+    return sorted.filter((item) => matchesSearchEntry(item.createdAt, [item.original, item.polished, item.template], query));
   }, [records, query]);
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
 
@@ -87,7 +87,7 @@ export function PromptsPage({ active = true, libraryRequest = 0 }: { active?: bo
   const toolbar = (
     <Toolbar title={t("Prompt")}>
       {/* 页面隐藏时不渲染搜索框，避免抢走其它页的 Ctrl/Cmd+F */}
-      {active && <SearchField value={query} onChange={setQuery} label={t("搜索 Prompt")} />}
+      {active && <SearchField value={query} onChange={setQuery} label={t("搜索 Prompt")} placeholder={t("搜索内容或日期")} />}
       {toggles}
     </Toolbar>
   );
