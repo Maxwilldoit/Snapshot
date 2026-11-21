@@ -397,3 +397,11 @@ macOS 本机已完成：
 - [ ] **Windows / Linux 真机**：原生 WebView 里连续两刀裁剪（松手即裁）、方向键与 Shift+方向键微调、逐步撤销/重做；确认裁剪后马赛克与既有标注不漂移，导出像素与预览一致。
 - [ ] **颜色条与焦点**：画图工具间切换时下方颜色/粗细条显隐正确；滑杆键盘操作（方向键/Home/End）不与画布快捷键冲突；文字输入时 ⌘S 保存、其余键归输入框。
 - [ ] **Retina 导出**：macOS 高分屏截图连续裁剪后保存，历史中的编辑版分辨率等于取景框像素尺寸，原图完整进回收站。
+
+## 三十七、全局性能优化与发布前验收（2026-11-22，`codex/purify-history-surface`，`35d9b4f..72a0410`）
+
+本轮已完成四平台 GitHub Actions CI（Run `44933858929`：`frontend`、`windows-latest`、`ubuntu-24.04`、`ubuntu-22.04`、`macos-latest`、`security` 全绿，契约快照 0 差异）、真实 WebView 200 / 1,000 / 5,000 条对照性能实测，以及 macOS 独立标识（`com.appsnapshot.snapshot.smoke`）原生 Tauri 二进制带 1,000 条真实磁盘快照与 1 段 MP4 的冷启动、单实例唤醒（`90ms`）、主窗口与桌宠并存稳态运行（`0.0%` 空闲 CPU、`141.0 MB` 稳定 RSS、70 FD 无泄漏）、`SIGTERM` 正常退出、`SIGKILL` 异常关闭后陈旧 socket 清理重启验证。以下硬件与真机桌面场景本机无法覆盖，发布前需在对应真机补验：
+
+- [ ] **macOS 真实采集、触控板与多显示器交互**：退出已安装的 `/Applications/snapshot.app` 后安装或启动新包，在真实用户历史下验证 120Hz ProMotion 触控板快速滚动/反向滚动与悬停预览、ScreenCaptureKit 真实窗口录制开始/停止/拖动播放（含 >50MB 录屏）、录制停止与托盘退出并发、多显示器不同 DPI/刷新率拖窗切换。
+- [ ] **Windows 10/11 真机桌面验收**：运行 `os/windows/recorder.rs` 中 5 个 `#[ignore]` 录制用例与 `own_capture.rs` 交互用例；验证 D3D11 Staging 纹理复用在 60–144Hz 录制与窗口尺寸/DPI 变更时的画面稳定、单色光标（如 I-beam）叠加截图、启动台 COM 公寓复用、WebView2 历史墙（1,000+ 条）虚拟化滚动/搜索/多选/缩放与长时间运行内存稳定。
+- [ ] **Linux X11 / Wayland 真机桌面验收**：在 Ubuntu 22.04/24.04（X11 与 Wayland）实机验证共享常驻 `arboard::Clipboard` 在无剪贴板管理器环境下连续复制图片/文本及程序退出释放、`xdg-desktop-portal` 选窗等待期间点击托盘退出不阻塞且无残留 `ffmpeg` 进程、窗口位于负坐标时的 X11 截屏/录屏裁剪、WebKitGTK 历史墙与剪贴板虚拟化滚动及高分屏缩放。
