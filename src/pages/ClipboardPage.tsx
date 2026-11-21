@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardCopy, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { copyClipboardHistory, deleteClipboardHistory, listClipboardHistory, onClipboardHistoryChanged } from "../lib/backend";
 import { clipboardImageUrl } from "../lib/media";
 import { formatClock, groupByDay } from "../lib/format";
@@ -172,7 +172,6 @@ const ClipboardRow = memo(function ClipboardRow({ record, index, onCopy, onDelet
         ) : (
           <span className="clip-text" title={record.text}>{summary}</span>
         )}
-        <ClipboardCopy className="clip-copy-icon" aria-hidden="true" />
       </button>
       <button
         type="button"

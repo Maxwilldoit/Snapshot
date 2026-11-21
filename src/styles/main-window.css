@@ -385,7 +385,7 @@ html[data-surface="app"] .clip-entry.is-static {
   contain-intrinsic-size: auto 44px;
 }
 html[data-surface="app"] .clip-main {
-  display: grid; grid-template-columns: 46px minmax(0, 1fr) 18px; gap: 14px; align-items: center;
+  display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 14px; align-items: center;
   flex: 1 1 auto; min-width: 0; padding: 9px 4px; border: 0; background: none;
   color: var(--text2); font-size: 13px; text-align: left; cursor: pointer; border-radius: 6px;
 }
@@ -395,8 +395,6 @@ html[data-surface="app"] .clip-thumb {
   display: block; max-height: 64px; max-width: 200px; width: auto; height: auto;
   border-radius: 4px; outline: 0.5px solid var(--sep); justify-self: start;
 }
-html[data-surface="app"] .clip-copy-icon { width: 14px; height: 14px; color: var(--text3); opacity: 0; transition: opacity var(--t-fade, 180ms); }
-html[data-surface="app"] .clip-main:hover .clip-copy-icon, html[data-surface="app"] .clip-main:focus-visible .clip-copy-icon { opacity: 1; }
 html[data-surface="app"] .clip-delete {
   display: grid; place-items: center; flex: 0 0 auto; width: 26px; height: 26px;
   border: 0; border-radius: 6px; background: none; color: var(--text3); cursor: pointer;
