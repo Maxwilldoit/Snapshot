@@ -2,11 +2,27 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatBytes, formatCalendarDate, formatClock, formatDuration } from "../lib/format";
 import { useI18n } from "../lib/i18n";
-import { appIconUrl, appNameIconUrl, recordingUrl, snapshotUrl, thumbUrl } from "../lib/media";
+import {
+  appIconUrl,
+  appNameIconUrl,
+  clipboardImageUrl,
+  clipboardThumbUrl,
+  recordingUrl,
+  snapshotUrl,
+  thumbUrl,
+} from "../lib/media";
 import type { MediaItem, RecordingMeta } from "../lib/mediaTimeline";
 
+type ClipboardHoverItem = {
+  id: string;
+  kind: "clipboard-image";
+  width: number;
+  height: number;
+  createdAt: number;
+};
+
 export type HoverPreviewAnchor = {
-  item: MediaItem;
+  item: MediaItem | ClipboardHoverItem;
   rect: { left: number; top: number; right: number; bottom: number; width: number; height: number };
   pointerX?: number;
 };
@@ -125,20 +141,27 @@ export function HoverPreview({
 
   const { item } = anchor;
   const isRecording = item.kind === "recording";
+  const isClipboardImage = item.kind === "clipboard-image";
   const box = computeHoverPreviewBox(anchor, viewport);
   const ext = isRecording
     ? "MP4"
-    : (item.fileName.split(".").pop()?.toUpperCase() || "PNG");
+    : isClipboardImage
+      ? "PNG"
+      : (item.fileName.split(".").pop()?.toUpperCase() || "PNG");
 
   const specs: string[] = [];
   if (box.hasRealDims) specs.push(`${item.width} × ${item.height}`);
   if (isRecording && item.durationMs != null) specs.push(formatDuration(item.durationMs));
   specs.push(ext);
-  specs.push(formatBytes(item.sizeBytes));
+  if (!isClipboardImage) specs.push(formatBytes(item.sizeBytes));
 
   const fullLoaded = loadedId === item.id;
-  const iconSrc = item.appId ? appIconUrl(item.appId, 16) : appNameIconUrl(item.appName, 16);
-  const showIcon = iconFailedId !== item.id;
+  const iconSrc = isClipboardImage
+    ? null
+    : (item.appId ? appIconUrl(item.appId, 16) : appNameIconUrl(item.appName, 16));
+  const showIcon = iconSrc !== null && iconFailedId !== item.id;
+  const previewThumbSrc = isClipboardImage ? clipboardThumbUrl(item.id) : thumbUrl(item.id);
+  const previewFullSrc = isClipboardImage ? clipboardImageUrl(item.id) : snapshotUrl(item.id);
 
   return createPortal(
     <div
@@ -174,7 +197,7 @@ export function HoverPreview({
           <>
             <img
               className="hover-preview-thumb"
-              src={thumbUrl(item.id)}
+              src={previewThumbSrc}
               alt=""
               style={{ width: box.mediaWidth, height: box.mediaHeight }}
               decoding="sync"
@@ -182,7 +205,7 @@ export function HoverPreview({
             <img
               key={item.id}
               className={`hover-preview-full ${fullLoaded ? "is-loaded" : ""}`}
-              src={snapshotUrl(item.id)}
+              src={previewFullSrc}
               alt=""
               style={{ width: box.mediaWidth, height: box.mediaHeight }}
               decoding="async"

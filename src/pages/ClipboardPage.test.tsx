@@ -129,4 +129,36 @@ describe("ClipboardPage performance and timeline scrubber", () => {
     expect(screen.getByText("17:55")).toBeTruthy();
     expect(screen.getByText("09:15")).toBeTruthy();
   });
+
+  it("shows a lossless hover preview when hovering an image entry and dismisses on leave or scroll", async () => {
+    const entries: ClipboardHistoryEntry[] = [
+      { id: "clip-img", createdAt: new Date(2026, 10, 21, 14, 20).getTime(), kind: "image", text: "", width: 1600, height: 1000, hash: "h-img" },
+      { id: "clip-txt", createdAt: new Date(2026, 10, 21, 14, 10).getTime(), kind: "text", text: "plain text", width: 0, height: 0, hash: "h-txt" },
+    ];
+    setupTauriMock((command) => {
+      if (command === "list_clipboard_history") return structuredClone(entries);
+      return undefined;
+    }, { shouldMockEvents: true });
+
+    const { container } = render(<AppContext.Provider value={context}><ClipboardPage /></AppContext.Provider>);
+    const img = await screen.findByRole("img", { name: "图片 1600 × 1000" });
+    const imgButton = img.closest("button")!;
+    const txtButton = screen.getByText("plain text").closest("button")!;
+
+    // 悬停文字条目不弹出图片预览
+    fireEvent.pointerEnter(txtButton);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    // 悬停图片条目立即弹出原图预览
+    fireEvent.pointerEnter(imgButton, { clientX: 300 });
+    const tip = screen.getByRole("tooltip");
+    expect(tip.textContent).toContain("1600 × 1000 · PNG");
+    const full = tip.querySelector<HTMLImageElement>("img.hover-preview-full");
+    expect(full?.src).toContain("clipboard");
+    expect(full?.src).not.toContain("clipboard-thumb");
+
+    // 滚轮滚动立即收起预览
+    fireEvent.scroll(container.querySelector(".clipboard-scroll")!);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
 });

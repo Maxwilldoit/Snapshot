@@ -5,6 +5,7 @@ import { clipboardThumbUrl } from "../lib/media";
 import { formatClock, groupByDay } from "../lib/format";
 import { stagger } from "../lib/motion";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { HoverPreview, type HoverPreviewAnchor } from "../components/HoverPreview";
 import { LoadingState } from "../components/LoadingState";
 import { SearchField } from "../components/SearchField";
 import { TimelineScrubber } from "../components/TimelineScrubber";
@@ -49,9 +50,74 @@ export function ClipboardPage() {
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hoverAnchor, setHoverAnchor] = useState<HoverPreviewAnchor | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const hoverAnchorRef = useRef<HoverPreviewAnchor | null>(null);
+  hoverAnchorRef.current = hoverAnchor;
+  const scrubberActiveRef = useRef(false);
+  const scrollingRef = useRef(false);
+  const scrollIdleTimerRef = useRef<number | null>(null);
   // 本页内点击「放回剪贴板」生成的新条目暂不在当前视图插入，等离开本页再回来时自然显示。
   const deferredIdsRef = useRef<Set<string>>(new Set());
+
+  const dismissHover = useCallback(() => {
+    if (hoverAnchorRef.current !== null) setHoverAnchor(null);
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    scrollingRef.current = true;
+    if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
+    scrollIdleTimerRef.current = window.setTimeout(() => {
+      scrollingRef.current = false;
+      scrollIdleTimerRef.current = null;
+    }, 140);
+    dismissHover();
+  }, [dismissHover]);
+
+  useEffect(() => () => {
+    if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (confirmClear) dismissHover();
+  }, [confirmClear, dismissHover]);
+
+  useEffect(() => {
+    if (!hoverAnchor || confirmClear) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismissHover();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hoverAnchor, confirmClear, dismissHover]);
+
+  const handleHoverStart = useCallback((record: ClipboardHistoryEntry, node: HTMLElement, pointerX?: number) => {
+    if (record.kind !== "image" || scrollingRef.current || scrubberActiveRef.current || !node.isConnected) return;
+    const anchorEl = node.querySelector<HTMLElement>(".clip-thumb") ?? node;
+    const rect = anchorEl.getBoundingClientRect();
+    setHoverAnchor({
+      item: {
+        id: record.id,
+        kind: "clipboard-image",
+        width: record.width,
+        height: record.height,
+        createdAt: record.createdAt,
+      },
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      },
+      pointerX,
+    });
+  }, []);
+
+  const handleHoverEnd = useCallback((id: string) => {
+    setHoverAnchor((current) => (current?.item.id === id ? null : current));
+  }, []);
 
   const applyRecords = useCallback((list: ClipboardHistoryEntry[]) => {
     const deferred = deferredIdsRef.current;
@@ -86,6 +152,7 @@ export function ClipboardPage() {
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
 
   const copyById = useCallback(async (id: string) => {
+    dismissHover();
     try {
       const created = await copyClipboardHistory(id);
       if (created?.id) deferredIdsRef.current.add(created.id);
@@ -93,9 +160,10 @@ export function ClipboardPage() {
     } catch (error) {
       notify(errorText(error), "error");
     }
-  }, [notify, t]);
+  }, [dismissHover, notify, t]);
 
   const remove = useCallback(async (ids: string[]) => {
+    dismissHover();
     setBusy(true);
     try {
       const next = await deleteClipboardHistory(ids);
@@ -107,7 +175,7 @@ export function ClipboardPage() {
       setBusy(false);
       setConfirmClear(false);
     }
-  }, [applyRecords, notify]);
+  }, [applyRecords, dismissHover, notify]);
 
   const deleteById = useCallback((id: string) => {
     void remove([id]);
@@ -158,7 +226,15 @@ export function ClipboardPage() {
             </div>
             <div className="prompt-list">
               {group.items.map((item) => (
-                <ClipboardRow key={item.id} record={item} index={order++} onCopy={copyById} onDelete={deleteById} />
+                <ClipboardRow
+                  key={item.id}
+                  record={item}
+                  index={order++}
+                  onCopy={copyById}
+                  onDelete={deleteById}
+                  onHoverStart={handleHoverStart}
+                  onHoverEnd={handleHoverEnd}
+                />
               ))}
             </div>
           </section>
@@ -171,11 +247,21 @@ export function ClipboardPage() {
     <div className="mw-page clipboard-page">
       {toolbar}
       <div className="clipboard-body">
-        <div className="mw-scroll clipboard-scroll" ref={scrollRef}>
+        <div className="mw-scroll clipboard-scroll" ref={scrollRef} onScroll={handleScroll}>
           {body}
         </div>
-        {groups.length > 0 && <TimelineScrubber groups={groups} scrollRef={scrollRef} />}
+        {groups.length > 0 && (
+          <TimelineScrubber
+            groups={groups}
+            scrollRef={scrollRef}
+            onInteractChange={(active) => {
+              scrubberActiveRef.current = active;
+              if (active) dismissHover();
+            }}
+          />
+        )}
       </div>
+      {hoverAnchor && !confirmClear && <HoverPreview anchor={hoverAnchor} />}
       {confirmClear && (
         <ConfirmDialog
           title={t("清空剪贴板历史？")}
@@ -193,11 +279,13 @@ export function ClipboardPage() {
   );
 }
 
-const ClipboardRow = memo(function ClipboardRow({ record, index, onCopy, onDelete }: {
+const ClipboardRow = memo(function ClipboardRow({ record, index, onCopy, onDelete, onHoverStart, onHoverEnd }: {
   record: ClipboardHistoryEntry;
   index: number;
   onCopy: (id: string) => void;
   onDelete: (id: string) => void;
+  onHoverStart: (record: ClipboardHistoryEntry, node: HTMLElement, pointerX?: number) => void;
+  onHoverEnd: (id: string) => void;
 }) {
   const { t } = useI18n();
   const isImage = record.kind === "image";
@@ -211,8 +299,14 @@ const ClipboardRow = memo(function ClipboardRow({ record, index, onCopy, onDelet
       <button
         type="button"
         className="clip-main"
-        title={t("放回剪贴板")}
+        title={isImage ? undefined : t("放回剪贴板")}
         onClick={() => onCopy(record.id)}
+        onPointerEnter={isImage ? (event) => onHoverStart(record, event.currentTarget, event.clientX) : undefined}
+        onPointerLeave={isImage ? () => onHoverEnd(record.id) : undefined}
+        onFocus={isImage ? (event) => {
+          if (event.currentTarget.matches(":focus-visible")) onHoverStart(record, event.currentTarget);
+        } : undefined}
+        onBlur={isImage ? () => onHoverEnd(record.id) : undefined}
       >
         <time className="mono small quiet">{formatClock(record.createdAt)}</time>
         {isImage && box ? (
