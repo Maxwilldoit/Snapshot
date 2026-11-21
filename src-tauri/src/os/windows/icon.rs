@@ -24,7 +24,7 @@ use windows_sys::Win32::{
         SelectObject, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP,
     },
     System::{
-        Com::{CoInitializeEx, COINIT_APARTMENTTHREADED},
+        Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED},
         Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION},
     },
     UI::{
@@ -87,6 +87,7 @@ fn icon_for_process(pid: u32, size: u32) -> Option<RgbaImage> {
         let icon = if extracted > 0 && extracted != u32::MAX && !extracted_icon.is_null() {
             extracted_icon
         } else {
+            let com_hr = CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32);
             let mut info: SHFILEINFOW = zeroed();
             let result = SHGetFileInfoW(
                 path.as_ptr(),
@@ -95,6 +96,9 @@ fn icon_for_process(pid: u32, size: u32) -> Option<RgbaImage> {
                 size_of::<SHFILEINFOW>() as u32,
                 SHGFI_ICON | SHGFI_LARGEICON,
             );
+            if com_hr >= 0 {
+                CoUninitialize();
+            }
             if result == 0 || info.hIcon.is_null() {
                 return None;
             }

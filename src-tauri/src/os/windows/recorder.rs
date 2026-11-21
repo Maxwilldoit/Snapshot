@@ -580,6 +580,8 @@ struct FrameSink {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     encoder: Encoder,
+    /// 复用同尺寸/格式的 CPU staging 纹理，避免在 60–144Hz 帧回调中每帧创建并销毁 GPU 资源。
+    staging: Option<(u32, u32, i32, ID3D11Texture2D)>,
     /// 最近一帧。窗口静止不重绘时 FrameArrived 根本不触发，
     /// 定时器就靠它补帧，保证时间轴连续、文件可播。
     latest: Option<Vec<u8>>,
@@ -753,6 +755,7 @@ pub fn start(
         device,
         context,
         encoder,
+        staging: None,
         latest: None,
     })));
     let stopped = Arc::new(AtomicBool::new(false));
@@ -787,20 +790,37 @@ pub fn start(
                     return Ok(());
                 };
 
-                // 采集纹理在 GPU 上且不可 CPU 读，先拷进一张 staging 纹理再映射
+                // 采集纹理在 GPU 上且不可 CPU 读，先拷进一张复用的 staging 纹理再映射
                 let mut desc = D3D11_TEXTURE2D_DESC::default();
                 unsafe { texture.GetDesc(&mut desc) };
-                desc.Usage = D3D11_USAGE_STAGING;
-                desc.BindFlags = 0;
-                desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
-                desc.MiscFlags = 0;
-                let mut staging: Option<ID3D11Texture2D> = None;
-                if unsafe { sink.device.CreateTexture2D(&desc, None, Some(&mut staging)) }.is_err()
-                {
-                    return Ok(());
-                }
-                let Some(staging) = staging else {
-                    return Ok(());
+                let staging = match sink.staging.as_ref() {
+                    Some((w, h, fmt, existing))
+                        if *w == desc.Width && *h == desc.Height && *fmt == desc.Format.0 =>
+                    {
+                        existing.clone()
+                    }
+                    _ => {
+                        let mut staging_desc = desc;
+                        staging_desc.Usage = D3D11_USAGE_STAGING;
+                        staging_desc.BindFlags = 0;
+                        staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+                        staging_desc.MiscFlags = 0;
+                        let mut created: Option<ID3D11Texture2D> = None;
+                        if unsafe {
+                            sink.device
+                                .CreateTexture2D(&staging_desc, None, Some(&mut created))
+                        }
+                        .is_err()
+                        {
+                            return Ok(());
+                        }
+                        let Some(created) = created else {
+                            return Ok(());
+                        };
+                        sink.staging =
+                            Some((desc.Width, desc.Height, desc.Format.0, created.clone()));
+                        created
+                    }
                 };
                 unsafe { sink.context.CopyResource(&staging, &texture) };
 

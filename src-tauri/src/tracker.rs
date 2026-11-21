@@ -264,60 +264,73 @@ fn is_own_window(window: &Window) -> bool {
     )
 }
 
-pub(crate) fn start_tracker(app: AppHandle, tracker: Arc<Mutex<TrackerState>>) {
-    thread::spawn(move || loop {
-        if let Ok(windows) = Window::all() {
-            // 焦点可能落在桌宠/快捷菜单这类自有窗口上，先向前找最近一个
-            // 真正的业务窗口作为焦点候选，避免把"上一个应用"记成自己。
-            // xcap 的 macOS is_focused 实际按 PID 判断：同一 App 的菜单栏图标
-            // 和主窗口都会返回 true。因此先排除小辅助窗，再取面积最大的内容窗。
-            let focused = windows
-                .into_iter()
-                .filter(|window| window.is_focused().unwrap_or(false) && !is_own_window(window))
-                .filter_map(|window| content_window_area(&window).map(|area| (area, window)))
-                .max_by_key(|(area, _)| *area)
-                .map(|(_, window)| window);
-            if let Some(focused) = focused {
-                if let (Ok(id), Ok(pid)) = (focused.id(), focused.pid()) {
-                    let next = TrackedWindow {
-                        id,
-                        pid,
-                        app_name: focused
-                            .app_name()
-                            .unwrap_or_else(|_| crate::ui_text("应用", "App").into()),
-                        title: focused.title().unwrap_or_default(),
-                    };
-                    let mut state = tracker.lock();
-                    let changed = state
-                        .current
-                        .as_ref()
-                        .map(|current| current.pid != next.pid)
-                        .unwrap_or(true);
-                    if state.current.is_none() {
-                        state.current = Some(next.clone());
-                        state.previous = Some(next.clone());
-                    } else if changed {
-                        state.previous = state.current.replace(next.clone());
-                    } else {
-                        state.current = Some(next.clone());
-                        if state.previous.as_ref().map(|previous| previous.pid) == Some(next.pid) {
-                            state.previous = Some(next.clone());
-                        }
-                    }
-                    if changed || state.previous_view.id.is_none() {
-                        if let Some(previous) = state.previous.as_ref() {
-                            state.previous_view = PreviousApp {
-                                id: Some(previous.id),
-                                pid: Some(previous.pid),
-                                name: previous.app_name.clone(),
-                                title: previous.title.clone(),
-                            };
-                            let _ = app.emit("previous-app-changed", &state.previous_view);
-                        }
-                    }
+fn update_tracked_window(state: &mut TrackerState, next: TrackedWindow) -> bool {
+    let view_changed = state.previous_view.id != Some(next.id)
+        || state.previous_view.pid != Some(next.pid)
+        || state.previous_view.name != next.app_name
+        || state.previous_view.title != next.title;
+    state.current = Some(next.clone());
+    state.previous = Some(next.clone());
+    if view_changed {
+        state.previous_view = PreviousApp {
+            id: Some(next.id),
+            pid: Some(next.pid),
+            name: next.app_name,
+            title: next.title,
+        };
+    }
+    view_changed
+}
+
+fn poll_focused_window(app: &AppHandle, tracker: &Mutex<TrackerState>) {
+    #[cfg(target_os = "macos")]
+    let frontmost_pid = match os::frontmost_pid() {
+        Some(pid) if pid != std::process::id() => pid,
+        _ => return,
+    };
+
+    if let Ok(windows) = Window::all() {
+        // 焦点可能落在桌宠/快捷菜单这类自有窗口上，先向前找最近一个
+        // 真正的业务窗口作为焦点候选，避免把"上一个应用"记成自己。
+        // xcap 的 macOS is_focused 实际按 PID 判断：同一 App 的菜单栏图标
+        // 和主窗口都会返回 true。因此先排除小辅助窗，再取面积最大的内容窗。
+        let focused = windows
+            .into_iter()
+            .filter(|window| {
+                #[cfg(target_os = "macos")]
+                let is_focused = window.pid().ok() == Some(frontmost_pid);
+                #[cfg(not(target_os = "macos"))]
+                let is_focused = window.is_focused().unwrap_or(false);
+                is_focused && !is_own_window(window)
+            })
+            .filter_map(|window| content_window_area(&window).map(|area| (area, window)))
+            .max_by_key(|(area, _)| *area)
+            .map(|(_, window)| window);
+        if let Some(focused) = focused {
+            if let (Ok(id), Ok(pid)) = (focused.id(), focused.pid()) {
+                let next = TrackedWindow {
+                    id,
+                    pid,
+                    app_name: focused
+                        .app_name()
+                        .unwrap_or_else(|_| crate::ui_text("应用", "App").into()),
+                    title: focused.title().unwrap_or_default(),
+                };
+                let mut state = tracker.lock();
+                if update_tracked_window(&mut state, next) {
+                    let _ = app.emit("previous-app-changed", &state.previous_view);
                 }
             }
         }
+    }
+}
+
+pub(crate) fn start_tracker(app: AppHandle, tracker: Arc<Mutex<TrackerState>>) {
+    thread::spawn(move || loop {
+        #[cfg(target_os = "macos")]
+        objc2::rc::autoreleasepool(|_| poll_focused_window(&app, &tracker));
+        #[cfg(not(target_os = "macos"))]
+        poll_focused_window(&app, &tracker);
         thread::sleep(Duration::from_millis(500));
     });
 }
@@ -383,5 +396,46 @@ mod tests {
         );
         assert_eq!(capturable_window_area_from(None, false), None);
         assert_eq!(capturable_window_area_from(Some(1234), false), Some(1234));
+    }
+
+    #[test]
+    fn tracked_window_always_points_to_most_recent_external_window() {
+        let mut state = TrackerState::default();
+        let finder = TrackedWindow {
+            id: 10,
+            pid: 100,
+            app_name: "Finder".into(),
+            title: "Downloads".into(),
+        };
+        assert!(update_tracked_window(&mut state, finder.clone()));
+        assert_eq!(state.previous.as_ref().map(|w| w.id), Some(10));
+        assert_eq!(state.previous_view.id, Some(10));
+        assert_eq!(state.previous_view.name, "Finder");
+        assert!(!update_tracked_window(&mut state, finder));
+
+        // 切换到另一个外部应用时，previous 应立即指向该最新外部应用，而不是停留在上一个应用
+        let browser = TrackedWindow {
+            id: 20,
+            pid: 200,
+            app_name: "Safari".into(),
+            title: "Docs".into(),
+        };
+        assert!(update_tracked_window(&mut state, browser));
+        assert_eq!(state.previous.as_ref().map(|w| w.id), Some(20));
+        assert_eq!(state.previous.as_ref().map(|w| w.pid), Some(200));
+        assert_eq!(state.previous_view.id, Some(20));
+        assert_eq!(state.previous_view.name, "Safari");
+
+        // 同一应用内切换窗口或标签页标题时，也应同步更新 previous_view
+        let browser_tab2 = TrackedWindow {
+            id: 21,
+            pid: 200,
+            app_name: "Safari".into(),
+            title: "Release Notes".into(),
+        };
+        assert!(update_tracked_window(&mut state, browser_tab2));
+        assert_eq!(state.previous.as_ref().map(|w| w.id), Some(21));
+        assert_eq!(state.previous_view.id, Some(21));
+        assert_eq!(state.previous_view.title, "Release Notes");
     }
 }

@@ -1,9 +1,14 @@
 //! 从进程可执行文件路径猜测桌面图标（best-effort）。
 
 use image::{Rgba, RgbaImage};
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
+
+static DESKTOP_ICON_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
 
 /// 尝试为 pid 找一张不超过 `size` 像素边长的图标。失败返回 None，调用方显示占位即可。
 pub fn icon_for_process(pid: u32, size: u32) -> Option<RgbaImage> {
@@ -82,6 +87,10 @@ fn xdg_data_dirs() -> Vec<PathBuf> {
 
 fn find_desktop_icon(app: &str) -> Option<String> {
     let lower = app.to_ascii_lowercase();
+    let cache = DESKTOP_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = cache.lock().get(&lower).cloned() {
+        return cached;
+    }
     for root in xdg_data_dirs() {
         let apps = root.join("applications");
         let Ok(entries) = fs::read_dir(&apps) else {
@@ -110,12 +119,15 @@ fn find_desktop_icon(app: &str) -> Option<String> {
                 if let Some(icon) = line.strip_prefix("Icon=") {
                     let icon = icon.trim();
                     if !icon.is_empty() {
-                        return Some(icon.to_string());
+                        let resolved = icon.to_string();
+                        cache.lock().insert(lower, Some(resolved.clone()));
+                        return Some(resolved);
                     }
                 }
             }
         }
     }
+    cache.lock().insert(lower, None);
     None
 }
 

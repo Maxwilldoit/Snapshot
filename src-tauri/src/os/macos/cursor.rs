@@ -5,12 +5,15 @@
 
 use crate::capture::blend_cursor;
 use image::RgbaImage;
-use objc2::AnyThread;
+use objc2::{rc::autoreleasepool, AnyThread};
 use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSCursor, NSDeviceRGBColorSpace, NSGraphicsContext,
 };
 use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize};
+use parking_lot::Mutex;
 use std::ffi::c_void;
+
+static CURSOR_DRAW_LOCK: Mutex<()> = Mutex::new(());
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -51,7 +54,8 @@ fn cursor_position() -> Option<(f64, f64)> {
 // I 形/手形光标，语义是错的。录制已使用 ScreenCaptureKit；静帧仍需单独迁移。
 #[allow(deprecated)]
 fn cursor_bitmap(scale: f64) -> Option<(RgbaImage, f64, f64)> {
-    unsafe {
+    autoreleasepool(|_| unsafe {
+        let _draw_guard = CURSOR_DRAW_LOCK.lock();
         let cursor = NSCursor::currentSystemCursor()?;
         let hot_spot = cursor.hotSpot();
         let nsimage = cursor.image();
@@ -86,7 +90,7 @@ fn cursor_bitmap(scale: f64) -> Option<(RgbaImage, f64, f64)> {
             .representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())?;
         let decoded = image::load_from_memory(&png.to_vec()).ok()?.to_rgba8();
         Some((decoded, hot_spot.x, hot_spot.y))
-    }
+    })
 }
 
 /// 光标左上角落在截图里的像素坐标：先减热点，再把「点」按 DPI 比例换成像素。

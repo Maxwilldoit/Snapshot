@@ -249,13 +249,23 @@ pub fn build_ffmpeg_grab_args(target_id: u32, include_cursor: bool) -> Result<Ve
         .find(|window| window.id().ok() == Some(target_id))
         .ok_or_else(|| "目标窗口已关闭".to_string())?;
 
-    let width = window.width().map_err(|e| e.to_string())?.max(2);
-    let height = window.height().map_err(|e| e.to_string())?.max(2);
+    let raw_x = window.x().map_err(|e| e.to_string())?;
+    let raw_y = window.y().map_err(|e| e.to_string())?;
+    let x = raw_x.max(0);
+    let y = raw_y.max(0);
+    let width = window
+        .width()
+        .map_err(|e| e.to_string())?
+        .saturating_sub(x.abs_diff(raw_x))
+        .max(2);
+    let height = window
+        .height()
+        .map_err(|e| e.to_string())?
+        .saturating_sub(y.abs_diff(raw_y))
+        .max(2);
     // 奇数边长会导致 yuv420p 编码失败，向下取偶
     let width = width & !1;
     let height = height & !1;
-    let x = window.x().map_err(|e| e.to_string())?;
-    let y = window.y().map_err(|e| e.to_string())?;
 
     let mut args = vec![
         "-f".into(),
@@ -296,6 +306,14 @@ pub struct ActiveRecording {
 }
 
 impl ActiveRecording {
+    pub fn exit_reason(&mut self) -> Option<String> {
+        match self.child.try_wait() {
+            Ok(Some(status)) => Some(format!("录制进程已意外退出（{status}）")),
+            Ok(None) => None,
+            Err(error) => Some(format!("无法读取录制进程状态：{error}")),
+        }
+    }
+
     /// 优雅停止：portal 先停 PipeWire 泵，再 EOF/quit ffmpeg。
     pub fn stop(mut self) -> Result<(), String> {
         let mut stop_error = None;
@@ -336,6 +354,19 @@ impl ActiveRecording {
             return Err(error);
         }
         Ok(())
+    }
+}
+
+impl Drop for ActiveRecording {
+    fn drop(&mut self) {
+        if let Some(portal) = self.portal.take() {
+            portal.stop_flag.store(true, Ordering::SeqCst);
+            let _ = portal.video_recorder.stop();
+        }
+        if let Ok(None) = self.child.try_wait() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 

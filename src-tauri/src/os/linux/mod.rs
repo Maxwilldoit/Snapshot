@@ -44,9 +44,8 @@ pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[
 pub(crate) struct Recording(recording::ActiveRecording);
 
 impl Recording {
-    /// ffmpeg 中途退出目前不单独检测，停止时一并收尾
     pub(crate) fn exit_reason(&mut self) -> Option<String> {
-        None
+        self.0.exit_reason()
     }
 
     pub(crate) fn stop(self) -> Result<(), String> {

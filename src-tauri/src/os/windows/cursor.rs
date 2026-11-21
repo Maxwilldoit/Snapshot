@@ -91,19 +91,30 @@ fn cursor_bitmap() -> Option<(RgbaImage, i32, i32, i32, i32)> {
             DI_NORMAL,
         );
         let raw = std::slice::from_raw_parts(bits as *const u8, (width * height * 4) as usize);
-        // 现代 Windows 光标是 32 位带 alpha 的。老式单色光标画出来 alpha 全 0，
-        // 这时宁可不贴，也好过糊一个黑块在截图上。
+        // 现代 Windows 光标是 32 位带 alpha 的；单色光标（如文本 I-beam）画出来 alpha 全 0，
+        // 但可见笔画的 RGB 非 0，按与 icon.rs 一致的规则恢复不透明度。
         let pixels = raw.as_chunks::<4>().0;
-        let usable = drawn != 0 && pixels.iter().any(|pixel| pixel[3] != 0);
+        let has_alpha = pixels.iter().any(|pixel| pixel[3] != 0);
+        let has_rgb = pixels
+            .iter()
+            .any(|pixel| pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0);
+        let usable = drawn != 0 && (has_alpha || has_rgb);
         let mut image = RgbaImage::new(width as u32, height as u32);
         if usable {
             for (index, pixel) in pixels.iter().enumerate() {
+                let alpha = if has_alpha {
+                    pixel[3]
+                } else if pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 {
+                    0
+                } else {
+                    255
+                };
                 let x = (index as i32) % width;
                 let y = (index as i32) / width;
                 image.put_pixel(
                     x as u32,
                     y as u32,
-                    Rgba([pixel[2], pixel[1], pixel[0], pixel[3]]),
+                    Rgba([pixel[2], pixel[1], pixel[0], alpha]),
                 );
             }
         }
