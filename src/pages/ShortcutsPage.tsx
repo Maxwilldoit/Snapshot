@@ -26,9 +26,14 @@ const GROUPS: Array<{ title: string; actions: ShortcutAction[] }> = [
   { title: "Prompt", actions: ["polish", "prompts", "palette"] },
 ];
 
-const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
+const MODIFIERS = ["Control", "Shift", "Alt", "Meta", "AltGraph", "OS"];
+const MODIFIER_CODE = /^(Control|Shift|Alt|Meta)(Left|Right)$/;
 
-function pressedModifiers(event: React.KeyboardEvent): string[] {
+function isModifierKey(event: KeyboardEvent | React.KeyboardEvent): boolean {
+  return MODIFIERS.includes(event.key) || MODIFIER_CODE.test(event.code);
+}
+
+function pressedModifiers(event: KeyboardEvent | React.KeyboardEvent): string[] {
   const parts: string[] = [];
   if (event.ctrlKey || event.metaKey) parts.push("CommandOrControl");
   if (event.altKey) parts.push("Alt");
@@ -37,7 +42,7 @@ function pressedModifiers(event: React.KeyboardEvent): string[] {
 }
 
 /** 修饰键改变字符，但 event.code 仍是物理键位；用它避免 Shift+2 被记成 @。 */
-function shortcutKey(event: React.KeyboardEvent): string {
+function shortcutKey(event: KeyboardEvent | React.KeyboardEvent): string {
   const code = event.code;
   if (code && code !== "Unidentified") {
     const digit = /^Digit([0-9])$/.exec(code);
@@ -103,28 +108,7 @@ function ShortcutsPanel() {
     stopRecording();
   }
 
-  const commitRef = useRef(commitPendingClear);
-  commitRef.current = commitPendingClear;
-
-  useEffect(() => {
-    if (!recording) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const field = recordingFieldRef.current;
-      if (field && event.target instanceof Node && field.contains(event.target)) return;
-      commitRef.current(recording);
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [recording]);
-
-  function onRowKeyDown(action: ShortcutAction, event: React.KeyboardEvent<HTMLButtonElement>) {
-    if (recording !== action) {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        startRecording(action, event.currentTarget);
-      }
-      return;
-    }
+  function handleRecordingKeyDown(action: ShortcutAction, event: KeyboardEvent) {
     // 放行未带控制修饰键的 Tab / Shift+Tab，让键盘用户能够正常移出焦点触发 onBlur 提交清空或退出录制
     const modifiers = pressedModifiers(event);
     if (event.key === "Tab" && modifiers.every((mod) => mod === "Shift")) {
@@ -146,7 +130,7 @@ function ShortcutsPanel() {
       setRejected(null);
       return;
     }
-    if (MODIFIERS.includes(event.key)) {
+    if (isModifierKey(event)) {
       setHeld(modifiers);
       setPendingClear(null);
       return;
@@ -164,8 +148,42 @@ function ShortcutsPanel() {
     stopRecording();
   }
 
-  function onRowKeyUp(action: ShortcutAction, event: React.KeyboardEvent<HTMLButtonElement>) {
+  function handleRecordingKeyUp(action: ShortcutAction, event: KeyboardEvent) {
     if (recording === action && pendingClear !== action) setHeld(pressedModifiers(event));
+  }
+
+  const commitRef = useRef(commitPendingClear);
+  commitRef.current = commitPendingClear;
+  const keyDownRef = useRef(handleRecordingKeyDown);
+  keyDownRef.current = handleRecordingKeyDown;
+  const keyUpRef = useRef(handleRecordingKeyUp);
+  keyUpRef.current = handleRecordingKeyUp;
+
+  useEffect(() => {
+    if (!recording) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const field = recordingFieldRef.current;
+      if (field && event.target instanceof Node && field.contains(event.target)) return;
+      commitRef.current(recording);
+    };
+    // macOS WKWebView 点击 <button> 默认不移交键盘焦点；在 window 捕获按键确保录制态一定收得到组合键
+    const onKeyDown = (event: KeyboardEvent) => keyDownRef.current(recording, event);
+    const onKeyUp = (event: KeyboardEvent) => keyUpRef.current(recording, event);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
+  }, [recording]);
+
+  function onRowKeyDown(action: ShortcutAction, event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (recording !== action && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      startRecording(action, event.currentTarget);
+    }
   }
 
   async function persist(next: ShortcutBinding[]) {
@@ -236,7 +254,6 @@ function ShortcutsPanel() {
               }
             }}
             onKeyDown={(event) => onRowKeyDown(binding.action, event)}
-            onKeyUp={(event) => onRowKeyUp(binding.action, event)}
             onBlur={() => {
               if (isRecording) commitPendingClear(binding.action);
             }}

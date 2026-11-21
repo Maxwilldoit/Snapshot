@@ -279,6 +279,29 @@ describe("global shortcut editing", () => {
     expect(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" })).toBeTruthy();
   });
 
+  it("records a key combination even when the button does not hold DOM focus (macOS WKWebView)", async () => {
+    const save = vi.fn((args: Record<string, unknown>) => structuredClone({
+      ...base,
+      shortcuts: args.shortcuts as ShortcutBinding[],
+    }));
+    await renderApp((command, payload) => {
+      if (command === "save_shortcuts") return save(invokeArgs(payload));
+      return undefined;
+    });
+
+    const row = screen.getByRole("button", { name: "快捷键：录屏，当前按键：未设置" });
+    fireEvent.click(row);
+    // 模拟 macOS WKWebView：按键直接落到 window，而不是按钮自身
+    fireEvent.keyDown(window, { key: "a", code: "KeyA", altKey: true, shiftKey: true });
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(save.mock.calls[0][0]).toMatchObject({
+      shortcuts: [
+        { action: "snapshot", accelerator: "Alt+Shift+2" },
+        { action: "record", accelerator: "Alt+Shift+A" },
+      ],
+    });
+  });
+
   it("dims and locks the shortcut fields while global shortcuts are off", async () => {
     const save = vi.fn();
     await renderApp((command) => {
