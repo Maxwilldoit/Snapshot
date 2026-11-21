@@ -146,19 +146,25 @@ pub(crate) fn list_saved_prompts(state: State<'_, AppState>) -> Vec<SavedPrompt>
 }
 
 #[tauri::command]
-pub(crate) fn save_saved_prompt(
-    state: State<'_, AppState>,
+pub(crate) async fn save_saved_prompt(
+    app: AppHandle,
     input: SavePromptInput,
 ) -> Result<Vec<SavedPrompt>, String> {
-    state.saved_prompts.lock().save(input)
+    on_worker(app, move |_app, state| {
+        state.saved_prompts.lock().save(input)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn delete_saved_prompt(
-    state: State<'_, AppState>,
+pub(crate) async fn delete_saved_prompt(
+    app: AppHandle,
     id: String,
 ) -> Result<Vec<SavedPrompt>, String> {
-    state.saved_prompts.lock().delete(&id)
+    on_worker(app, move |_app, state| {
+        state.saved_prompts.lock().delete(&id)
+    })
+    .await
 }
 
 #[cfg(test)]

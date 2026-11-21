@@ -155,6 +155,17 @@ pub(crate) fn read_snapshot_index(path: &Path) -> Vec<SnapshotRecord> {
     records
 }
 
+fn find_snapshot_record(path: &Path, id: &str) -> Option<SnapshotRecord> {
+    let stamp = index_stamp(path);
+    if let (Some(stamp), Some(cache)) = (stamp, INDEX_CACHE.lock().as_ref()) {
+        if cache.path == path && cache.stamp == stamp {
+            return cache.records.iter().find(|item| item.id == id).cloned();
+        }
+    }
+    let records = read_snapshot_index(path);
+    records.into_iter().find(|item| item.id == id)
+}
+
 pub(crate) fn write_snapshot_index(path: &Path, records: &[SnapshotRecord]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -268,18 +279,15 @@ fn write_thumbnail(
     id: &str,
     image: &RgbaImage,
     trace: Option<&CaptureTrace>,
-) -> Result<(), String> {
+) -> Result<Vec<u8>, String> {
     let rgb = make_thumbnail(image);
     let bytes = encode_thumbnail_jpeg(&rgb)?;
-    fs::create_dir_all(&state.thumbs_dir).map_err(|error| error.to_string())?;
-    let result = fs::write(thumbnail_path(state, id), bytes).map_err(|error| error.to_string());
-    if result.is_ok() {
-        let _ = fs::remove_file(legacy_thumbnail_path(state, id));
-    }
+    write_cache_atomic(&thumbnail_path(state, id), &bytes)?;
+    let _ = fs::remove_file(legacy_thumbnail_path(state, id));
     if let Some(trace) = trace {
         trace.mark("thumbnail");
     }
-    result
+    Ok(bytes)
 }
 
 pub(crate) fn make_thumbnail(image: &RgbaImage) -> image::RgbImage {
@@ -376,14 +384,22 @@ pub(crate) fn get_snapshot_dir(state: State<'_, AppState>) -> String {
 }
 
 #[tauri::command]
-pub(crate) fn list_snapshots(state: State<'_, AppState>) -> Vec<SnapshotRecord> {
-    let index_path = snapshot_index_path(&state);
+pub(crate) async fn list_snapshots(app: AppHandle) -> Result<Vec<SnapshotRecord>, String> {
+    on_worker(app, |_app, state| Ok(list_snapshots_now(state))).await
+}
+
+fn list_snapshots_now(state: &AppState) -> Vec<SnapshotRecord> {
+    let dir = history_dir(state);
+    let index_path = dir.join("index.json");
     let _guard = state.snapshot_index_lock.lock();
     let records = read_snapshot_index(&index_path);
-    // 文件被手动删掉的条目顺手从索引里剔除；同时自动纠偏早期版本误写成上一个前台应用的 appId
+    // 文件被手动删掉的条目顺手从索引里剔除并清理孤立缩略图；同时自动纠偏早期版本误写成上一个前台应用的 appId
     let (mut alive, dropped): (Vec<_>, Vec<_>) = records
         .into_iter()
-        .partition(|item| history_dir(&state).join(&item.file_name).is_file());
+        .partition(|item| dir.join(&item.file_name).is_file());
+    for item in &dropped {
+        remove_thumbnail_files(state, &item.id);
+    }
     let mut repaired = false;
     for item in &mut alive {
         let reconciled = os::reconcile_app_id(&item.app_name, item.app_id.as_deref());
@@ -399,13 +415,9 @@ pub(crate) fn list_snapshots(state: State<'_, AppState>) -> Vec<SnapshotRecord> 
 }
 
 fn find_record(state: &AppState, id: &str) -> Result<SnapshotRecord, String> {
+    let index_path = snapshot_index_path(state);
     let _guard = state.snapshot_index_lock.lock();
-    let mut record = read_snapshot_index(&snapshot_index_path(state))
-        .into_iter()
-        .find(|item| item.id == id)
-        .ok_or_else(|| "找不到这条快照".to_string())?;
-    record.app_id = os::reconcile_app_id(&record.app_name, record.app_id.as_deref());
-    Ok(record)
+    find_snapshot_record(&index_path, id).ok_or_else(|| "找不到这条快照".to_string())
 }
 
 /// 按 id 读出一张快照的文件字节与类型（媒体协议用）。
@@ -427,8 +439,7 @@ pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, Stri
     let image = image::open(history_dir(state).join(&record.file_name))
         .map_err(|_| "快照文件已被移动或删除".to_string())?
         .to_rgba8();
-    write_thumbnail(state, id, &image, None)?;
-    fs::read(&path).map_err(|error| error.to_string())
+    write_thumbnail(state, id, &image, None)
 }
 
 #[tauri::command]

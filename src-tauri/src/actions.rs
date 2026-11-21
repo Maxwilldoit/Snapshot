@@ -532,15 +532,17 @@ async fn perform_with_trace(
         "prompts" => prompt_library::show_prompt_library(app.clone())
             .await
             .map(|_| String::new()),
-        "record" => recording::toggle_recording(app.clone(), state, None).map(|status| {
-            if status.active {
-                status
-                    .message
-                    .unwrap_or_else(|| ui_text("录制已开始", "Recording started").into())
-            } else {
-                ui_text("录制已保存", "Recording saved").into()
-            }
-        }),
+        "record" => recording::toggle_recording(app.clone(), None)
+            .await
+            .map(|status| {
+                if status.active {
+                    status
+                        .message
+                        .unwrap_or_else(|| ui_text("录制已开始", "Recording started").into())
+                } else {
+                    ui_text("录制已保存", "Recording saved").into()
+                }
+            }),
         "polish" => polish::polish_clipboard(app.clone(), state).await,
         "fullscreen" => {
             let include_cursor = state.settings.lock().include_cursor;

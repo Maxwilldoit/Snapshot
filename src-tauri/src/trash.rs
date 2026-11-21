@@ -164,26 +164,37 @@ pub(crate) fn copy_out(root: &Path, entry: &TrashEntry, destination: &Path) -> R
 pub(crate) fn discard(root: &Path, entry: &TrashEntry) -> Result<(), String> {
     let directory = root.join(&entry.id);
     fs::remove_file(directory.join("file")).map_err(trash_error)?;
+    let _ = fs::remove_file(directory.join("thumb.jpg"));
     let _ = fs::remove_file(directory.join("entry.json"));
+    let _ = fs::remove_file(json_backup_path(&directory.join("entry.json")));
     let _ = fs::remove_dir(directory);
     Ok(())
 }
 
 pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
-    let _guard = state.trash_lock.lock();
-    let entry = read_entry(&state.trash_dir, id).ok_or("找不到这条回收站记录")?;
-    if !matches!(entry.media, TrashMedia::Snapshot(_)) {
-        return Err("找不到这条回收站记录".into());
-    }
-    let path = state.trash_dir.join(&entry.id).join("file");
-    let image = image::ImageReader::open(path)
-        .and_then(image::ImageReader::with_guessed_format)
-        .map_err(trash_error)?
-        .decode()
+    let (thumb_path, raw_bytes) = {
+        let _guard = state.trash_lock.lock();
+        let entry = read_entry(&state.trash_dir, id).ok_or("找不到这条回收站记录")?;
+        if !matches!(entry.media, TrashMedia::Snapshot(_)) {
+            return Err("找不到这条回收站记录".into());
+        }
+        let dir = state.trash_dir.join(&entry.id);
+        let thumb_path = dir.join("thumb.jpg");
+        if let Ok(cached) = fs::read(&thumb_path) {
+            return Ok(cached);
+        }
+        let bytes = fs::read(dir.join("file")).map_err(trash_error)?;
+        (thumb_path, bytes)
+    };
+    let image = image::load_from_memory(&raw_bytes)
         .map_err(trash_error)?
         .into_rgba8();
     let thumbnail = snapshots::make_thumbnail(&image);
-    snapshots::encode_thumbnail_jpeg(&thumbnail)
+    let encoded = snapshots::encode_thumbnail_jpeg(&thumbnail)?;
+    if thumb_path.parent().is_some_and(|dir| dir.is_dir()) {
+        let _ = write_cache_atomic(&thumb_path, &encoded);
+    }
+    Ok(encoded)
 }
 
 #[tauri::command]

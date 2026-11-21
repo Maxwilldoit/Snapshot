@@ -110,8 +110,8 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Vec<(RgbaImage, u16)>, String> {
         .collect())
 }
 
-/// 在真正解码像素前按逻辑画布和帧数估算内存，拒绝异常膨胀的素材。
-pub(crate) fn validate_gif_budget(bytes: &[u8]) -> Result<(), String> {
+/// 在真正解码像素前按逻辑画布和帧数估算内存，拒绝异常膨胀的素材；同时单次遍历算出整轮播放时长（毫秒）。
+pub(crate) fn validate_gif_budget_and_duration(bytes: &[u8]) -> Result<u64, String> {
     let mut decoder = gif::DecodeOptions::new()
         .read_info(Cursor::new(bytes))
         .map_err(|error| format!("读取 GIF 失败：{error}"))?;
@@ -124,20 +124,26 @@ pub(crate) fn validate_gif_budget(bytes: &[u8]) -> Result<(), String> {
     }
     let frame_pixels = u64::from(width) * u64::from(height);
     let mut frames = 0u64;
-    while decoder
+    let mut total_ms = 0u64;
+    while let Some(frame) = decoder
         .next_frame_info()
         .map_err(|error| format!("读取 GIF 帧失败：{error}"))?
-        .is_some()
     {
         frames += 1;
         if frame_pixels.saturating_mul(frames) > MAX_GIF_TOTAL_PIXELS {
             return Err("桌宠动画帧数过多或总画面过大".into());
         }
+        let delay = u64::from(frame.delay) * 10;
+        total_ms += if delay == 0 { 100 } else { delay.max(20) };
     }
     if frames == 0 {
         return Err("GIF 里没有可播放的帧".into());
     }
-    Ok(())
+    Ok(if frames == 1 { 1000 } else { total_ms })
+}
+
+pub(crate) fn validate_gif_budget(bytes: &[u8]) -> Result<(), String> {
+    validate_gif_budget_and_duration(bytes).map(|_| ())
 }
 
 pub(crate) fn encode(

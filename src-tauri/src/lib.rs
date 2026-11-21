@@ -282,6 +282,31 @@ fn atomic_write_bytes(path: &Path, payload: &[u8]) -> Result<(), String> {
     result.map_err(|error| error.to_string())
 }
 
+/// 缩略图等可重建缓存文件的无锁原子写入：同目录写临时文件再 rename，
+/// 避免并发 `media://` 请求读到半截文件，同时省去 `sync_all` 硬件刷盘阻塞截图主路径。
+pub(crate) fn write_cache_atomic(path: &Path, payload: &[u8]) -> Result<(), String> {
+    static CACHE_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| "缓存文件路径缺少文件名".to_string())?;
+    let mut temp_name = file_name.to_os_string();
+    temp_name.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        CACHE_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let temporary = path.with_file_name(temp_name);
+    fs::write(&temporary, payload).map_err(|error| error.to_string())?;
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
 /// 写入 JSON 前保留上一份可解析的版本。替换本身通过同目录临时文件完成，
 /// 避免进程中断后只留下半截文件。
 pub(crate) fn write_json_atomic<T: Serialize + ?Sized>(
@@ -290,7 +315,7 @@ pub(crate) fn write_json_atomic<T: Serialize + ?Sized>(
 ) -> Result<(), String> {
     let payload = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
     if let Ok(previous) = fs::read(path) {
-        if serde_json::from_slice::<Value>(&previous).is_ok() {
+        if serde_json::from_slice::<serde::de::IgnoredAny>(&previous).is_ok() {
             if let Err(error) = atomic_write_bytes(&json_backup_path(path), &previous) {
                 eprintln!(
                     "snapshot: could not preserve backup for {}: {error}",

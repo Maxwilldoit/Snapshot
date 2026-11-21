@@ -364,12 +364,14 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
             .iter()
             .filter(|entry| entry.to_ascii_lowercase().ends_with(".gif"))
             .count();
-        if gif_count > asset.action_bounds.len() && PathBuf::from(&asset.path).is_file() {
+        if asset.action_bounds.is_empty() && gif_count > 0 && PathBuf::from(&asset.path).is_file() {
             if let Ok(bounds) =
                 super::pet::read_gif_action_bounds(&PathBuf::from(&asset.path), &asset.animations)
             {
-                asset.action_bounds = bounds;
-                backfilled_action_bounds = true;
+                if !bounds.is_empty() {
+                    asset.action_bounds = bounds;
+                    backfilled_action_bounds = true;
+                }
             }
         }
     }
@@ -443,46 +445,48 @@ pub(crate) fn load_settings(state: State<'_, AppState>) -> Settings {
 }
 
 #[tauri::command]
-pub(crate) fn save_prompt_settings(
+pub(crate) async fn save_prompt_settings(
     app: AppHandle,
-    state: State<'_, AppState>,
     input: PromptSettingsInput,
 ) -> Result<Settings, String> {
-    if !input.base_url.trim().is_empty() {
-        validate_base_url(&input.base_url)?;
-    }
-    if let Some(key) = input.api_key.as_ref().filter(|key| !key.trim().is_empty()) {
-        keyring_entry()?
-            .set_password(key.trim())
-            .map_err(|error| error.to_string())?;
-    }
-    let mut settings = state.settings.lock();
-    settings.base_url = input.base_url.trim().into();
-    settings.model = input.model.trim().into();
-    settings.templates = input.templates;
-    settings.active_template_id = input.active_template_id;
-    settings.has_api_key = has_api_key();
-    persist_settings(&state.settings_path, &settings)?;
-    let result = settings.clone();
-    emit_settings(&app, &result);
-    Ok(result)
+    super::on_worker(app, move |app, state| {
+        if !input.base_url.trim().is_empty() {
+            validate_base_url(&input.base_url)?;
+        }
+        if let Some(key) = input.api_key.as_ref().filter(|key| !key.trim().is_empty()) {
+            keyring_entry()?
+                .set_password(key.trim())
+                .map_err(|error| error.to_string())?;
+        }
+        let mut settings = state.settings.lock();
+        settings.base_url = input.base_url.trim().into();
+        settings.model = input.model.trim().into();
+        settings.templates = input.templates;
+        settings.active_template_id = input.active_template_id;
+        settings.has_api_key = has_api_key();
+        persist_settings(&state.settings_path, &settings)?;
+        let result = settings.clone();
+        emit_settings(app, &result);
+        Ok(result)
+    })
+    .await
 }
 
 /// 删除系统钥匙串里保存的 API Key，并让所有窗口同步更新。
 #[tauri::command]
-pub(crate) fn clear_api_key(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<Settings, String> {
-    match keyring_entry()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => {}
-        Err(error) => return Err(error.to_string()),
-    }
-    let mut settings = state.settings.lock();
-    settings.has_api_key = false;
-    let result = settings.clone();
-    emit_settings(&app, &result);
-    Ok(result)
+pub(crate) async fn clear_api_key(app: AppHandle) -> Result<Settings, String> {
+    super::on_worker(app, move |app, state| {
+        match keyring_entry()?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        let mut settings = state.settings.lock();
+        settings.has_api_key = false;
+        let result = settings.clone();
+        emit_settings(app, &result);
+        Ok(result)
+    })
+    .await
 }
 
 /// 内置规则的原文：用户改过内置规则后，前端用它「恢复原文」
@@ -683,31 +687,34 @@ pub(crate) fn apply_preferences_patch(
     state: &AppState,
     prefs: PreferencesPatch,
 ) -> Result<Settings, String> {
-    let (previous_autostart, candidate) = {
+    let (previous_autostart, next_autostart, autostart_changed) = {
         let current = state.settings.lock();
-        let mut next = current.clone();
-        apply_patch_fields(&mut next, &prefs)?;
-        (current.launch_on_boot, next)
+        let mut preview = current.clone();
+        apply_patch_fields(&mut preview, &prefs)?;
+        let changed =
+            prefs.launch_on_boot.is_some() && preview.launch_on_boot != current.launch_on_boot;
+        (current.launch_on_boot, preview.launch_on_boot, changed)
     };
 
-    let autostart_changed =
-        prefs.launch_on_boot.is_some() && candidate.launch_on_boot != previous_autostart;
     if autostart_changed {
         // 只在显式改动时写系统启动项，默认不装；取消即删除。不在锁内执行外部 I/O。
-        os::apply_autostart(candidate.launch_on_boot)?;
-    }
-
-    if let Err(error) = persist_settings(&state.settings_path, &candidate) {
-        if autostart_changed {
-            let _ = os::apply_autostart(previous_autostart);
-        }
-        return Err(error);
+        os::apply_autostart(next_autostart)?;
     }
 
     let committed = {
         let mut settings = state.settings.lock();
-        let _ = apply_patch_fields(&mut settings, &prefs);
-        settings.clone()
+        let mut next = settings.clone();
+        if let Err(error) = apply_patch_fields(&mut next, &prefs)
+            .and_then(|()| persist_settings(&state.settings_path, &next))
+        {
+            drop(settings);
+            if autostart_changed {
+                let _ = os::apply_autostart(previous_autostart);
+            }
+            return Err(error);
+        }
+        *settings = next.clone();
+        next
     };
 
     if prefs.launch_on_boot.is_some() {
@@ -720,12 +727,14 @@ pub(crate) fn apply_preferences_patch(
 }
 
 #[tauri::command]
-pub(crate) fn save_preferences(
+pub(crate) async fn save_preferences(
     app: AppHandle,
-    state: State<'_, AppState>,
     prefs: PreferencesPatch,
 ) -> Result<Settings, String> {
-    apply_preferences_patch(&app, &state, prefs)
+    super::on_worker(app, move |app, state| {
+        apply_preferences_patch(app, state, prefs)
+    })
+    .await
 }
 
 const SOUND_EXTENSIONS: [&str; 4] = ["mp3", "wav", "ogg", "m4a"];

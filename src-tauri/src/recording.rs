@@ -44,18 +44,26 @@ pub(crate) struct Finished {
 #[derive(Default)]
 pub(crate) struct Recorder {
     active: Option<Active>,
+    /// 正在停止并落盘收尾的文件路径：停止期间释放 recorder 锁，但列表与媒体协议仍需避开该半成品文件
+    stopping_output: Option<PathBuf>,
     /// 上一次录制异常结束的原因，在下一次状态查询里带给界面
     last_message: Option<String>,
 }
+
+static RECORDING_OP_LOCK: Mutex<()> = Mutex::new(());
+static RECORDING_META_LOCK: Mutex<()> = Mutex::new(());
 
 impl Recorder {
     pub(crate) fn is_active(&self) -> bool {
         self.active.is_some()
     }
 
-    /// 正在写的那个文件：列表和媒体协议都要避开它，免得把半截录像当成品
+    /// 正在写或正在收尾的那个文件：列表和媒体协议都要避开它，免得把半截录像当成品
     pub(crate) fn active_output(&self) -> Option<PathBuf> {
-        self.active.as_ref().map(|active| active.output.clone())
+        self.active
+            .as_ref()
+            .map(|active| active.output.clone())
+            .or_else(|| self.stopping_output.clone())
     }
 
     fn status(&self, message: Option<String>) -> RecordingStatus {
@@ -238,35 +246,71 @@ pub(crate) fn get_recording_dir(state: State<'_, AppState>) -> Result<String, St
 }
 
 #[tauri::command]
-pub(crate) fn toggle_recording(
+pub(crate) async fn toggle_recording(
     app: AppHandle,
-    state: State<'_, AppState>,
     target_id: Option<u32>,
 ) -> Result<RecordingStatus, String> {
-    let mut recorder = state.recorder.lock();
-    if let Some(reason) = recorder.refresh() {
-        let status = recorder.status(None);
-        drop(recorder);
-        activity::record_error(
-            &app,
-            ui_text("录制意外结束", "Recording stopped unexpectedly"),
-            &reason,
-        );
-        let _ = app.emit("recording-changed", &status);
-        let _ = app.emit("pet-event", "recording.failure");
-        return Err(format!(
-            "{}：{reason}",
-            ui_text("录制意外结束", "Recording stopped unexpectedly")
-        ));
-    }
-    if recorder.active.is_some() {
-        let finished = recorder.stop();
-        let status = recorder.status(None);
-        drop(recorder);
+    on_worker(app, move |app, state| {
+        toggle_recording_now(app, state, target_id)
+    })
+    .await
+}
+
+fn toggle_recording_now(
+    app: &AppHandle,
+    state: &AppState,
+    target_id: Option<u32>,
+) -> Result<RecordingStatus, String> {
+    let _op_guard = RECORDING_OP_LOCK.lock();
+    let active_to_stop = {
+        let mut recorder = state.recorder.lock();
+        if let Some(reason) = recorder.refresh() {
+            let status = recorder.status(None);
+            drop(recorder);
+            activity::record_error(
+                app,
+                ui_text("录制意外结束", "Recording stopped unexpectedly"),
+                &reason,
+            );
+            let _ = app.emit("recording-changed", &status);
+            let _ = app.emit("pet-event", "recording.failure");
+            return Err(format!(
+                "{}：{reason}",
+                ui_text("录制意外结束", "Recording stopped unexpectedly")
+            ));
+        }
+        let active = recorder.active.take();
+        recorder.stopping_output = active.as_ref().map(|item| item.output.clone());
+        active
+    };
+
+    if let Some(active) = active_to_stop {
+        let candidate = Finished {
+            target: active.target,
+            app_id: active.app_id,
+            duration_ms: now_millis().saturating_sub(active.started_at),
+            output: active.output,
+        };
+        let stop_result = active
+            .session
+            .stop()
+            .and_then(|()| validate_recording_output(&candidate.output));
+        let (finished, status) = {
+            let mut recorder = state.recorder.lock();
+            recorder.stopping_output = None;
+            let finished = match stop_result {
+                Ok(()) => Some(candidate),
+                Err(error) => {
+                    recorder.last_message = Some(error);
+                    None
+                }
+            };
+            (finished, recorder.status(None))
+        };
         return match finished {
             Some(finished) => {
                 activity::record(
-                    &app,
+                    app,
                     activity::Activity::new("record", finished.target)
                         .meta(format_duration(finished.duration_ms))
                         .detail(finished.output.to_string_lossy().to_string()),
@@ -293,7 +337,7 @@ pub(crate) fn toggle_recording(
                     .unwrap_or("录制组件没有正常结束")
                     .to_string();
                 activity::record_error(
-                    &app,
+                    app,
                     ui_text("录制没能保存", "The recording wasn’t saved"),
                     &reason,
                 );
@@ -309,7 +353,7 @@ pub(crate) fn toggle_recording(
 
     // 指定了窗口就录它；没指定才回到「上一个应用」，与窗口快照的口径一致
     let target = match target_id {
-        Some(id) => list_tracked_window(&app, id)?,
+        Some(id) => list_tracked_window(app, id)?,
         None => state
             .tracker
             .lock()
@@ -318,7 +362,7 @@ pub(crate) fn toggle_recording(
             .ok_or_else(|| "还没有上一个应用可录制".to_string())?,
     };
     let settings = state.settings.lock().clone();
-    let output_dir = resolve_recording_dir(&state, &settings)?;
+    let output_dir = resolve_recording_dir(state, &settings)?;
     fs::create_dir_all(&output_dir).map_err(|error| error.to_string())?;
     let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
     let output = output_dir.join(if interface_is_english() {
@@ -326,20 +370,23 @@ pub(crate) fn toggle_recording(
     } else {
         format!("应用快照-{timestamp}.mp4")
     });
-    recorder.last_message = None;
 
     let options = RecordOptions::supported(&settings, &os::capabilities());
     let (session, message) = os::start_recording(target.id, &options, &output)?;
     // 录的是哪个窗口就记哪个应用的稳定标识（开录时取一次）；取不到就没有角标，不影响录制
     let app_id = os::app_stable_id(target.pid);
-    recorder.active = Some(Active {
-        session,
-        target: target.app_name,
-        app_id,
-        started_at: now_millis(),
-        output,
-    });
-    let status = recorder.status(message);
+    let status = {
+        let mut recorder = state.recorder.lock();
+        recorder.last_message = None;
+        recorder.active = Some(Active {
+            session,
+            target: target.app_name,
+            app_id,
+            started_at: now_millis(),
+            output,
+        });
+        recorder.status(message)
+    };
     let _ = app.emit("recording-changed", &status);
     let _ = app.emit("pet-event", "recording.started");
     Ok(status)
@@ -403,23 +450,28 @@ fn mtime_millis(meta: &fs::Metadata) -> u64 {
 }
 
 /// 扫目录列出录像，新的在前；exclude 是正在录的那个文件。
+/// 先按文件名（前缀 + `.mp4`）过滤再查 metadata，避免在文件众多的「下载」目录中对无关文件逐一 stat。
 fn scan_recordings(dir: &Path, exclude: Option<&Path>) -> Vec<RecordingRecord> {
     let mut records = Vec::new();
     let Ok(entries) = fs::read_dir(dir) else {
         return records;
     };
     for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() || exclude == Some(path.as_path()) {
-            continue;
-        }
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        let raw_name = entry.file_name();
+        let Some(file_name) = raw_name.to_str() else {
             continue;
         };
         let Some(stem) = recording_stem(file_name) else {
             continue;
         };
+        let path = entry.path();
+        if exclude == Some(path.as_path()) {
+            continue;
+        }
         let Ok(meta) = entry.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
         records.push(RecordingRecord {
             id: stem.to_string(),
             file_name: file_name.to_string(),
@@ -463,27 +515,24 @@ fn list_recordings_in(state: &AppState, dir: &Path) -> Vec<RecordingRecord> {
 }
 
 #[tauri::command]
-pub(crate) fn list_recordings(state: State<'_, AppState>) -> Vec<RecordingRecord> {
-    list_recordings_now(&state)
+pub(crate) async fn list_recordings(app: AppHandle) -> Result<Vec<RecordingRecord>, String> {
+    on_worker(app, |_app, state| Ok(list_recordings_now(state))).await
 }
 
 /// 录屏来源应用稳定标识索引：`{ 录像 id: appId }`。只存取得到标识的录像，
 /// 取不到（进程已退出等）就不写条目，历史也就不显示角标。读不了/没有文件按空索引处理。
 fn read_recording_meta(path: &Path) -> HashMap<String, String> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+    let _guard = RECORDING_META_LOCK.lock();
+    read_json_with_backup(path).unwrap_or_default()
 }
 
 /// 停止录制时落一条来源标识。写失败不影响录像本身（角标只是锦上添花）。
 fn write_recording_meta_entry(path: &Path, id: &str, app_id: Option<String>) {
     let Some(app_id) = app_id else { return };
-    let mut meta = read_recording_meta(path);
+    let _guard = RECORDING_META_LOCK.lock();
+    let mut meta: HashMap<String, String> = read_json_with_backup(path).unwrap_or_default();
     meta.insert(id.to_string(), app_id);
-    if let Ok(text) = serde_json::to_string(&meta) {
-        let _ = fs::write(path, text);
-    }
+    let _ = write_json_atomic(path, &meta);
 }
 
 /// 删掉选中的几段，返回删完后的列表。正在录的那段不删。
@@ -558,6 +607,10 @@ fn recording_path(state: &AppState, id: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// 单次 Range 响应的最大字节数（4 MB）：历史页 `<video preload="metadata">` 与播放器拖动常发
+/// `bytes=0-` 等开放区间，限制单次切片大小可避免一次把数百 MB 录像读入内存。
+const MAX_RANGE_CHUNK: u64 = 4 * 1024 * 1024;
+
 /// 解析单段 Range（bytes=start-end / bytes=start- / bytes=-N）；多段或非法时返回 None，整文件回 200
 fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     if len == 0 {
@@ -570,18 +623,22 @@ fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
         if suffix == 0 {
             return None;
         }
-        Some((len.saturating_sub(suffix), len - 1))
+        let actual_suffix = suffix.min(MAX_RANGE_CHUNK);
+        Some((len.saturating_sub(actual_suffix), len - 1))
     } else {
         let start: u64 = start.parse().ok()?;
-        let end: u64 = if end.is_empty() {
+        let requested_end: u64 = if end.is_empty() {
             len - 1
         } else {
             end.parse().ok()?
         };
-        if start >= len || end < start {
+        if start >= len || requested_end < start {
             return None;
         }
-        Some((start, end.min(len - 1)))
+        let capped_end = requested_end
+            .min(len - 1)
+            .min(start.saturating_add(MAX_RANGE_CHUNK - 1));
+        Some((start, capped_end))
     }
 }
 
@@ -699,6 +756,7 @@ mod tests {
         );
         // 文件不存在按空索引处理，不报错
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(crate::json_backup_path(&path));
         assert!(super::read_recording_meta(&path).is_empty());
     }
 
@@ -795,6 +853,12 @@ mod tests {
         assert_eq!(super::parse_range("bytes=0-1,5-6", 100), None);
         assert_eq!(super::parse_range("items=0-1", 100), None);
         assert_eq!(super::parse_range("bytes=0-", 0), None);
+        // 超大录像的开放 Range 请求按 MAX_RANGE_CHUNK 分片返回，避免整段读入内存
+        let huge = super::MAX_RANGE_CHUNK * 10;
+        assert_eq!(
+            super::parse_range("bytes=0-", huge),
+            Some((0, super::MAX_RANGE_CHUNK - 1))
+        );
     }
 
     #[test]

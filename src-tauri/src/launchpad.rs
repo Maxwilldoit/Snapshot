@@ -6,7 +6,7 @@
 use super::{actions, on_worker, os, settings, AppState};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct InstalledApp {
@@ -376,23 +376,25 @@ pub(crate) async fn launchpad_state(app: AppHandle) -> Result<LaunchpadView, Str
 }
 
 #[tauri::command]
-pub(crate) fn save_launchpad(
+pub(crate) async fn save_launchpad(
     app: AppHandle,
-    state: State<'_, AppState>,
     order: Vec<String>,
     folders: Vec<LaunchpadFolder>,
 ) -> Result<(), String> {
-    let apps = cached_catalog(&state);
-    let (_, order, folders) = arrange(&apps, &order, &folders);
-    let saved = {
-        let mut settings = state.settings.lock();
-        settings.launchpad_order = order;
-        settings.launchpad_folders = folders;
-        settings::persist_settings(&state.settings_path, &settings)?;
-        settings.clone()
-    };
-    settings::emit_settings(&app, &saved);
-    Ok(())
+    on_worker(app, move |app, state| {
+        let apps = cached_catalog(state);
+        let (_, order, folders) = arrange(&apps, &order, &folders);
+        let saved = {
+            let mut settings = state.settings.lock();
+            settings.launchpad_order = order;
+            settings.launchpad_folders = folders;
+            settings::persist_settings(&state.settings_path, &settings)?;
+            settings.clone()
+        };
+        settings::emit_settings(app, &saved);
+        Ok(())
+    })
+    .await
 }
 
 /// 在工作线程里启动：Linux 要等一下 `gio launch` 的结果，别让启动台卡住。

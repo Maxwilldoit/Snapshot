@@ -269,7 +269,7 @@ pub(crate) fn start(app: AppHandle) {
         let Some(state) = app.try_state::<AppState>() else {
             continue;
         };
-        let captured = {
+        let sample = {
             let mut last_marker = poll_marker().lock();
             let Some(sample) = os::clipboard_sample(&last_marker) else {
                 continue;
@@ -281,9 +281,9 @@ pub(crate) fn start(app: AppHandle) {
             if sample.concealed {
                 continue;
             }
-            capture_sample(&state, &sample)
+            sample
         };
-        if let Ok(Some(entry)) = captured {
+        if let Ok(Some(entry)) = capture_sample(&state, &sample) {
             let _ = app.emit("clipboard-history-changed", &entry);
         }
     });
@@ -402,9 +402,7 @@ pub(crate) async fn copy_clipboard_history(
             Ok(created)
         } else {
             let mut last_marker = poll_marker().lock();
-            Clipboard::new()
-                .and_then(|mut clipboard| clipboard.set_text(entry.text.clone()))
-                .map_err(|error| format!("写入剪贴板失败：{error}"))?;
+            clipboard::copy_text(entry.text.clone())?;
             let created = state
                 .clipboard_history
                 .lock()
@@ -454,7 +452,7 @@ pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, Stri
         .map_err(|error| format!("无法读取记录的图片：{error}"))?
         .to_rgba8();
     let encoded = encode_thumbnail(&image)?;
-    let _ = fs::write(&thumb, &encoded);
+    let _ = write_cache_atomic(&thumb, &encoded);
     Ok(encoded)
 }
 
