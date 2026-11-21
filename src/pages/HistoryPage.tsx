@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CheckCheck, FolderOpen, Trash2, X } from "lucide-react";
 import {
   annotateSnapshot,
@@ -15,7 +15,13 @@ import { formatBytes, groupByDay } from "../lib/format";
 import { appIdSearchName, matchesSearchEntry } from "../lib/dateSearch";
 import { useFlip, wait, DURATION, stagger, usePresence } from "../lib/motion";
 import { MediaTile } from "../components/MediaTile";
-import { JustifiedGrid } from "../components/JustifiedGrid";
+import {
+  JustifiedGrid,
+  OFFSCREEN_VERTICAL_RANGE,
+  computeJustifiedGridLayout,
+  getLastMeasuredGridWidth,
+  setLastMeasuredGridWidth,
+} from "../components/JustifiedGrid";
 import { HoverPreview, type HoverPreviewAnchor } from "../components/HoverPreview";
 import { PhotoViewer } from "../components/PhotoViewer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -33,6 +39,49 @@ import type { RecordingRecord, SnapshotRecord } from "../types";
 type HistoryMenu = { item: MediaItem; anchor: HTMLElement; point: { x: number; y: number } };
 
 const mediaItemSize = (item: MediaItem) => item;
+const SCROLL_BAND_STEP = 360;
+const SCROLL_OVERSCAN = 800;
+const VIRTUALIZE_THRESHOLD = 60;
+
+function sameSnapshots(a: SnapshotRecord[] | null, b: SnapshotRecord[]): boolean {
+  if (!a || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id
+      || x.createdAt !== y.createdAt
+      || x.sizeBytes !== y.sizeBytes
+      || x.width !== y.width
+      || x.height !== y.height
+      || x.fileName !== y.fileName
+      || x.appName !== y.appName
+      || x.appId !== y.appId
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameRecordings(a: RecordingRecord[], b: RecordingRecord[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id
+      || x.createdAt !== y.createdAt
+      || x.sizeBytes !== y.sizeBytes
+      || x.fileName !== y.fileName
+      || x.appName !== y.appName
+      || x.appId !== y.appId
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** 历史：日期自然随列表滚动 + 同行等高拼图 + 右侧极简时间尺；悬停左右浮出无损原图与元信息预览，点击快照直达标注。 */
 export function HistoryPage() {
@@ -43,6 +92,10 @@ export function HistoryPage() {
   const skipInitialStagger = useRef(cachedHistory !== null).current;
   const [snapshots, setSnapshots] = useState<SnapshotRecord[] | null>(() => cachedHistory?.snapshots ?? null);
   const [recordings, setRecordings] = useState<RecordingRecord[]>(() => cachedHistory?.recordings ?? []);
+  const snapshotsRef = useRef<SnapshotRecord[] | null>(snapshots);
+  snapshotsRef.current = snapshots;
+  const recordingsRef = useRef<RecordingRecord[]>(recordings);
+  recordingsRef.current = recordings;
   const [recordingMeta, setRecordingMeta] = useState<Record<string, RecordingMeta>>(() => cachedMeta);
   const metaRef = useRef<Record<string, RecordingMeta>>(cachedMeta);
   const [query, setQuery] = useState("");
@@ -58,6 +111,15 @@ export function HistoryPage() {
   const [deleting, setDeleting] = useState(false);
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<Set<string>>(new Set());
+  const [scrollBand, setScrollBand] = useState(0);
+  const [gridWidth, setGridWidth] = useState(() => {
+    const cached = getLastMeasuredGridWidth();
+    if (cached > 0) return cached;
+    if (typeof document !== "undefined" && document.documentElement.clientWidth > 244) {
+      return document.documentElement.clientWidth - 244;
+    }
+    return 0;
+  });
   const known = useRef<Set<string> | null>(
     cachedHistory
       ? new Set(mergeTimeline(cachedHistory.snapshots, cachedHistory.recordings, cachedMeta).map((item) => item.id))
@@ -87,6 +149,11 @@ export function HistoryPage() {
       scrollIdleTimerRef.current = null;
     }, 140);
     dismissHoverCold();
+    const scrollEl = scrollRef.current;
+    if (scrollEl) {
+      const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / SCROLL_BAND_STEP));
+      setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
+    }
   }, [dismissHoverCold]);
 
   useEffect(() => () => {
@@ -114,13 +181,20 @@ export function HistoryPage() {
       const snaps = Array.isArray(snapList) ? snapList : [];
       const recList = await listRecordings().catch(() => [] as RecordingRecord[]);
       const recs = Array.isArray(recList) ? recList : [];
+      if (
+        snapshotsRef.current !== null
+        && sameSnapshots(snapshotsRef.current, snaps)
+        && sameRecordings(recordingsRef.current, recs)
+      ) {
+        return;
+      }
       const next = mergeTimeline(snaps, recs, metaRef.current);
       if (known.current) {
         const added = next.filter((item) => !known.current!.has(item.id)).map((item) => item.id);
         if (added.length) setFresh(new Set(added));
       }
       known.current = new Set(next.map((item) => item.id));
-      flip.capture();
+      if (snapshotsRef.current !== null) flip.capture();
       setSnapshots(snaps);
       setRecordings(recs);
     } catch (error) {
@@ -185,6 +259,45 @@ export function HistoryPage() {
     return groupByDay(filtered, (item) => item.createdAt);
   }, [filtered, language]);
 
+  const hasGroups = items !== null && groups.length > 0;
+  useLayoutEffect(() => {
+    if (!hasGroups) return;
+    const node = listRef.current;
+    if (!node) return;
+    const measure = () => {
+      const firstGrid = node.querySelector<HTMLElement>(".jgrid");
+      const next = firstGrid
+        ? Math.floor(firstGrid.clientWidth)
+        : Math.max(0, Math.floor(node.clientWidth - 44));
+      if (next > 0) setLastMeasuredGridWidth(next);
+      setGridWidth((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasGroups]);
+
+  const groupLayouts = useMemo(() => {
+    let startOrder = 0;
+    let y = 92; // .gallery padding-top (60) + first .day margin-top (4) + .day-label (28)
+    return groups.map((group) => {
+      const layout = computeJustifiedGridLayout(group.items, mediaItemSize, gridWidth);
+      const gridTop = y;
+      const totalHeight = layout?.totalHeight ?? 0;
+      y += totalHeight + 52; // next .day margin-top (24) + .day-label (28)
+      const entry = {
+        group,
+        layout,
+        gridTop,
+        startIndex: startOrder,
+      };
+      startOrder += group.items.length;
+      return entry;
+    });
+  }, [groups, gridWidth]);
+
   const exitSelecting = useCallback(() => {
     setSelecting(false);
     setSelected(new Set());
@@ -242,7 +355,8 @@ export function HistoryPage() {
     if (selectingRef.current || scrollingRef.current || !node.isConnected) return;
     hoveredTargetRef.current = { id: item.id, node, pointerX };
     const rect = node.getBoundingClientRect();
-    const latest = filteredRef.current.find((entry) => entry.id === item.id) ?? item;
+    const meta = item.kind === "recording" ? metaRef.current[item.id] : undefined;
+    const latest = meta ? { ...item, width: meta.width, height: meta.height, durationMs: meta.durationMs } : item;
     setHoverAnchor({
       item: latest,
       rect: {
@@ -308,8 +422,14 @@ export function HistoryPage() {
       setLeaving(new Set(ids));
       await wait(DURATION.fade);
       const all = items ?? [];
-      const snapIds = ids.filter((id) => all.find((item) => item.id === id)?.kind === "snapshot");
-      const recIds = ids.filter((id) => all.find((item) => item.id === id)?.kind === "recording");
+      const idSet = new Set(ids);
+      const snapIds: string[] = [];
+      const recIds: string[] = [];
+      for (const item of all) {
+        if (!idSet.has(item.id)) continue;
+        if (item.kind === "snapshot") snapIds.push(item.id);
+        else recIds.push(item.id);
+      }
       const [nextSnaps, nextRecs] = await Promise.all([
         snapIds.length ? deleteSnapshots(snapIds) : Promise.resolve(snapshots ?? []),
         recIds.length ? deleteRecordings(recIds) : Promise.resolve(recordings),
@@ -321,7 +441,7 @@ export function HistoryPage() {
       setRecordings(nextRecs);
       if (pageCache) pageCache.trash = null;
       setLeaving(new Set());
-      setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))));
+      setSelected((current) => new Set([...current].filter((id) => !idSet.has(id))));
       notify(t(ids.length === 1 ? "已将 1 项移入回收站" : "已将 {count} 项移入回收站", { count: ids.length }));
       return true;
     } catch (error) {
@@ -361,7 +481,7 @@ export function HistoryPage() {
   const visibleIds = useMemo(() => filtered.map((item) => item.id), [filtered]);
   const previewRecords = filtered.length ? filtered : (items ?? []);
   const allDeleting = total > 0 && deleteIds?.length === total;
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const allVisibleSelected = visibleIds.length > 0 && selected.size >= visibleIds.length && visibleIds.every((id) => selected.has(id));
   const confirmDialog = usePresence(
     confirming
       ? {
@@ -372,6 +492,131 @@ export function HistoryPage() {
         }
       : null,
   );
+
+  const renderTile = useCallback(
+    (item: MediaItem, box: { width: number; height: number }, slot: number) => {
+      const isStatic = skipInitialStagger || slot >= 12;
+      return (
+        <figure
+          key={item.id}
+          data-flip-key={item.id}
+          style={
+            isStatic
+              ? { width: box.width, height: box.height }
+              : { ...stagger(slot), width: box.width, height: box.height }
+          }
+          className={`shot ${isStatic ? "is-static" : ""} ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
+        >
+          <MediaTile
+            item={item}
+            boxWidth={box.width}
+            boxHeight={box.height}
+            selecting={selecting}
+            selected={selected.has(item.id)}
+            onOpen={open}
+            onMenu={openContextMenu}
+            onHoverStart={handleHoverStart}
+            onHoverMove={handleHoverMove}
+            onHoverEnd={handleHoverEnd}
+            onMeta={reportMeta}
+          />
+        </figure>
+      );
+    },
+    [
+      skipInitialStagger,
+      leaving,
+      fresh,
+      selecting,
+      selected,
+      open,
+      openContextMenu,
+      handleHoverStart,
+      handleHoverMove,
+      handleHoverEnd,
+      reportMeta,
+    ],
+  );
+
+  const body = useMemo(() => {
+    if (total === 0) {
+      const shortcut = acceleratorOf(settings, "snapshot");
+      const bound = shortcut && !settings.shortcutsPaused && !conflicts.includes(shortcut);
+      return (
+        <div className="empty mw-empty">
+          <h2 className="empty-title">{t("还没有截图或录屏")}</h2>
+          {bound ? (
+            <p className="empty-hint">
+              <Keys value={shortcut} />
+              <span>{t("截图后会自动留在这里")}</span>
+            </p>
+          ) : (
+            <div className="empty-actions">
+              <button type="button" className="btn btn-primary" onClick={() => navigate("shortcuts")}>
+                {t("设置截图快捷键")}
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (filtered.length === 0) {
+      return (
+        <p className="empty-line mw-empty-line">
+          {t("没有含「{query}」的历史记录。", { query: query.trim() })}
+          <button type="button" className="link" onClick={() => setQuery("")}>{t("清除筛选")}</button>
+        </p>
+      );
+    }
+    const virtualized = filtered.length > VIRTUALIZE_THRESHOLD && gridWidth > 0;
+    const viewH = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 760;
+    const winTop = scrollBand * SCROLL_BAND_STEP - SCROLL_OVERSCAN;
+    const winBottom = (scrollBand + 1) * SCROLL_BAND_STEP + viewH + SCROLL_OVERSCAN;
+    return (
+      <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
+        {groupLayouts.map(({ group, layout, gridTop, startIndex }) => {
+          let visibleRange;
+          if (virtualized && layout) {
+            const relTop = winTop - gridTop;
+            const relBottom = winBottom - gridTop;
+            if (relBottom < 0 || relTop > layout.totalHeight) {
+              visibleRange = OFFSCREEN_VERTICAL_RANGE;
+            } else {
+              visibleRange = { top: Math.max(0, relTop), bottom: relBottom };
+            }
+          }
+          return (
+            <section className="day" key={group.key} aria-label={group.label}>
+              <div className="day-label">
+                <h2 className="day-title">{group.label}</h2>
+              </div>
+              <JustifiedGrid
+                items={group.items}
+                size={mediaItemSize}
+                startIndex={startIndex}
+                layout={gridWidth > 0 ? layout : undefined}
+                visibleRange={visibleRange}
+                render={renderTile}
+              />
+            </section>
+          );
+        })}
+      </div>
+    );
+  }, [
+    total,
+    settings,
+    conflicts,
+    t,
+    navigate,
+    filtered.length,
+    query,
+    gridWidth,
+    scrollBand,
+    selecting,
+    groupLayouts,
+    renderTile,
+  ]);
 
   if (items === null) {
     return (
@@ -399,8 +644,12 @@ export function HistoryPage() {
         aria-label={selectAllLabel}
         title={selectAllLabel}
         onClick={() => {
-          if (allVisibleSelected) setSelected(new Set([...selected].filter((id) => !visibleIds.includes(id))));
-          else setSelected(new Set([...selected, ...visibleIds]));
+          if (allVisibleSelected) {
+            const vis = new Set(visibleIds);
+            setSelected(new Set([...selected].filter((id) => !vis.has(id))));
+          } else {
+            setSelected(new Set([...selected, ...visibleIds]));
+          }
         }}
       >
         <CheckCheck aria-hidden="true" />
@@ -414,85 +663,12 @@ export function HistoryPage() {
     </Toolbar>
   ) : (
     <Toolbar title={t("历史")}>
-      <SearchField value={query} onChange={setQuery} label={t("搜索截图")} placeholder={t("搜索应用名或日期")} />
+      <SearchField value={query} onChange={(next) => { setQuery(next); setScrollBand(0); }} label={t("搜索截图")} placeholder={t("搜索应用名或日期")} />
       <button type="button" className="tb-btn" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
         <FolderOpen aria-hidden="true" />
       </button>
     </Toolbar>
   );
-
-  let body;
-  if (total === 0) {
-    const shortcut = acceleratorOf(settings, "snapshot");
-    const bound = shortcut && !settings.shortcutsPaused && !conflicts.includes(shortcut);
-    body = (
-      <div className="empty mw-empty">
-        <h2 className="empty-title">{t("还没有截图或录屏")}</h2>
-        {bound ? (
-          <p className="empty-hint">
-            <Keys value={shortcut} />
-            <span>{t("截图后会自动留在这里")}</span>
-          </p>
-        ) : (
-          <div className="empty-actions">
-            <button type="button" className="btn btn-primary" onClick={() => navigate("shortcuts")}>
-              {t("设置截图快捷键")}
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  } else if (filtered.length === 0) {
-    body = (
-      <p className="empty-line mw-empty-line">
-        {t("没有含「{query}」的历史记录。", { query: query.trim() })}
-        <button type="button" className="link" onClick={() => setQuery("")}>{t("清除筛选")}</button>
-      </p>
-    );
-  } else {
-    let order = 0;
-    body = (
-      <div className={`history-groups gallery ${selecting ? "is-selecting" : ""}`} ref={listRef}>
-        {groups.map((group) => (
-          <section className="day" key={group.key} aria-label={group.label}>
-            <div className="day-label">
-              <h2 className="day-title">{group.label}</h2>
-            </div>
-            <JustifiedGrid
-              items={group.items}
-              size={mediaItemSize}
-              render={(item, box) => {
-                const slot = order++;
-                const isStatic = skipInitialStagger || slot >= 12;
-                return (
-                <figure
-                  key={item.id}
-                  data-flip-key={item.id}
-                  style={isStatic ? { width: box.width } : { ...stagger(slot), width: box.width }}
-                  className={`shot ${isStatic ? "is-static" : ""} ${leaving.has(item.id) ? "is-leaving" : ""} ${fresh.has(item.id) ? "is-fresh" : ""}`}
-                >
-                  <MediaTile
-                    item={item}
-                    boxWidth={box.width}
-                    boxHeight={box.height}
-                    selecting={selecting}
-                    selected={selected.has(item.id)}
-                    onOpen={open}
-                    onMenu={openContextMenu}
-                    onHoverStart={handleHoverStart}
-                    onHoverMove={handleHoverMove}
-                    onHoverEnd={handleHoverEnd}
-                    onMeta={reportMeta}
-                  />
-                </figure>
-                );
-              }}
-            />
-          </section>
-        ))}
-      </div>
-    );
-  }
 
   return (
     <div className="mw-page history-page">

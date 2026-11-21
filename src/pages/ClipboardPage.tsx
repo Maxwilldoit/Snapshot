@@ -18,6 +18,36 @@ const MAX_PREVIEW_CHARS = 320;
 const MAX_TITLE_CHARS = 600;
 const THUMB_MAX_WIDTH = 200;
 const THUMB_MAX_HEIGHT = 64;
+const CLIP_SCROLL_BAND_STEP = 360;
+const CLIP_SCROLL_OVERSCAN = 800;
+const CLIP_VIRTUALIZE_THRESHOLD = 60;
+
+function sameClipboardRecords(a: ClipboardHistoryEntry[] | null, b: ClipboardHistoryEntry[]): boolean {
+  if (!a || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id
+      || x.createdAt !== y.createdAt
+      || x.kind !== y.kind
+      || x.hash !== y.hash
+      || x.width !== y.width
+      || x.height !== y.height
+      || x.text !== y.text
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function clipboardRowHeight(record: ClipboardHistoryEntry): number {
+  if (record.kind === "image") {
+    return thumbDimensions(record.width, record.height).height + 19;
+  }
+  return 38;
+}
 
 function previewText(text: string): string {
   const truncated = text.length > MAX_PREVIEW_CHARS;
@@ -49,10 +79,13 @@ export function ClipboardPage() {
   const cachedClipboard = pageCache?.clipboard ?? null;
   const skipInitialStagger = useRef(cachedClipboard !== null).current;
   const [records, setRecords] = useState<ClipboardHistoryEntry[] | null>(() => cachedClipboard?.records ?? null);
+  const recordsRef = useRef<ClipboardHistoryEntry[] | null>(records);
+  recordsRef.current = records;
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [busy, setBusy] = useState(false);
   const [hoverAnchor, setHoverAnchor] = useState<HoverPreviewAnchor | null>(null);
+  const [scrollBand, setScrollBand] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const hoverAnchorRef = useRef<HoverPreviewAnchor | null>(null);
   hoverAnchorRef.current = hoverAnchor;
@@ -73,6 +106,11 @@ export function ClipboardPage() {
       scrollIdleTimerRef.current = null;
     }, 140);
     dismissHover();
+    const scrollEl = scrollRef.current;
+    if (scrollEl) {
+      const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / CLIP_SCROLL_BAND_STEP));
+      setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
+    }
   }, [dismissHover]);
 
   useEffect(() => () => {
@@ -122,7 +160,11 @@ export function ClipboardPage() {
 
   const applyRecords = useCallback((list: ClipboardHistoryEntry[]) => {
     const deferred = deferredIdsRef.current;
-    setRecords(deferred.size === 0 ? list : list.filter((item) => !deferred.has(item.id)));
+    const next = deferred.size === 0 ? list : list.filter((item) => !deferred.has(item.id));
+    if (recordsRef.current !== null && sameClipboardRecords(recordsRef.current, next)) {
+      return;
+    }
+    setRecords(next);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -156,6 +198,24 @@ export function ClipboardPage() {
     return sorted.filter((item) => matchesSearchEntry(item.createdAt, item.kind === "text" ? [item.text] : [], query));
   }, [records, query]);
   const groups = useMemo(() => groupByDay(filtered, (item) => item.createdAt), [filtered]);
+  const groupLayouts = useMemo(() => {
+    let startOrder = 0;
+    let y = 34; // .prompt-groups padding-top (2) + first .day margin-top (4) + .day-label (28)
+    return groups.map((group) => {
+      const rowTops: number[] = [];
+      let top = 0;
+      for (let i = 0; i < group.items.length; i++) {
+        rowTops.push(top);
+        top += clipboardRowHeight(group.items[i]);
+      }
+      const listTop = y;
+      const totalHeight = top;
+      y += totalHeight + 52; // next .day margin-top (24) + .day-label (28)
+      const entry = { group, rowTops, totalHeight, listTop, startIndex: startOrder };
+      startOrder += group.items.length;
+      return entry;
+    });
+  }, [groups]);
 
   const copyById = useCallback(async (id: string) => {
     dismissHover();
@@ -192,7 +252,7 @@ export function ClipboardPage() {
 
   const toolbar = (
     <Toolbar title={t("剪贴板")}>
-      <SearchField value={query} onChange={setQuery} label={t("搜索剪贴板历史")} placeholder={t("搜索内容或日期")} />
+      <SearchField value={query} onChange={(next) => { setQuery(next); setScrollBand(0); }} label={t("搜索剪贴板历史")} placeholder={t("搜索内容或日期")} />
       {(records?.length ?? 0) > 0 && (
         <button
           type="button"
@@ -207,50 +267,128 @@ export function ClipboardPage() {
     </Toolbar>
   );
 
-  let body;
-  if (records === null) {
-    body = <LoadingState text={t("正在读取剪贴板历史…")} />;
-  } else if (records.length === 0) {
-    body = (
-      <div className="empty mw-empty">
-        <h2 className="empty-title">{t("还没有剪贴板记录")}</h2>
-        <p className="empty-body">{t("复制一段文字或一张图片，稍等片刻就会出现在这里。密码管理器标记的敏感内容不会被记录。")}</p>
-      </div>
-    );
-  } else if (filtered.length === 0) {
-    body = (
-      <p className="empty-line mw-empty-line">
-        {t("没有含「{query}」的剪贴板记录。", { query: query.trim() })}
-        <button type="button" className="link" onClick={() => setQuery("")}>{t("清除筛选")}</button>
-      </p>
-    );
-  } else {
-    let order = 0;
-    body = (
+  const body = useMemo(() => {
+    if (records === null) {
+      return <LoadingState text={t("正在读取剪贴板历史…")} />;
+    }
+    if (records.length === 0) {
+      return (
+        <div className="empty mw-empty">
+          <h2 className="empty-title">{t("还没有剪贴板记录")}</h2>
+          <p className="empty-body">{t("复制一段文字或一张图片，稍等片刻就会出现在这里。密码管理器标记的敏感内容不会被记录。")}</p>
+        </div>
+      );
+    }
+    if (filtered.length === 0) {
+      return (
+        <p className="empty-line mw-empty-line">
+          {t("没有含「{query}」的剪贴板记录。", { query: query.trim() })}
+          <button type="button" className="link" onClick={() => setQuery("")}>{t("清除筛选")}</button>
+        </p>
+      );
+    }
+    const virtualized =
+      filtered.length > CLIP_VIRTUALIZE_THRESHOLD
+      && typeof document !== "undefined"
+      && document.documentElement.clientWidth > 0;
+    const viewH = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 760;
+    const winTop = scrollBand * CLIP_SCROLL_BAND_STEP - CLIP_SCROLL_OVERSCAN;
+    const winBottom = (scrollBand + 1) * CLIP_SCROLL_BAND_STEP + viewH + CLIP_SCROLL_OVERSCAN;
+
+    return (
       <div className="prompt-groups">
-        {groups.map((group) => (
-          <section className="day" key={group.key} aria-label={group.label}>
-            <div className="day-label">
-              <h2 className="day-title">{group.label}</h2>
-            </div>
-            <div className="prompt-list">
-              {group.items.map((item) => (
-                <ClipboardRow
-                  key={item.id}
-                  record={item}
-                  index={skipInitialStagger ? 12 + order++ : order++}
-                  onCopy={copyById}
-                  onDelete={deleteById}
-                  onHoverStart={handleHoverStart}
-                  onHoverEnd={handleHoverEnd}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
+        {groupLayouts.map(({ group, rowTops, totalHeight, listTop, startIndex }) => {
+          if (!virtualized) {
+            return (
+              <section className="day" key={group.key} aria-label={group.label}>
+                <div className="day-label">
+                  <h2 className="day-title">{group.label}</h2>
+                </div>
+                <div className="prompt-list">
+                  {group.items.map((item, idx) => (
+                    <ClipboardRow
+                      key={item.id}
+                      record={item}
+                      index={skipInitialStagger ? 12 + startIndex + idx : startIndex + idx}
+                      onCopy={copyById}
+                      onDelete={deleteById}
+                      onHoverStart={handleHoverStart}
+                      onHoverEnd={handleHoverEnd}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          }
+
+          const relTop = winTop - listTop;
+          const relBottom = winBottom - listTop;
+          if (relBottom < 0 || relTop > totalHeight) {
+            return (
+              <section className="day" key={group.key} aria-label={group.label}>
+                <div className="day-label">
+                  <h2 className="day-title">{group.label}</h2>
+                </div>
+                <div className="prompt-list" style={{ height: totalHeight }} />
+              </section>
+            );
+          }
+
+          let startRow = 0;
+          while (
+            startRow < group.items.length
+            && rowTops[startRow] + clipboardRowHeight(group.items[startRow]) < relTop
+          ) {
+            startRow++;
+          }
+          let endRow = startRow;
+          while (endRow < group.items.length && rowTops[endRow] <= relBottom) {
+            endRow++;
+          }
+          const topPad = startRow < group.items.length ? rowTops[startRow] : 0;
+
+          return (
+            <section className="day" key={group.key} aria-label={group.label}>
+              <div className="day-label">
+                <h2 className="day-title">{group.label}</h2>
+              </div>
+              <div
+                className="prompt-list"
+                style={{ height: totalHeight, paddingTop: topPad, boxSizing: "border-box" }}
+              >
+                {group.items.slice(startRow, endRow).map((item, offset) => {
+                  const idx = startRow + offset;
+                  return (
+                    <ClipboardRow
+                      key={item.id}
+                      record={item}
+                      index={skipInitialStagger ? 12 + startIndex + idx : startIndex + idx}
+                      onCopy={copyById}
+                      onDelete={deleteById}
+                      onHoverStart={handleHoverStart}
+                      onHoverEnd={handleHoverEnd}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
       </div>
     );
-  }
+  }, [
+    records,
+    t,
+    filtered.length,
+    query,
+    scrollBand,
+    groupLayouts,
+    skipInitialStagger,
+    copyById,
+    deleteById,
+    handleHoverStart,
+    handleHoverEnd,
+  ]);
 
   return (
     <div className="mw-page clipboard-page">

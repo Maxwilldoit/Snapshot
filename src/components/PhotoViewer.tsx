@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { recordingUrl, snapshotUrl } from "../lib/media";
 import { annotateSnapshot, copySnapshot } from "../lib/backend";
@@ -139,10 +139,14 @@ export function PhotoViewer({
   const indexRef = useRef(0);
   const dragRef = useRef<{ id: number; x: number; y: number; tx: number; ty: number; pageX: number; moved: boolean } | null>(null);
 
-  const displayRecords = records.map((item) => {
-    const dims = item.kind === "recording" ? videoDims[item.id] : undefined;
-    return dims ? { ...item, width: dims.width, height: dims.height } : item;
-  });
+  const displayRecords = useMemo(
+    () =>
+      records.map((item) => {
+        const dims = item.kind === "recording" ? videoDims[item.id] : undefined;
+        return dims ? { ...item, width: dims.width, height: dims.height } : item;
+      }),
+    [records, videoDims],
+  );
   const foundIndex = displayRecords.findIndex((item) => item.id === currentId);
   const index = Math.max(0, foundIndex);
   indexRef.current = index;

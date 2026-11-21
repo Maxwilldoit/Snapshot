@@ -62,7 +62,8 @@ export function justify(
   }
 
   const breaks: Array<[number, number]> = [];
-  for (let end = n; end > 0; end = prev[end]) breaks.unshift([prev[end], end]);
+  for (let end = n; end > 0; end = prev[end]) breaks.push([prev[end], end]);
+  breaks.reverse();
 
   return breaks.map(([start, end]) => {
     const slice = ratios.slice(start, end);

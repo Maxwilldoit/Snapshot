@@ -48,9 +48,12 @@ pub(crate) struct Recorder {
     stopping_output: Option<PathBuf>,
     /// 上一次录制异常结束的原因，在下一次状态查询里带给界面
     last_message: Option<String>,
+    /// 应用已进入退出流程：拒绝在退出后登记新启动的录制会话
+    quitting: bool,
 }
 
 static RECORDING_OP_LOCK: Mutex<()> = Mutex::new(());
+static RECORDING_FINALIZE_LOCK: Mutex<()> = Mutex::new(());
 static RECORDING_META_LOCK: Mutex<()> = Mutex::new(());
 
 impl Recorder {
@@ -88,36 +91,34 @@ impl Recorder {
         }
         None
     }
+}
 
-    pub(crate) fn stop(&mut self) -> Option<Finished> {
-        let active = self.active.take()?;
-        let finished = Finished {
-            target: active.target,
-            app_id: active.app_id,
-            duration_ms: now_millis().saturating_sub(active.started_at),
-            output: active.output,
-        };
-        match active.session.stop() {
-            Ok(()) => match validate_recording_output(&finished.output) {
-                Ok(()) => Some(finished),
-                Err(error) => {
-                    self.last_message = Some(error);
-                    None
-                }
-            },
-            Err(message) => {
-                self.last_message = Some(message);
-                None
+/// 退出应用前同步收尾录制：仅拿 `RECORDING_FINALIZE_LOCK` 等待正在收尾落盘的录制完成
+/// （不与可能阻塞在 Linux portal 选窗对话框的 `start_recording` 互斥），避免写到一半的 MP4 在 `app.exit(0)` 时被截断。
+pub(crate) fn stop_for_quit(state: &AppState) {
+    let _finalize_guard = RECORDING_FINALIZE_LOCK.lock();
+    let active = {
+        let mut recorder = state.recorder.lock();
+        recorder.quitting = true;
+        recorder.active.take()
+    };
+    if let Some(active) = active {
+        if active
+            .session
+            .stop()
+            .and_then(|()| validate_recording_output(&active.output))
+            .is_ok()
+        {
+            if let Some(stem) = active
+                .output
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(recording_stem)
+            {
+                write_recording_meta_entry(&state.recording_meta_path, stem, active.app_id);
             }
         }
     }
-}
-
-/// 退出应用前同步收尾录制：先拿 `RECORDING_OP_LOCK` 等待可能正在后台线程收尾的 `toggle_recording` 完成，
-/// 避免写到一半的 MP4 在 `app.exit(0)` 时被截断。
-pub(crate) fn stop_for_quit(state: &AppState) {
-    let _op_guard = RECORDING_OP_LOCK.lock();
-    let _ = state.recorder.lock().stop();
 }
 
 fn validate_recording_output(path: &Path) -> Result<(), String> {
@@ -269,11 +270,16 @@ fn toggle_recording_now(
     target_id: Option<u32>,
 ) -> Result<RecordingStatus, String> {
     let _op_guard = RECORDING_OP_LOCK.lock();
+    let finalize_guard = RECORDING_FINALIZE_LOCK.lock();
     let active_to_stop = {
         let mut recorder = state.recorder.lock();
+        if recorder.quitting {
+            return Ok(recorder.status(None));
+        }
         if let Some(reason) = recorder.refresh() {
             let status = recorder.status(None);
             drop(recorder);
+            drop(finalize_guard);
             activity::record_error(
                 app,
                 ui_text("录制意外结束", "Recording stopped unexpectedly"),
@@ -331,6 +337,7 @@ fn toggle_recording_now(
                 {
                     write_recording_meta_entry(&state.recording_meta_path, stem, finished.app_id);
                 }
+                drop(finalize_guard);
                 let _ = app.emit("recording-changed", &status);
                 // 录像在历史页有了固定的家：列表据此刷新，不再靠完成提示指路
                 let _ = app.emit("recordings-changed", ());
@@ -338,6 +345,7 @@ fn toggle_recording_now(
                 Ok(status)
             }
             None => {
+                drop(finalize_guard);
                 let reason = status
                     .message
                     .as_deref()
@@ -357,6 +365,7 @@ fn toggle_recording_now(
             }
         };
     }
+    drop(finalize_guard);
 
     // 指定了窗口就录它；没指定才回到「上一个应用」，与窗口快照的口径一致
     let target = match target_id {
@@ -382,18 +391,30 @@ fn toggle_recording_now(
     let (session, message) = os::start_recording(target.id, &options, &output)?;
     // 录的是哪个窗口就记哪个应用的稳定标识（开录时取一次）；取不到就没有角标，不影响录制
     let app_id = os::app_stable_id(target.pid);
+    let _finalize_guard = RECORDING_FINALIZE_LOCK.lock();
+    let mut orphaned_session = None;
     let status = {
         let mut recorder = state.recorder.lock();
-        recorder.last_message = None;
-        recorder.active = Some(Active {
-            session,
-            target: target.app_name,
-            app_id,
-            started_at: now_millis(),
-            output,
-        });
-        recorder.status(message)
+        if recorder.quitting {
+            orphaned_session = Some(session);
+            recorder.status(None)
+        } else {
+            recorder.last_message = None;
+            recorder.active = Some(Active {
+                session,
+                target: target.app_name,
+                app_id,
+                started_at: now_millis(),
+                output: output.clone(),
+            });
+            recorder.status(message)
+        }
     };
+    if let Some(session) = orphaned_session {
+        let _ = session.stop();
+        let _ = fs::remove_file(&output);
+        return Ok(status);
+    }
     let _ = app.emit("recording-changed", &status);
     let _ = app.emit("pet-event", "recording.started");
     Ok(status)

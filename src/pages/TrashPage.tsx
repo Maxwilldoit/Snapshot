@@ -10,10 +10,31 @@ import { useI18n } from "../lib/i18n";
 import { trashThumbUrl } from "../lib/media";
 import type { TrashEntry } from "../types";
 
+function sameTrashEntries(a: TrashEntry[] | null, b: TrashEntry[]): boolean {
+  if (!a || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id
+      || x.kind !== y.kind
+      || x.trashedAt !== y.trashedAt
+      || x.record.id !== y.record.id
+      || x.record.fileName !== y.record.fileName
+      || x.record.sizeBytes !== y.record.sizeBytes
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function TrashPage() {
   const { notify, pageCache } = useApp();
   const { t, language } = useI18n();
   const [entries, setEntries] = useState<TrashEntry[] | null>(() => pageCache?.trash?.entries ?? null);
+  const entriesRef = useRef<TrashEntry[] | null>(entries);
+  entriesRef.current = entries;
   const [loadFailed, setLoadFailed] = useState(false);
   const [pending, setPending] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -26,8 +47,11 @@ export function TrashPage() {
     try {
       const next = await listTrash();
       if (revision !== request.current) return;
-      setEntries(next);
       setLoadFailed(false);
+      if (entriesRef.current !== null && sameTrashEntries(entriesRef.current, next)) {
+        return;
+      }
+      setEntries(next);
     } catch (error) {
       if (revision !== request.current) return;
       setLoadFailed(true);
