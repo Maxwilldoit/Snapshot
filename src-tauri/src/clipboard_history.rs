@@ -7,7 +7,7 @@ use super::*;
 use image::ImageReader;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::io::Cursor;
+use std::{io::Cursor, sync::OnceLock};
 
 /// 最多保留的条数；超出后从最旧的一端连同图片文件一起删。
 const MAX_ENTRIES: usize = 500;
@@ -81,23 +81,6 @@ impl ClipboardHistory {
 
     fn is_head_hash(&self, hash: &str) -> bool {
         self.entries.first().is_some_and(|head| head.hash == hash)
-    }
-
-    /// 若已有同哈希条目则挪到首位并先原子写盘，写盘成功后再提交内存态。
-    fn promote_existing(&mut self, hash: &str) -> Result<Option<ClipboardHistoryEntry>, String> {
-        let Some(position) = self.entries.iter().position(|item| item.hash == hash) else {
-            return Ok(None);
-        };
-        if position == 0 {
-            return Ok(None);
-        }
-        let mut next = self.entries.clone();
-        let mut existing = next.remove(position);
-        existing.created_at = now_millis();
-        next.insert(0, existing.clone());
-        write_json_atomic(&self.path, &next)?;
-        self.entries = next;
-        Ok(Some(existing))
     }
 
     fn push(
@@ -270,32 +253,38 @@ fn decode_bounded_image(raw: &RawClipboardImage) -> Option<RgbaImage> {
     }
 }
 
+/// 串行化后台轮询与「放回剪贴板」：放回后同步推进 marker，避免轮询再重复采集或立即推送事件。
+fn poll_marker() -> &'static Mutex<String> {
+    static MARKER: OnceLock<Mutex<String>> = OnceLock::new();
+    MARKER.get_or_init(|| Mutex::new(String::new()))
+}
+
 /// 后台轮询：不支持剪贴板历史的平台直接退出，不创建空转线程；支持平台在内容未变时零拷贝返回。
 pub(crate) fn start(app: AppHandle) {
     if !os::clipboard_history_supported() {
         return;
     }
-    thread::spawn(move || {
-        let mut last_marker = String::new();
-        loop {
-            thread::sleep(POLL_INTERVAL);
-            let Some(state) = app.try_state::<AppState>() else {
-                continue;
-            };
+    thread::spawn(move || loop {
+        thread::sleep(POLL_INTERVAL);
+        let Some(state) = app.try_state::<AppState>() else {
+            continue;
+        };
+        let captured = {
+            let mut last_marker = poll_marker().lock();
             let Some(sample) = os::clipboard_sample(&last_marker) else {
                 continue;
             };
-            if sample.marker == last_marker {
+            if sample.marker == *last_marker {
                 continue;
             }
-            last_marker = sample.marker.clone();
+            *last_marker = sample.marker.clone();
             if sample.concealed {
                 continue;
             }
-            let captured = capture_sample(&state, &sample);
-            if let Ok(Some(entry)) = captured {
-                let _ = app.emit("clipboard-history-changed", &entry);
-            }
+            capture_sample(&state, &sample)
+        };
+        if let Ok(Some(entry)) = captured {
+            let _ = app.emit("clipboard-history-changed", &entry);
         }
     });
 }
@@ -314,9 +303,6 @@ fn capture_sample(
         if history.is_head_hash(&hash) {
             return Ok(None);
         }
-        if let Some(promoted) = history.promote_existing(&hash)? {
-            return Ok(Some(promoted));
-        }
         return history
             .push("text", text.to_string(), 0, 0, hash, None)
             .map(Some);
@@ -329,23 +315,14 @@ fn capture_sample(
         };
         let (width, height) = (rgba.width(), rgba.height());
         let hash = hash_rgba(width, height, rgba.as_raw());
-        {
-            let mut history = state.clipboard_history.lock();
-            if history.is_head_hash(&hash) {
-                return Ok(None);
-            }
-            if let Some(promoted) = history.promote_existing(&hash)? {
-                return Ok(Some(promoted));
-            }
+        if state.clipboard_history.lock().is_head_hash(&hash) {
+            return Ok(None);
         }
         let png = crate::capture::encode_png(&rgba)?;
         let thumb = encode_thumbnail(&rgba).ok();
         let mut history = state.clipboard_history.lock();
         if history.is_head_hash(&hash) {
             return Ok(None);
-        }
-        if let Some(promoted) = history.promote_existing(&hash)? {
-            return Ok(Some(promoted));
         }
         return history
             .push(
@@ -384,9 +361,13 @@ pub(crate) async fn delete_clipboard_history(
     .await
 }
 
-/// 把一条历史重新放回剪贴板。图片与文字写回后因采用标准像素/文本哈希，下次轮询会自动去重。
+/// 把一条历史重新放回剪贴板，同时以当前时间追加一条新记录（不清理旧条目，保持时间线分明）。
+/// 不主动推送 `clipboard-history-changed`，等用户离开剪贴板页再次进入时自然看到新条目。
 #[tauri::command]
-pub(crate) async fn copy_clipboard_history(app: AppHandle, id: String) -> Result<(), String> {
+pub(crate) async fn copy_clipboard_history(
+    app: AppHandle,
+    id: String,
+) -> Result<ClipboardHistoryEntry, String> {
     on_worker(app, move |_app, state| {
         let (entry, dir) = {
             let history = state.clipboard_history.lock();
@@ -402,13 +383,37 @@ pub(crate) async fn copy_clipboard_history(app: AppHandle, id: String) -> Result
             let image = image::load_from_memory(&bytes)
                 .map_err(|error| format!("无法读取记录的图片：{error}"))?
                 .to_rgba8();
+            let thumb = fs::read(thumb_path(&dir, &entry.id))
+                .ok()
+                .or_else(|| encode_thumbnail(&image).ok());
+            let mut last_marker = poll_marker().lock();
             clipboard::copy_image(image)?;
+            let created = state.clipboard_history.lock().push(
+                "image",
+                String::new(),
+                entry.width,
+                entry.height,
+                entry.hash,
+                Some((&bytes, thumb.as_deref())),
+            )?;
+            if let Some(marker) = os::clipboard_marker() {
+                *last_marker = marker;
+            }
+            Ok(created)
         } else {
+            let mut last_marker = poll_marker().lock();
             Clipboard::new()
                 .and_then(|mut clipboard| clipboard.set_text(entry.text.clone()))
                 .map_err(|error| format!("写入剪贴板失败：{error}"))?;
+            let created = state
+                .clipboard_history
+                .lock()
+                .push("text", entry.text, 0, 0, entry.hash, None)?;
+            if let Some(marker) = os::clipboard_marker() {
+                *last_marker = marker;
+            }
+            Ok(created)
         }
-        Ok(())
     })
     .await
 }
@@ -483,24 +488,68 @@ mod tests {
     }
 
     #[test]
-    fn text_push_dedupes_and_moves_repeats_to_front() {
+    fn repeated_push_keeps_previous_entry_with_distinct_id_and_order() {
         let dir = TestDir::new();
         let mut history = dir.history();
         let h1 = hash_bytes(b"one");
-        history
+        let first = history
             .push("text", "one".into(), 0, 0, h1.clone(), None)
             .unwrap();
-        history
+        let second = history
             .push("text", "two".into(), 0, 0, hash_bytes(b"two"), None)
             .unwrap();
-        assert_eq!(history.entries.len(), 2);
-        assert_eq!(history.entries[0].text, "two");
-        let promoted = history.promote_existing(&h1).unwrap().unwrap();
-        assert_eq!(promoted.text, "one");
-        assert_eq!(history.entries[0].text, "one");
+        let recopied = history
+            .push("text", "one".into(), 0, 0, h1.clone(), None)
+            .unwrap();
+        assert_eq!(history.entries.len(), 3);
+        assert_ne!(recopied.id, first.id);
+        assert_eq!(history.entries[0].id, recopied.id);
+        assert_eq!(history.entries[1].id, second.id);
+        assert_eq!(history.entries[2].id, first.id);
+        assert!(history.is_head_hash(&h1));
+
         let reloaded = dir.history();
-        assert_eq!(reloaded.entries.len(), 2);
-        assert_eq!(reloaded.entries[0].text, "one");
+        assert_eq!(reloaded.entries.len(), 3);
+        assert_eq!(reloaded.entries[0].id, recopied.id);
+        assert_eq!(reloaded.entries[2].id, first.id);
+    }
+
+    #[test]
+    fn recopied_image_owns_independent_files_when_original_is_removed() {
+        let dir = TestDir::new();
+        let mut history = dir.history();
+        let img = RgbaImage::from_pixel(4, 4, image::Rgba([10, 20, 30, 255]));
+        let png = crate::capture::encode_png(&img).unwrap();
+        let thumb = encode_thumbnail(&img).unwrap();
+        let hash = hash_rgba(4, 4, img.as_raw());
+        let first = history
+            .push(
+                "image",
+                String::new(),
+                4,
+                4,
+                hash.clone(),
+                Some((&png, Some(&thumb))),
+            )
+            .unwrap();
+        let recopied = history
+            .push(
+                "image",
+                String::new(),
+                4,
+                4,
+                hash,
+                Some((&png, Some(&thumb))),
+            )
+            .unwrap();
+        assert_eq!(history.entries.len(), 2);
+        assert_ne!(first.id, recopied.id);
+
+        history.remove(std::slice::from_ref(&first.id)).unwrap();
+        assert!(!history.dir.join(format!("{}.png", first.id)).exists());
+        assert!(!thumb_path(&history.dir, &first.id).exists());
+        assert!(history.dir.join(format!("{}.png", recopied.id)).exists());
+        assert!(thumb_path(&history.dir, &recopied.id).exists());
     }
 
     #[test]

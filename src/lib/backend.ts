@@ -248,7 +248,8 @@ export const listClipboardHistory = () => invoke<ClipboardHistoryEntry[]>("list_
 
 export const deleteClipboardHistory = (ids: string[]) => invoke<ClipboardHistoryEntry[]>("delete_clipboard_history", { ids });
 
-export const copyClipboardHistory = (id: string) => invoke<void>("copy_clipboard_history", { id });
+export const copyClipboardHistory = (id: string) =>
+  invoke<ClipboardHistoryEntry>("copy_clipboard_history", { id });
 
 export const onClipboardHistoryChanged = (callback: () => void) =>
   listen("clipboard-history-changed", () => callback());

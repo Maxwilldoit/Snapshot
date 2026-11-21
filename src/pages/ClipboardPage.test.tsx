@@ -77,4 +77,56 @@ describe("ClipboardPage performance and timeline scrubber", () => {
     fireEvent(window, new Event("resize"));
     expect(await screen.findByRole("slider", { name: "时间定位" })).toBeTruthy();
   });
+
+  it("defers showing the recopied entry until returning to the page and keeps the original entry", async () => {
+    const oldTime = new Date(2026, 10, 20, 9, 15).getTime();
+    const newerTime = new Date(2026, 10, 21, 10, 0).getTime();
+    const recopiedTime = new Date(2026, 10, 21, 17, 55).getTime();
+    let entries: ClipboardHistoryEntry[] = [
+      { id: "clip-new", createdAt: newerTime, kind: "text", text: "latest item", width: 0, height: 0, hash: "h-new" },
+      { id: "clip-old", createdAt: oldTime, kind: "text", text: "older item", width: 0, height: 0, hash: "h-old" },
+    ];
+    setupTauriMock((command, args) => {
+      if (command === "list_clipboard_history") return structuredClone(entries);
+      if (command === "copy_clipboard_history") {
+        const source = entries.find((item) => item.id === invokeArgs(args).id)!;
+        const created: ClipboardHistoryEntry = {
+          ...source,
+          id: "clip-recopied",
+          createdAt: recopiedTime,
+        };
+        entries = [created, ...entries];
+        return structuredClone(created);
+      }
+      if (command === "delete_clipboard_history") {
+        const ids = invokeArgs(args).ids as string[];
+        entries = entries.filter((item) => !ids.includes(item.id));
+        return structuredClone(entries);
+      }
+      return undefined;
+    }, { shouldMockEvents: true });
+
+    const firstMount = render(<AppContext.Provider value={context}><ClipboardPage /></AppContext.Provider>);
+    const olderText = await screen.findByText("older item");
+    expect(screen.getAllByText("older item")).toHaveLength(1);
+
+    fireEvent.click(olderText.closest("button")!);
+    await waitFor(() => expect(entries).toHaveLength(3));
+    // 当前留在剪贴板页时不立即插入新条目
+    expect(screen.getAllByText("older item")).toHaveLength(1);
+
+    // 即使在当前页删除了另一条触发列表回写，刚才放回剪贴板的新条目仍保持延迟
+    const deleteButtons = screen.getAllByRole("button", { name: "删除这条记录" });
+    fireEvent.click(deleteButtons[0]);
+    await waitFor(() => expect(screen.queryByText("latest item")).toBeNull());
+    expect(screen.getAllByText("older item")).toHaveLength(1);
+
+    // 离开再回到剪贴板页后，新旧两条同时存在且各自保留原始/新时间
+    firstMount.unmount();
+    render(<AppContext.Provider value={context}><ClipboardPage /></AppContext.Provider>);
+    const both = await screen.findAllByText("older item");
+    expect(both).toHaveLength(2);
+    expect(screen.getByText("17:55")).toBeTruthy();
+    expect(screen.getByText("09:15")).toBeTruthy();
+  });
 });

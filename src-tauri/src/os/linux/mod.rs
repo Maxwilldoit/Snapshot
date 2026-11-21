@@ -22,7 +22,10 @@ use std::{path::Path, process::Command};
 
 pub(crate) use apps::{installed_apps, launch_icon_png, launch_target};
 pub(crate) use autostart::apply_launch_on_boot as apply_autostart;
-pub(crate) use clipboard::{sample as clipboard_sample, supported as clipboard_history_supported};
+pub(crate) use clipboard::{
+    current_marker as clipboard_marker, sample as clipboard_sample,
+    supported as clipboard_history_supported,
+};
 pub(crate) use scrolling::capture_scrolling_window;
 pub(crate) use window::restore_minimized;
 

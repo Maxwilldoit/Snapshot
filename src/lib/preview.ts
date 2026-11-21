@@ -420,9 +420,18 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     case "delete_clipboard_history":
       clipboardHistory = clipboardHistory.filter((item) => !(args.ids as string[]).includes(item.id));
       return structuredClone(clipboardHistory);
-    case "copy_clipboard_history":
-      if (!clipboardHistory.some((item) => item.id === args.id)) throw new Error("这条剪贴板记录已被删除");
-      return undefined;
+    case "copy_clipboard_history": {
+      const source = clipboardHistory.find((item) => item.id === args.id);
+      if (!source) throw new Error("这条剪贴板记录已被删除");
+      const now = Date.now();
+      const created = {
+        ...source,
+        id: `clip-preview-${now}-${clipboardHistory.length + 1}`,
+        createdAt: now,
+      };
+      clipboardHistory = [created, ...clipboardHistory];
+      return structuredClone(created);
+    }
     case "list_saved_prompts":
       return structuredClone(savedPrompts);
     case "save_saved_prompt": {

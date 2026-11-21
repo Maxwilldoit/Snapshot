@@ -50,17 +50,24 @@ export function ClipboardPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 本页内点击「放回剪贴板」生成的新条目暂不在当前视图插入，等离开本页再回来时自然显示。
+  const deferredIdsRef = useRef<Set<string>>(new Set());
+
+  const applyRecords = useCallback((list: ClipboardHistoryEntry[]) => {
+    const deferred = deferredIdsRef.current;
+    setRecords(deferred.size === 0 ? list : list.filter((item) => !deferred.has(item.id)));
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
       const list = await listClipboardHistory();
-      setRecords(Array.isArray(list) ? list : []);
+      applyRecords(Array.isArray(list) ? list : []);
     } catch (error) {
       setRecords([]);
       notify(errorText(error), "error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [applyRecords]);
 
   useEffect(() => {
     void refresh();
@@ -80,7 +87,8 @@ export function ClipboardPage() {
 
   const copyById = useCallback(async (id: string) => {
     try {
-      await copyClipboardHistory(id);
+      const created = await copyClipboardHistory(id);
+      if (created?.id) deferredIdsRef.current.add(created.id);
       notify(t("已放回剪贴板"));
     } catch (error) {
       notify(errorText(error), "error");
@@ -90,14 +98,16 @@ export function ClipboardPage() {
   const remove = useCallback(async (ids: string[]) => {
     setBusy(true);
     try {
-      setRecords(await deleteClipboardHistory(ids));
+      const next = await deleteClipboardHistory(ids);
+      for (const id of ids) deferredIdsRef.current.delete(id);
+      applyRecords(next);
     } catch (error) {
       notify(errorText(error), "error");
     } finally {
       setBusy(false);
       setConfirmClear(false);
     }
-  }, [notify]);
+  }, [applyRecords, notify]);
 
   const deleteById = useCallback((id: string) => {
     void remove([id]);
@@ -172,7 +182,10 @@ export function ClipboardPage() {
           body={t("所有记录和图片会被删除，无法恢复。")}
           confirmLabel={t("清空")}
           busy={busy}
-          onConfirm={() => void remove((records ?? []).map((item) => item.id))}
+          onConfirm={() => {
+            const allIds = [...(records ?? []).map((item) => item.id), ...deferredIdsRef.current];
+            void remove(allIds);
+          }}
           onCancel={() => setConfirmClear(false)}
         />
       )}
