@@ -61,6 +61,8 @@ function ShortcutsPanel() {
   const [rejected, setRejected] = useState<{ action: ShortcutAction; key: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const recordingRef = useRef<ShortcutAction | null>(null);
+  const recordingFieldRef = useRef<HTMLButtonElement | null>(null);
   const previousSavedShortcuts = useRef(settings.shortcuts);
   const shortcutsPaused = settings.shortcutsPaused ?? false;
 
@@ -76,24 +78,50 @@ function ShortcutsPanel() {
     ) setShortcuts(settings.shortcuts);
   }, [settings.shortcuts]);
 
+  function startRecording(action: ShortcutAction, field?: HTMLButtonElement | null) {
+    recordingRef.current = action;
+    if (field) {
+      recordingFieldRef.current = field;
+      field.focus();
+    }
+    setRecording(action);
+    setPendingClear(null);
+    setRejected(null);
+  }
+
   function stopRecording() {
+    recordingRef.current = null;
+    recordingFieldRef.current = null;
     setRecording(null);
     setHeld([]);
     setPendingClear(null);
   }
 
   function commitPendingClear(action: ShortcutAction) {
+    if (recordingRef.current !== action) return;
     if (pendingClear === action) changeBinding(action, null);
     stopRecording();
   }
+
+  const commitRef = useRef(commitPendingClear);
+  commitRef.current = commitPendingClear;
+
+  useEffect(() => {
+    if (!recording) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const field = recordingFieldRef.current;
+      if (field && event.target instanceof Node && field.contains(event.target)) return;
+      commitRef.current(recording);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [recording]);
 
   function onRowKeyDown(action: ShortcutAction, event: React.KeyboardEvent<HTMLButtonElement>) {
     if (recording !== action) {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        setRecording(action);
-        setPendingClear(null);
-        setRejected(null);
+        startRecording(action, event.currentTarget);
       }
       return;
     }
@@ -189,6 +217,9 @@ function ShortcutsPanel() {
         <span className="key-field-wrap">
           <button
             type="button"
+            ref={(node) => {
+              if (isRecording) recordingFieldRef.current = node;
+            }}
             className={`key-field ${isRecording ? "is-recording" : ""} ${clearing ? "is-clearing" : ""} ${binding.accelerator && !clearing ? "" : "is-empty"}`}
             aria-label={t("快捷键：{name}，当前按键：{keys}", {
               name: labelName,
@@ -196,13 +227,12 @@ function ShortcutsPanel() {
             })}
             aria-pressed={isRecording}
             disabled={locked}
-            onClick={() => {
+            onClick={(event) => {
               setRejected(null);
               if (isRecording) {
                 commitPendingClear(binding.action);
               } else {
-                setRecording(binding.action);
-                setPendingClear(null);
+                startRecording(binding.action, event.currentTarget);
               }
             }}
             onKeyDown={(event) => onRowKeyDown(binding.action, event)}

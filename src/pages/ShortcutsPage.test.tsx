@@ -261,6 +261,24 @@ describe("global shortcut editing", () => {
     expect(row.classList.contains("is-recording")).toBe(false);
   });
 
+  it("cancels recording when clicking outside the shortcut field without changing the binding", async () => {
+    const save = vi.fn();
+    const { user } = await renderApp((command) => {
+      if (command === "save_shortcuts") save();
+      return undefined;
+    });
+
+    const row = screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" });
+    await user.click(row);
+    expect(row.classList.contains("is-recording")).toBe(true);
+
+    // 模拟 macOS WKWebView 点击非聚焦空白区域（不会触发 blur，但会触发 document pointerdown）
+    fireEvent.pointerDown(screen.getByRole("heading", { name: "截图与录制" }));
+    expect(row.classList.contains("is-recording")).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "快捷键：窗口截图，当前按键：Alt+Shift+2" })).toBeTruthy();
+  });
+
   it("dims and locks the shortcut fields while global shortcuts are off", async () => {
     const save = vi.fn();
     await renderApp((command) => {
