@@ -4,10 +4,14 @@ use crate::trash::{self, TrashEntry, TrashMedia};
 use image::buffer::ConvertBuffer;
 use serde::Deserialize;
 
-/// 缩略图的目标高度（像素）。列表里显示 76px 高，高分屏两倍再留点余量
-const THUMB_HEIGHT: u32 = 180;
+/// 缩略图的目标高度（像素）。历史照片墙卡片最高约 300px CSS，按 2× Retina 留足清晰度
+const THUMB_HEIGHT: u32 = 600;
 /// 超宽截图（带鱼屏、横向长图）缩略图的宽度上限
-const THUMB_MAX_WIDTH: u32 = 640;
+const THUMB_MAX_WIDTH: u32 = 1600;
+/// 历史与回收站缩略图 JPEG 编码质量（高清晰度减少界面文字周围的压缩噪点）
+const THUMB_JPEG_QUALITY: u8 = 90;
+/// 升级缩略图规格后更换缓存后缀，让已有历史的旧 180px 缩略图自动重建高清版
+const THUMB_SUFFIX: &str = ".v2.jpg";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -186,7 +190,7 @@ pub(crate) fn store_snapshot_traced(
         records.insert(0, record.clone());
         if let Err(error) = write_snapshot_index(&index_path, &records) {
             let _ = fs::remove_file(dir.join(&record.file_name));
-            let _ = fs::remove_file(thumbnail_path(state, &record.id));
+            remove_thumbnail_files(state, &record.id);
             return Err(error);
         }
     }
@@ -235,10 +239,29 @@ fn write_snapshot_file(
 }
 
 fn thumbnail_path(state: &AppState, id: &str) -> PathBuf {
+    state.thumbs_dir.join(format!("{id}{THUMB_SUFFIX}"))
+}
+
+fn legacy_thumbnail_path(state: &AppState, id: &str) -> PathBuf {
     state.thumbs_dir.join(format!("{id}.jpg"))
 }
 
-/// 按原比例缩到固定高度（超宽的再按宽度封顶），存成 JPEG。
+fn remove_thumbnail_files(state: &AppState, id: &str) {
+    let _ = fs::remove_file(thumbnail_path(state, id));
+    let _ = fs::remove_file(legacy_thumbnail_path(state, id));
+}
+
+pub(crate) fn encode_thumbnail_jpeg(image: &image::RgbImage) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    let mut encoder =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, THUMB_JPEG_QUALITY);
+    encoder
+        .encode_image(image)
+        .map_err(|error| error.to_string())?;
+    Ok(bytes)
+}
+
+/// 按原比例缩到适配高分屏的尺寸（超宽的再按宽度封顶），以高质量 JPEG 存盘。
 /// 历史页一屏几十张，原图动辄几 MB，直接当缩略图用会让滚动发卡。
 fn write_thumbnail(
     state: &AppState,
@@ -247,10 +270,12 @@ fn write_thumbnail(
     trace: Option<&CaptureTrace>,
 ) -> Result<(), String> {
     let rgb = make_thumbnail(image);
+    let bytes = encode_thumbnail_jpeg(&rgb)?;
     fs::create_dir_all(&state.thumbs_dir).map_err(|error| error.to_string())?;
-    let result = rgb
-        .save_with_format(thumbnail_path(state, id), ImageFormat::Jpeg)
-        .map_err(|error| error.to_string());
+    let result = fs::write(thumbnail_path(state, id), bytes).map_err(|error| error.to_string());
+    if result.is_ok() {
+        let _ = fs::remove_file(legacy_thumbnail_path(state, id));
+    }
     if let Some(trace) = trace {
         trace.mark("thumbnail");
     }
@@ -428,7 +453,7 @@ fn delete_snapshots_now(
         .partition(|item| ids.contains(&item.id));
     update_snapshot_history(&state.trash_dir, &dir, &removed, &kept)?;
     for record in removed {
-        let _ = fs::remove_file(thumbnail_path(state, &record.id));
+        remove_thumbnail_files(state, &record.id);
     }
     let _ = app.emit("snapshots-changed", ());
     Ok(kept)
@@ -544,7 +569,7 @@ pub(crate) fn replace_snapshot(
         let _ = fs::remove_file(dir.join(&edited.file_name));
         return Err(error);
     }
-    let _ = fs::remove_file(thumbnail_path(state, &original.id));
+    remove_thumbnail_files(state, &original.id);
     let _ = write_thumbnail(state, &edited.id, image, None);
     Ok(edited)
 }
@@ -711,13 +736,18 @@ mod tests {
 
     #[test]
     fn thumbnails_keep_the_aspect_ratio() {
-        assert_eq!(thumbnail_size(1920, 1080), (320, 180));
+        assert_eq!(thumbnail_size(1920, 1080), (1067, 600));
         // 滚动长截图又窄又长：高度封顶，宽度跟着比例走
-        assert_eq!(thumbnail_size(1280, 6400), (36, 180));
+        assert_eq!(thumbnail_size(1280, 6400), (120, 600));
         // 超宽屏按宽度封顶
-        assert_eq!(thumbnail_size(10000, 1000), (640, 64));
+        assert_eq!(thumbnail_size(10000, 1000), (1600, 160));
         // 本来就小的不放大
         assert_eq!(thumbnail_size(120, 90), (120, 90));
+
+        let sample = RgbaImage::from_pixel(32, 24, image::Rgba([24, 96, 200, 255]));
+        let bytes = encode_thumbnail_jpeg(&make_thumbnail(&sample)).unwrap();
+        let decoded = image::load_from_memory_with_format(&bytes, ImageFormat::Jpeg).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (32, 24));
     }
 
     #[test]

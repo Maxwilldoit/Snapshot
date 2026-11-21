@@ -9,7 +9,7 @@ const media = (path: string) => convertFileSrc(path, "media");
 
 export const snapshotUrl = (id: string) => media(`snapshot/${id}`);
 
-/** 180px 高的缩略图，列表用它；老快照没有时后端现做一张 */
+/** 适配高分屏照片墙的高清缩略图，列表用它；老快照没有时后端现做一张 */
 export const thumbUrl = (id: string) => media(`thumb/${id}`);
 export const trashThumbUrl = (id: string) => media(`trash-thumb/${id}`);
 

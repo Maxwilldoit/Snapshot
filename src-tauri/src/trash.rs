@@ -183,11 +183,7 @@ pub(crate) fn read_thumbnail(state: &AppState, id: &str) -> Result<Vec<u8>, Stri
         .map_err(trash_error)?
         .into_rgba8();
     let thumbnail = snapshots::make_thumbnail(&image);
-    let mut bytes = Cursor::new(Vec::new());
-    thumbnail
-        .write_to(&mut bytes, ImageFormat::Jpeg)
-        .map_err(trash_error)?;
-    Ok(bytes.into_inner())
+    snapshots::encode_thumbnail_jpeg(&thumbnail)
 }
 
 #[tauri::command]
