@@ -320,4 +320,65 @@ describe("capture feedback", () => {
     expect(await screen.findByRole("button", { name: "标注：Beta" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "标注：Alpha" })).toBeNull();
   });
+
+  it("keeps HistoryPage and its thumbnail img nodes mounted across page switches without recreating images or hijacking Cmd+F", async () => {
+    let currentSnapshots = [
+      { id: "snap-keep", fileName: "1.png", appName: "Alpha", width: 800, height: 600, sizeBytes: 1024, createdAt: 1000 },
+    ];
+    await renderApp((command) => {
+      if (command === "load_settings") return settings;
+      if (command === "platform_capabilities") return capabilities;
+      if (command === "get_shortcut_conflicts") return [];
+      if (command === "list_snapshots") return structuredClone(currentSnapshots);
+      if (command === "list_recordings") return [];
+      if (command === "list_prompt_history" || command === "list_saved_prompts") return [];
+      return undefined;
+    });
+
+    const user = userEvent.setup();
+    await screen.findByRole("button", { name: "标注：Alpha" });
+    const historyView = document.querySelector<HTMLElement>(".page-history")!;
+    const scrollEl = historyView.querySelector<HTMLElement>(".history-scroll")!;
+    const imgBefore = historyView.querySelector<HTMLImageElement>(".tile-preview img")!;
+    expect(imgBefore).toBeTruthy();
+    expect(imgBefore.getAttribute("decoding")).toBe("sync");
+    expect(imgBefore.getAttribute("loading")).toBeNull();
+    scrollEl.scrollTop = 240;
+
+    // 切到「截图与录制」页：历史页保留挂载但标记 hidden / aria-hidden / inert，且图片节点未销毁
+    await user.click(screen.getByRole("button", { name: "截图与录制" }));
+    await screen.findByRole("heading", { name: "截图与录制" });
+    expect(historyView.hidden).toBe(true);
+    expect(historyView.getAttribute("aria-hidden")).toBe("true");
+    expect(historyView.hasAttribute("inert")).toBe(true);
+    expect(historyView.querySelector(".tile-preview img")).toBe(imgBefore);
+
+    // 切到 Prompt 页并按 Cmd+F：隐藏中的历史页不得抢夺搜索焦点
+    await user.click(screen.getByRole("button", { name: "Prompt" }));
+    await screen.findByText("还没有 Prompt 记录");
+    await user.keyboard("{Meta>}f{/Meta}");
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "搜索 Prompt" }));
+
+    // 切回历史页：仍是同一个 <img> DOM 节点，滚动位置也未丢失
+    await user.click(screen.getByRole("button", { name: "历史" }));
+    expect(historyView.hidden).toBe(false);
+    expect(historyView.getAttribute("aria-hidden")).toBeNull();
+    expect(historyView.hasAttribute("inert")).toBe(false);
+    expect(historyView.querySelector(".tile-preview img")).toBe(imgBefore);
+    expect(scrollEl.scrollTop).toBe(240);
+
+    // 后台新增截图时，已有条目仍保持同一个 <img> DOM 节点，仅追加新节点
+    await user.click(screen.getByRole("button", { name: "截图与录制" }));
+    currentSnapshots = [
+      { id: "snap-new", fileName: "2.png", appName: "Gamma", width: 800, height: 600, sizeBytes: 2048, createdAt: 2000 },
+      ...currentSnapshots,
+    ];
+    await act(async () => {
+      await emit("snapshots-changed");
+    });
+    await user.click(screen.getByRole("button", { name: "历史" }));
+    expect(await screen.findByRole("button", { name: "标注：Gamma" })).toBeTruthy();
+    const alphaTile = screen.getByRole("button", { name: "标注：Alpha" });
+    expect(alphaTile.querySelector(".tile-preview img")).toBe(imgBefore);
+  });
 });

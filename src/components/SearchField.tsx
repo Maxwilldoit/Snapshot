@@ -8,18 +8,21 @@ export function SearchField({
   label,
   placeholder = label,
   inputRef,
+  active = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
   placeholder?: string;
   inputRef?: Ref<HTMLInputElement>;
+  active?: boolean;
 }) {
   const { t } = useI18n();
   const innerRef = useRef<HTMLInputElement | null>(null);
 
   // Ctrl/Cmd+F 聚焦本页搜索；工具栏里收起的搜索框会随聚焦一起展开
   useEffect(() => {
+    if (!active) return;
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
@@ -29,7 +32,7 @@ export function SearchField({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [active]);
 
   const attachRef = (node: HTMLInputElement | null) => {
     innerRef.current = node;

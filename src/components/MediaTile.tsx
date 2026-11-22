@@ -108,7 +108,7 @@ export const MediaTile = memo(function MediaTile({
             />
           ) : (
             !failed && (
-              <img src={thumbUrl(item.id)} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setFailed(true)} />
+              <img src={thumbUrl(item.id)} alt="" decoding="sync" draggable={false} onError={() => setFailed(true)} />
             )
           )}
           {isRecording && item.durationMs != null && (

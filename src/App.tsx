@@ -58,7 +58,7 @@ function PageView({ page }: { page: NavPage }) {
     case "shortcuts":
       return <ShortcutsPage />;
     default:
-      return <HistoryPage />;
+      return null;
   }
 }
 
@@ -220,7 +220,9 @@ export function App() {
       "page",
       () => {
         setPage(next);
-        mainRef.current?.querySelector(".mw-scroll")?.scrollTo?.({ top: 0 });
+        if (next !== "history" && next !== "prompts") {
+          mainRef.current?.querySelector(`.page-${next} .mw-scroll`)?.scrollTo?.({ top: 0 });
+        }
       },
       { direction: directionFor(from, next) },
     );
@@ -228,11 +230,9 @@ export function App() {
 
   useEffect(() => {
     const pendingSnapshots = onSnapshotsChanged(() => {
-      if (pageRef.current !== "history") pageCache.history = null;
       if (pageRef.current !== "trash") pageCache.trash = null;
     });
     const pendingRecordings = onRecordingsChanged(() => {
-      if (pageRef.current !== "history") pageCache.history = null;
       if (pageRef.current !== "trash") pageCache.trash = null;
     });
     const pendingClipboard = onClipboardHistoryChanged(() => {
@@ -292,13 +292,27 @@ export function App() {
     );
   }
 
+  const keptAlive = page === "history" || page === "prompts";
   const content = (
     <main className="main" ref={mainRef}>
-      <div key={page} hidden={page === "prompts"} className={`page-view page-${page} ${pageEnters.current ? "is-entering" : ""}`}>
-        {page !== "prompts" && <PageView page={page} />}
+      {/* 历史页常驻挂载并保留渲染层：换页不销毁 <img>/<video> 与滚动位置，避免 WKWebView 经 media:// 重拉缩略图闪烁。 */}
+      <div
+        hidden={page !== "history"}
+        aria-hidden={page !== "history" ? "true" : undefined}
+        inert={page !== "history" ? true : undefined}
+        className="page-view page-history is-kept-alive"
+      >
+        <HistoryPage active={page === "history"} />
+      </div>
+      <div
+        key={keptAlive ? "other" : page}
+        hidden={keptAlive}
+        className={`page-view page-${page} ${!keptAlive && pageEnters.current ? "is-entering" : ""}`}
+      >
+        {!keptAlive && <PageView page={page} />}
       </div>
       {/* Prompt 页常驻挂载：换页保留库的编辑草稿，隐藏时不接管搜索、保存或 Esc。 */}
-      <div hidden={page !== "prompts"} className={`page-view page-prompts ${pageEnters.current ? "is-entering" : ""}`}>
+      <div hidden={page !== "prompts"} className={`page-view page-prompts ${page === "prompts" && pageEnters.current ? "is-entering" : ""}`}>
         <PromptsPage active={page === "prompts"} libraryRequest={libraryRequest} />
       </div>
     </main>

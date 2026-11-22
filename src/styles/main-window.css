@@ -60,9 +60,18 @@ html[data-surface="app"] .mw .sidebar {
   flex: 0 0 var(--side-w); width: var(--side-w); padding: 0; display: flex; flex-direction: column;
   background: var(--side); border-right: 0.5px solid var(--sep);
 }
-html[data-surface="app"] .mw .main { display: flex; flex-direction: column; overflow: hidden; background: var(--win); }
+html[data-surface="app"] .mw .main { position: relative; isolation: isolate; display: flex; flex-direction: column; overflow: hidden; background: var(--win); }
 html[data-surface="app"] .mw .page-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; }
 html[data-surface="app"] .mw .page-view[hidden] { display: none; }
+/* 历史页等媒体墙常驻保留渲染层：隐藏时不走 display: none，保留布局、滚动位置与已解码缩略图纹理，避免切回时闪灰 */
+html[data-surface="app"] .mw .page-view.is-kept-alive[hidden] {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  visibility: hidden;
+  pointer-events: none;
+}
 html[data-surface="app"] .mw-page { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; }
 html[data-surface="app"] .mw-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: none; scrollbar-width: thin; contain: layout style paint; }
 html[data-surface="app"] .mw-scroll.pane { background: var(--pane); }
@@ -675,12 +684,12 @@ html[data-surface="app"]:has(.mw.is-mac) body,
 html[data-surface="app"]:has(.mw.is-mac) #root { background: transparent; }
 html[data-surface="app"] .window.mw.is-mac { background: transparent; border-radius: 10px; overflow: hidden; }
 html[data-surface="app"] .mw.is-mac .sidebar { background: color-mix(in srgb, var(--side) 30%, transparent); }
-/* 换页时新旧两页在交叉淡入淡出，底下要垫一层不透明的窗口色；否则窗口是透明的，会透出一下毛玻璃，看起来像闪了一下 */
-html[data-surface="app"][data-vt="page"]::view-transition-group(page) { background: var(--win); }
-
-/* 换页：原生瞬切感，只做极短淡化，不位移 */
-html[data-surface="app"][data-vt="page"]::view-transition-old(page) { animation: vt-fade-out 80ms linear both; }
-html[data-surface="app"][data-vt="page"]::view-transition-new(page) { animation: vt-fade-in 100ms linear both; }
+/* 换页：新页始终以不透明窗口底色置于底层，旧页叠在上层 80ms 淡出。
+   不能给 ::view-transition-group(page) 铺背景色（macOS WKWebView 会把 group 背景盖在 new 快照之上造成整页闪白），
+   也不要双层同时变透明（透明毛玻璃窗口会透出桌面闪烁）；底层保持不透明即可让合成透明度恒为 1。 */
+html[data-surface="app"][data-vt="page"]::view-transition-group(page) { background: transparent; }
+html[data-surface="app"][data-vt="page"]::view-transition-old(page) { z-index: 1; animation: vt-fade-out 80ms linear both; }
+html[data-surface="app"][data-vt="page"]::view-transition-new(page) { animation: none; }
 
 /* 浅色侧栏再提亮一点，减小与右侧纯白的反差 */
 html[data-surface="app"]:not([data-theme="dark"]) { --side: #f3f3f5; }
