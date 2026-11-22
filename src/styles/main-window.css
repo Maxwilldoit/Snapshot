@@ -19,7 +19,7 @@ html[data-surface="app"], html[data-window="annotate"] {
   --btn: #ffffff; --btn-line: rgba(0, 0, 0, 0.14);
   --pop: rgba(250, 250, 252, 0.94); --toast: rgba(30, 30, 32, 0.92); --on-toast: #fff;
   --red: #ff3b30;
-  --side-w: 220px;
+  --side-w: clamp(176px, 18.5vw, 200px);
 
   /* 原来的纸墨变量换成同一套颜色，弹窗、规则编辑这些沿用旧组件的地方也跟着变 */
   --paper: var(--win); --paper-raised: var(--group); --paper-sunk: var(--fill2);

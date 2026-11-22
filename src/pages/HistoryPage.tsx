@@ -121,8 +121,10 @@ export function HistoryPage({ active = true }: { active?: boolean } = {}) {
   const [gridWidth, setGridWidth] = useState(() => {
     const cached = getLastMeasuredGridWidth();
     if (cached > 0) return cached;
-    if (typeof document !== "undefined" && document.documentElement.clientWidth > 244) {
-      return document.documentElement.clientWidth - 244;
+    if (typeof document !== "undefined" && document.documentElement.clientWidth > 220) {
+      const clientW = document.documentElement.clientWidth;
+      const sideW = Math.min(200, Math.max(176, clientW * 0.185));
+      return Math.max(0, Math.floor(clientW - sideW - 44));
     }
     return 0;
   });
