@@ -84,9 +84,11 @@ function sameRecordings(a: RecordingRecord[], b: RecordingRecord[]): boolean {
 }
 
 /** 历史：日期自然随列表滚动 + 同行等高拼图 + 右侧极简时间尺；悬停左右浮出无损原图与元信息预览，点击快照直达标注。 */
-export function HistoryPage() {
+export function HistoryPage({ active = true }: { active?: boolean } = {}) {
   const { settings, notify, conflicts, pendingPreviewId, consumePreviewId, navigate, pageCache } = useApp();
   const { t, language } = useI18n();
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const cachedHistory = pageCache?.history ?? null;
   const cachedMeta = pageCache?.recordingMeta ?? {};
   const [staggerDone, setStaggerDone] = useState(() => cachedHistory !== null);
@@ -202,12 +204,12 @@ export function HistoryPage() {
         return;
       }
       const next = mergeTimeline(snaps, recs, metaRef.current);
-      if (known.current) {
+      if (known.current && activeRef.current) {
         const added = next.filter((item) => !known.current!.has(item.id)).map((item) => item.id);
         if (added.length) setFresh(new Set(added));
       }
       known.current = new Set(next.map((item) => item.id));
-      if (snapshotsRef.current !== null) flip.capture();
+      if (snapshotsRef.current !== null && activeRef.current) flip.capture();
       setSnapshots(snaps);
       setRecordings(recs);
     } catch (error) {
@@ -236,12 +238,28 @@ export function HistoryPage() {
     };
   }, [refresh]);
 
+  const wasActiveRef = useRef(active);
+  useEffect(() => {
+    const wasActive = wasActiveRef.current;
+    wasActiveRef.current = active;
+    if (!active) {
+      setStaggerDone(true);
+      dismissHoverCold();
+      setContextMenu(null);
+      setPreviewId(null);
+      return;
+    }
+    if (!wasActive) {
+      void refresh();
+    }
+  }, [active, dismissHoverCold, refresh]);
+
   useEffect(() => {
     if (!pendingPreviewId) {
       pendingHandled.current = null;
       return;
     }
-    if (snapshots === null || pendingHandled.current === pendingPreviewId) return;
+    if (!active || snapshots === null || pendingHandled.current === pendingPreviewId) return;
     pendingHandled.current = pendingPreviewId;
     const items = mergeTimeline(snapshots, recordings, metaRef.current);
     const item = items.find((item) => item.id === pendingPreviewId);
@@ -250,7 +268,7 @@ export function HistoryPage() {
       else setPreviewId(item.id);
     }
     consumePreviewId();
-  }, [pendingPreviewId, snapshots, recordings, consumePreviewId, annotateItem]);
+  }, [active, pendingPreviewId, snapshots, recordings, consumePreviewId, annotateItem]);
 
   useEffect(() => {
     if (!fresh.size) return;
@@ -289,16 +307,18 @@ export function HistoryPage() {
       const nextWidth = firstGrid
         ? Math.floor(firstGrid.clientWidth)
         : Math.max(0, Math.floor(node.clientWidth - 44));
-      if (nextWidth > 0) setLastMeasuredGridWidth(nextWidth);
-      setGridWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+      if (nextWidth > 0) {
+        setLastMeasuredGridWidth(nextWidth);
+        setGridWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+      }
       if (scrollEl) {
         const nextViewH = Math.ceil(scrollEl.clientHeight);
         if (nextViewH > 0) {
           setViewportHeight((prev) => (prev === nextViewH ? prev : nextViewH));
+          const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / SCROLL_BAND_STEP));
+          setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
         }
-        const nextBand = Math.max(0, Math.floor(scrollEl.scrollTop / SCROLL_BAND_STEP));
-        setScrollBand((prev) => (prev === nextBand ? prev : nextBand));
-        if (firstGrid && nextWidth > 0) {
+        if (firstGrid && nextWidth > 0 && nextViewH > 0) {
           const scrollRect = scrollEl.getBoundingClientRect();
           const firstRect = firstGrid.getBoundingClientRect();
           const measuredFirst = Math.round(firstRect.top - scrollRect.top + scrollEl.scrollTop);
@@ -323,7 +343,7 @@ export function HistoryPage() {
     observer.observe(node);
     if (scrollEl) observer.observe(scrollEl);
     return () => observer.disconnect();
-  }, [hasGroups, groups.length]);
+  }, [hasGroups, groups.length, active]);
 
   useLayoutEffect(() => {
     const scrollEl = scrollRef.current;
@@ -364,7 +384,7 @@ export function HistoryPage() {
   }, [selecting, previewId, confirming, contextMenu, dismissHoverCold]);
 
   useEffect(() => {
-    if ((!selecting && !hoverAnchor) || previewId || confirming || contextMenu) return;
+    if (!active || (!selecting && !hoverAnchor) || previewId || confirming || contextMenu) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (hoverAnchor) dismissHoverCold();
@@ -372,7 +392,7 @@ export function HistoryPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selecting, hoverAnchor, previewId, confirming, contextMenu, exitSelecting, dismissHoverCold]);
+  }, [active, selecting, hoverAnchor, previewId, confirming, contextMenu, exitSelecting, dismissHoverCold]);
 
   const anchorRef = useRef(anchor);
   anchorRef.current = anchor;
@@ -405,7 +425,7 @@ export function HistoryPage() {
   }, []);
 
   const handleHoverStart = useCallback((item: MediaItem, node: HTMLElement, pointerX?: number) => {
-    if (selectingRef.current || scrollingRef.current || !node.isConnected) return;
+    if (!activeRef.current || selectingRef.current || scrollingRef.current || !node.isConnected) return;
     hoveredTargetRef.current = { id: item.id, node, pointerX };
     const rect = node.getBoundingClientRect();
     const meta = item.kind === "recording" ? metaRef.current[item.id] : undefined;
@@ -717,7 +737,7 @@ export function HistoryPage() {
     </Toolbar>
   ) : (
     <Toolbar title={t("历史")}>
-      <SearchField value={query} onChange={updateQuery} label={t("搜索截图")} placeholder={t("搜索应用名或日期")} />
+      <SearchField active={active} value={query} onChange={updateQuery} label={t("搜索截图")} placeholder={t("搜索应用名或日期")} />
       <button type="button" className="tb-btn" aria-label={t("打开快照文件夹")} title={t("打开快照文件夹")} onClick={() => void revealFolder()}>
         <FolderOpen aria-hidden="true" />
       </button>
@@ -740,11 +760,11 @@ export function HistoryPage() {
         </div>
       </div>
 
-      {hoverAnchor && !selecting && !contextMenu && !confirming && !previewId && (
+      {active && hoverAnchor && !selecting && !contextMenu && !confirming && !previewId && (
         <HoverPreview anchor={hoverAnchor} onMeta={reportMeta} />
       )}
 
-      {contextMenu && (
+      {active && contextMenu && (
         <Menu className="history-actions-menu" anchor={contextMenu.anchor} point={contextMenu.point} onClose={closeMenu} label={t("历史操作")}>
           <MenuItem onSelect={() => menuAction(selectItem)}>
             {selecting ? t(selected.has(contextMenu.item.id) ? "取消选择" : "选择") : t("多选")}
@@ -755,14 +775,14 @@ export function HistoryPage() {
         </Menu>
       )}
 
-      {previewId && (
+      {active && previewId && (
         <PhotoViewer
           records={previewRecords}
           startId={previewId}
           onClose={() => setPreviewId(null)}
         />
       )}
-      {confirmDialog.item && (
+      {active && confirmDialog.item && (
         <ConfirmDialog
           title={confirmDialog.item.title}
           body={t("可在资料库的回收站中恢复这些文件。")}
