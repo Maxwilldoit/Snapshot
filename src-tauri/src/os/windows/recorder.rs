@@ -576,6 +576,46 @@ fn pack_frame_scaled(
     packed
 }
 
+const MAX_CAPTURE_DIMENSION: i32 = 16_384;
+
+fn normalize_pool_size(size: SizeInt32) -> SizeInt32 {
+    SizeInt32 {
+        Width: size.Width.clamp(1, MAX_CAPTURE_DIMENSION),
+        Height: size.Height.clamp(1, MAX_CAPTURE_DIMENSION),
+    }
+}
+
+/// 仅在目标内容尺寸有效且与当前帧池尺寸不同时返回需要重建的新尺寸。
+/// 最小化或过渡态可能报出 0×0，此时保持现有帧池不动，避免 `Recreate` 报参数无效。
+fn next_pool_size(current: SizeInt32, content: SizeInt32) -> Option<SizeInt32> {
+    if content.Width <= 0 || content.Height <= 0 {
+        return None;
+    }
+    let target = normalize_pool_size(content);
+    if target.Width == current.Width && target.Height == current.Height {
+        None
+    } else {
+        Some(target)
+    }
+}
+
+/// 窗口缩小时，重建帧池前的过渡帧仍在旧的大纹理左上角绘制有效内容；
+/// 取 `content_size` 与纹理实际尺寸的较小值，避免把右下方的黑色填充一起缩放进画面。
+fn effective_source_dims(
+    texture_width: u32,
+    texture_height: u32,
+    content: SizeInt32,
+) -> (u32, u32) {
+    if content.Width > 0 && content.Height > 0 {
+        (
+            (content.Width as u32).min(texture_width).max(1),
+            (content.Height as u32).min(texture_height).max(1),
+        )
+    } else {
+        (texture_width.max(1), texture_height.max(1))
+    }
+}
+
 struct StagingTexture {
     width: u32,
     height: u32,
@@ -583,9 +623,45 @@ struct StagingTexture {
     texture: ID3D11Texture2D,
 }
 
+fn ensure_staging_texture(
+    device: &ID3D11Device,
+    cache: &mut Option<StagingTexture>,
+    desc: &D3D11_TEXTURE2D_DESC,
+) -> Option<ID3D11Texture2D> {
+    if let Some(existing) = cache.as_ref() {
+        if existing.width == desc.Width
+            && existing.height == desc.Height
+            && existing.format == desc.Format
+        {
+            return Some(existing.texture.clone());
+        }
+    }
+    let mut staging_desc = *desc;
+    staging_desc.Usage = D3D11_USAGE_STAGING;
+    staging_desc.BindFlags = 0;
+    staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+    staging_desc.MiscFlags = 0;
+    let mut created: Option<ID3D11Texture2D> = None;
+    if unsafe { device.CreateTexture2D(&staging_desc, None, Some(&mut created)) }.is_err() {
+        return None;
+    }
+    let created = created?;
+    *cache = Some(StagingTexture {
+        width: desc.Width,
+        height: desc.Height,
+        format: desc.Format,
+        texture: created.clone(),
+    });
+    Some(created)
+}
+
 struct FrameSink {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
+    /// 窗口尺寸或 DPI 变化时重建 WGC 帧池复用同一 WinRT Direct3D 设备。
+    winrt_device: IDirect3DDevice,
+    /// 当前 WGC 帧池尺寸，用于对比 `frame.ContentSize()` 避免无变化时重复重建。
+    pool_size: SizeInt32,
     encoder: Encoder,
     /// 复用同尺寸/格式的 CPU staging 纹理，避免在 60–144Hz 帧回调中每帧创建并销毁 GPU 资源。
     staging: Option<StagingTexture>,
@@ -732,14 +808,12 @@ pub fn start(
         inspectable.cast().map_err(|e| err("创建采集设备失败", e))?
     };
 
+    let pool_size = normalize_pool_size(size);
     let frame_pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
         &d3d_device,
         DirectXPixelFormat::B8G8R8A8UIntNormalized,
         2,
-        SizeInt32 {
-            Width: width as i32,
-            Height: height as i32,
-        },
+        pool_size,
     )
     .map_err(|e| err("创建帧池失败", e))?;
 
@@ -761,6 +835,8 @@ pub fn start(
     let sink = Arc::new(Mutex::new(Some(FrameSink {
         device,
         context,
+        winrt_device: d3d_device,
+        pool_size,
         encoder,
         staging: None,
         latest: None,
@@ -781,90 +857,100 @@ pub fn start(
                 let Ok(frame) = pool.TryGetNextFrame() else {
                     return Ok(());
                 };
-                let Ok(surface) = frame.Surface() else {
-                    return Ok(());
-                };
-                let Ok(access) = surface.cast::<IDirect3DDxgiInterfaceAccess>() else {
-                    return Ok(());
-                };
-                let texture: ID3D11Texture2D = match unsafe { access.GetInterface() } {
-                    Ok(texture) => texture,
-                    Err(_) => return Ok(()),
-                };
+                let content_size = frame.ContentSize().unwrap_or(SizeInt32 {
+                    Width: 0,
+                    Height: 0,
+                });
 
-                let mut guard = handler_sink.lock();
-                let Some(sink) = guard.as_mut() else {
-                    return Ok(());
-                };
-
-                // 采集纹理在 GPU 上且不可 CPU 读，先拷进一张复用的 staging 纹理再映射
-                let mut desc = D3D11_TEXTURE2D_DESC::default();
-                unsafe { texture.GetDesc(&mut desc) };
-                let staging = match sink.staging.as_ref() {
-                    Some(existing)
-                        if existing.width == desc.Width
-                            && existing.height == desc.Height
-                            && existing.format == desc.Format =>
-                    {
-                        existing.texture.clone()
-                    }
-                    _ => {
-                        let mut staging_desc = desc;
-                        staging_desc.Usage = D3D11_USAGE_STAGING;
-                        staging_desc.BindFlags = 0;
-                        staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
-                        staging_desc.MiscFlags = 0;
-                        let mut created: Option<ID3D11Texture2D> = None;
-                        if unsafe {
-                            sink.device
-                                .CreateTexture2D(&staging_desc, None, Some(&mut created))
+                let recreate = {
+                    let Ok(surface) = frame.Surface() else {
+                        let _ = frame.Close();
+                        return Ok(());
+                    };
+                    let Ok(access) = surface.cast::<IDirect3DDxgiInterfaceAccess>() else {
+                        let _ = frame.Close();
+                        return Ok(());
+                    };
+                    let texture: ID3D11Texture2D = match unsafe { access.GetInterface() } {
+                        Ok(texture) => texture,
+                        Err(_) => {
+                            let _ = frame.Close();
+                            return Ok(());
                         }
-                        .is_err()
+                    };
+
+                    let mut guard = handler_sink.lock();
+                    let Some(sink) = guard.as_mut() else {
+                        let _ = frame.Close();
+                        return Ok(());
+                    };
+
+                    // 采集纹理在 GPU 上且不可 CPU 读，先拷进一张复用的 staging 纹理再映射
+                    let mut desc = D3D11_TEXTURE2D_DESC::default();
+                    unsafe { texture.GetDesc(&mut desc) };
+                    if desc.Width > 0 && desc.Height > 0 {
+                        if let Some(staging) =
+                            ensure_staging_texture(&sink.device, &mut sink.staging, &desc)
                         {
-                            return Ok(());
-                        }
-                        let Some(created) = created else {
-                            return Ok(());
-                        };
-                        sink.staging = Some(StagingTexture {
-                            width: desc.Width,
-                            height: desc.Height,
-                            format: desc.Format,
-                            texture: created.clone(),
-                        });
-                        created
-                    }
-                };
-                unsafe { sink.context.CopyResource(&staging, &texture) };
+                            unsafe { sink.context.CopyResource(&staging, &texture) };
 
-                let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-                if unsafe {
-                    sink.context
-                        .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-                }
-                .is_err()
-                {
-                    return Ok(());
-                }
-                let stride = mapped.RowPitch as usize;
-                let pixels = unsafe {
-                    std::slice::from_raw_parts(
-                        mapped.pData as *const u8,
-                        stride * desc.Height as usize,
-                    )
+                            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+                            if unsafe {
+                                sink.context
+                                    .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+                            }
+                            .is_ok()
+                            {
+                                let stride = mapped.RowPitch as usize;
+                                let pixels = unsafe {
+                                    std::slice::from_raw_parts(
+                                        mapped.pData as *const u8,
+                                        stride * desc.Height as usize,
+                                    )
+                                };
+                                let (source_width, source_height) =
+                                    effective_source_dims(desc.Width, desc.Height, content_size);
+                                // 只更新「最近一帧」，写入交给定时器——采集是事件驱动的，
+                                // 直接在这里写会让输出帧率随窗口重绘频率漂移
+                                let (width, height) = (sink.encoder.width, sink.encoder.height);
+                                sink.latest = Some(pack_frame_scaled(
+                                    pixels,
+                                    stride,
+                                    source_width,
+                                    source_height,
+                                    width,
+                                    height,
+                                ));
+                                unsafe { sink.context.Unmap(&staging, 0) };
+                            }
+                        }
+                    }
+
+                    next_pool_size(sink.pool_size, content_size)
+                        .map(|target| (sink.winrt_device.clone(), target))
                 };
-                // 只更新「最近一帧」，写入交给定时器——采集是事件驱动的，
-                // 直接在这里写会让输出帧率随窗口重绘频率漂移
-                let (width, height) = (sink.encoder.width, sink.encoder.height);
-                sink.latest = Some(pack_frame_scaled(
-                    pixels,
-                    stride,
-                    desc.Width,
-                    desc.Height,
-                    width,
-                    height,
-                ));
-                unsafe { sink.context.Unmap(&staging, 0) };
+
+                // 先释放旧帧与纹理引用并解除互斥锁，再按新内容尺寸重建帧池，
+                // 保证窗口放大或跨 DPI 拖屏后采集纹理随之更新且不死锁。
+                let _ = frame.Close();
+                drop(frame);
+
+                if let Some((winrt_device, target)) = recreate {
+                    if !handler_stopped.load(Ordering::SeqCst)
+                        && pool
+                            .Recreate(
+                                &winrt_device,
+                                DirectXPixelFormat::B8G8R8A8UIntNormalized,
+                                2,
+                                target,
+                            )
+                            .is_ok()
+                    {
+                        if let Some(sink) = handler_sink.lock().as_mut() {
+                            sink.pool_size = target;
+                        }
+                    }
+                }
                 Ok(())
             },
         ))
@@ -961,6 +1047,145 @@ mod tests {
         assert_eq!(&packed[0..4], &blue);
         assert_eq!(&packed[packed.len() - 4..], &red);
         assert_eq!(packed.len(), 4 * 4 * 4);
+    }
+
+    #[test]
+    fn pool_size_recreates_only_on_valid_dimension_change() {
+        let initial = normalize_pool_size(SizeInt32 {
+            Width: 1055,
+            Height: 787,
+        });
+        assert_eq!((initial.Width, initial.Height), (1055, 787));
+
+        // 相同奇数尺寸不触发重建，避免每帧死循环 Recreate
+        assert!(next_pool_size(
+            initial,
+            SizeInt32 {
+                Width: 1055,
+                Height: 787
+            }
+        )
+        .is_none());
+        // 最小化或过渡态 0/负数尺寸忽略
+        assert!(next_pool_size(
+            initial,
+            SizeInt32 {
+                Width: 0,
+                Height: 0
+            }
+        )
+        .is_none());
+        assert!(next_pool_size(
+            initial,
+            SizeInt32 {
+                Width: -1,
+                Height: 600
+            }
+        )
+        .is_none());
+        // 窗口放大/跨 DPI 缩放触发重建
+        let grown = next_pool_size(
+            initial,
+            SizeInt32 {
+                Width: 1920,
+                Height: 1080,
+            },
+        )
+        .unwrap();
+        assert_eq!((grown.Width, grown.Height), (1920, 1080));
+        // 超出 D3D11 上限时钳制到 16384
+        let clamped = next_pool_size(
+            initial,
+            SizeInt32 {
+                Width: 20_000,
+                Height: 1000,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (clamped.Width, clamped.Height),
+            (MAX_CAPTURE_DIMENSION, 1000)
+        );
+    }
+
+    #[test]
+    fn effective_source_dims_crops_shrunk_content_and_clamps_grown_content() {
+        // 窗口从 4×4 缩成 2×2 的过渡帧：仅左上角 2×2 有内容，右侧和底部是黑边
+        let (sw, sh) = effective_source_dims(
+            4,
+            4,
+            SizeInt32 {
+                Width: 2,
+                Height: 2,
+            },
+        );
+        assert_eq!((sw, sh), (2, 2));
+
+        let green = [0, 255, 0, 255];
+        let black = [0, 0, 0, 255];
+        let mut padded = Vec::new();
+        padded.extend_from_slice(&[green, green, black, black].concat());
+        padded.extend_from_slice(&[green, green, black, black].concat());
+        padded.extend_from_slice(&[black, black, black, black].concat());
+        padded.extend_from_slice(&[black, black, black, black].concat());
+        let packed = pack_frame_scaled(&padded, 16, sw, sh, 4, 4);
+        assert!(packed.as_chunks::<4>().0.iter().all(|px| *px == green));
+
+        // 窗口放大超出旧纹理时钳制到旧纹理实际宽高，避免越界读
+        assert_eq!(
+            effective_source_dims(
+                640,
+                480,
+                SizeInt32 {
+                    Width: 1280,
+                    Height: 960
+                }
+            ),
+            (640, 480)
+        );
+    }
+
+    #[test]
+    fn staging_texture_reuses_same_size_and_recreates_on_resize() {
+        use windows::Win32::Graphics::Dxgi::Common::{
+            DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC,
+        };
+        let (device, _context) = create_d3d_device().expect("应当能创建 D3D11 设备");
+        let make_desc = |w, h| D3D11_TEXTURE2D_DESC {
+            Width: w,
+            Height: h,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_STAGING,
+            BindFlags: 0,
+            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+            MiscFlags: 0,
+        };
+        let mut cache = None;
+        let d1 = make_desc(320, 240);
+        let first = ensure_staging_texture(&device, &mut cache, &d1).expect("首次创建 staging");
+        let second = ensure_staging_texture(&device, &mut cache, &d1).expect("同尺寸应复用");
+        assert_eq!(
+            first.as_raw(),
+            second.as_raw(),
+            "同尺寸帧必须复用同一 staging 纹理"
+        );
+
+        let d2 = make_desc(640, 480);
+        let resized = ensure_staging_texture(&device, &mut cache, &d2).expect("改尺寸应重建");
+        assert_ne!(
+            first.as_raw(),
+            resized.as_raw(),
+            "尺寸变化后应当重建 staging 纹理"
+        );
+        let resized_again =
+            ensure_staging_texture(&device, &mut cache, &d2).expect("新尺寸后续帧应复用");
+        assert_eq!(resized.as_raw(), resized_again.as_raw());
     }
 
     /// 找一个可见的、不是本应用自己的窗口来做被摄对象
