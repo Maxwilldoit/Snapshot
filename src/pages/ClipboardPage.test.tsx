@@ -130,36 +130,57 @@ describe("ClipboardPage performance, search, and hover preview", () => {
     expect(screen.getByText("09:15")).toBeTruthy();
   });
 
-  it("shows a lossless hover preview when hovering an image entry and dismisses on leave or scroll", async () => {
-    const entries: ClipboardHistoryEntry[] = [
-      { id: "clip-img", createdAt: new Date(2026, 10, 21, 14, 20).getTime(), kind: "image", text: "", width: 1600, height: 1000, hash: "h-img" },
-      { id: "clip-txt", createdAt: new Date(2026, 10, 21, 14, 10).getTime(), kind: "text", text: "plain text", width: 0, height: 0, hash: "h-txt" },
-    ];
-    setupTauriMock((command) => {
-      if (command === "list_clipboard_history") return structuredClone(entries);
-      return undefined;
-    }, { shouldMockEvents: true });
+  it("shows hover tooltips/previews only on text or image content, never on blank row space", async () => {
+    const prevSurface = document.documentElement.dataset.surface;
+    document.documentElement.dataset.surface = "app";
+    try {
+      const entries: ClipboardHistoryEntry[] = [
+        { id: "clip-img", createdAt: new Date(2026, 10, 21, 14, 20).getTime(), kind: "image", text: "", width: 1600, height: 1000, hash: "h-img" },
+        { id: "clip-txt", createdAt: new Date(2026, 10, 21, 14, 10).getTime(), kind: "text", text: "plain text", width: 0, height: 0, hash: "h-txt" },
+      ];
+      setupTauriMock((command) => {
+        if (command === "list_clipboard_history") return structuredClone(entries);
+        return undefined;
+      }, { shouldMockEvents: true });
 
-    const { container } = render(<AppContext.Provider value={context}><ClipboardPage /></AppContext.Provider>);
-    const img = await screen.findByRole("img", { name: "图片 1600 × 1000" });
-    const imgButton = img.closest("button")!;
-    const txtButton = screen.getByText("plain text").closest("button")!;
+      const { container } = render(<AppContext.Provider value={context}><ClipboardPage /></AppContext.Provider>);
+      const img = await screen.findByRole("img", { name: "图片 1600 × 1000" });
+      const imgButton = img.closest("button")!;
+      const txtSpan = screen.getByText("plain text");
+      const txtButton = txtSpan.closest("button")!;
 
-    // 悬停文字条目不弹出图片预览
-    fireEvent.pointerEnter(txtButton);
-    expect(screen.queryByRole("tooltip")).toBeNull();
+      // 整行按钮不挂 title，文字节点宽度收敛到文字自身而非撑满整行空白区
+      expect(imgButton.getAttribute("title")).toBeNull();
+      expect(txtButton.getAttribute("title")).toBeNull();
+      expect(txtSpan.getAttribute("title")).toBe("plain text");
+      expect(getComputedStyle(txtSpan).justifySelf).toBe("start");
 
-    // 悬停图片条目立即弹出原图预览
-    fireEvent.pointerEnter(imgButton, { clientX: 300 });
-    const tip = screen.getByRole("tooltip");
-    expect(tip.textContent).toContain("1600 × 1000 · PNG");
-    const full = tip.querySelector<HTMLImageElement>("img.hover-preview-full");
-    expect(full?.src).toContain("clipboard");
-    expect(full?.src).not.toContain("clipboard-thumb");
+      // 悬停文字行或图片行的空白区域不弹出悬浮预览
+      fireEvent.pointerEnter(txtButton);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      fireEvent.pointerEnter(imgButton, { clientX: 600 });
+      expect(screen.queryByRole("tooltip")).toBeNull();
 
-    // 滚轮滚动立即收起预览
-    fireEvent.scroll(container.querySelector(".clipboard-scroll")!);
-    expect(screen.queryByRole("tooltip")).toBeNull();
+      // 悬停到图片缩略图本身才弹出无损预览，移出缩略图到空白区立即收起
+      fireEvent.pointerEnter(img, { clientX: 200 });
+      const tip = screen.getByRole("tooltip");
+      expect(tip.textContent).toContain("1600 × 1000 · PNG");
+      const full = tip.querySelector<HTMLImageElement>("img.hover-preview-full");
+      expect(full?.src).toContain("clipboard");
+      expect(full?.src).not.toContain("clipboard-thumb");
+
+      fireEvent.pointerLeave(img);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+
+      // 再次移入缩略图后滚轮滚动也立即收起预览
+      fireEvent.pointerEnter(img, { clientX: 200 });
+      expect(screen.getByRole("tooltip")).toBeTruthy();
+      fireEvent.scroll(container.querySelector(".clipboard-scroll")!);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    } finally {
+      if (prevSurface === undefined) delete document.documentElement.dataset.surface;
+      else document.documentElement.dataset.surface = prevSurface;
+    }
   });
 
   it("virtualizes large clipboard lists with exact row heights and resets scroll on search", async () => {

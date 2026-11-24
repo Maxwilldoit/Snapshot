@@ -350,7 +350,7 @@ html[data-surface="app"] .clip-main {
   color: var(--text2); font-size: 13px; text-align: left; cursor: pointer; border-radius: 6px;
 }
 html[data-surface="app"] .clip-main:hover { background: var(--fill); color: var(--text1); }
-html[data-surface="app"] .clip-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+html[data-surface="app"] .clip-text { justify-self: start; max-width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 html[data-surface="app"] .clip-thumb {
   display: block; max-height: 64px; max-width: 200px;
   border-radius: 4px; background: var(--stage); object-fit: contain; outline: 0.5px solid var(--sep); justify-self: start;
