@@ -115,31 +115,17 @@ fn safe_component(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
 }
 
-/// 目录数据可能仍由旧用户名生成；仓库已经迁移时，统一到当前 owner 再校验。
-fn normalize_pets_url(url: &str) -> String {
-    for prefix in ["https://github.com/", "https://raw.githubusercontent.com/"] {
-        if let Some(rest) = url.strip_prefix(prefix) {
-            if let Some((_, tail)) = rest.split_once("/Pets/") {
-                return format!("{prefix}Maxwilldoit/Pets/{tail}");
-            }
-        }
-    }
-    url.to_string()
-}
-
 fn parse_catalog(bytes: &[u8]) -> Result<PetCatalog, String> {
     if bytes.len() as u64 > MAX_CATALOG_BYTES {
         return Err("素材库目录文件过大".into());
     }
-    let mut catalog: PetCatalog =
+    let catalog: PetCatalog =
         serde_json::from_slice(bytes).map_err(|_| "素材库目录格式不正确".to_string())?;
     if catalog.version != 1 {
         return Err("当前应用不支持这个素材库版本".into());
     }
     let mut ids = HashSet::new();
-    for asset in &mut catalog.assets {
-        asset.download_url = normalize_pets_url(&asset.download_url);
-        asset.preview_url = normalize_pets_url(&asset.preview_url);
+    for asset in &catalog.assets {
         let release = asset
             .download_url
             .strip_prefix(RELEASE_PREFIX)
@@ -364,16 +350,6 @@ mod tests {
         assert!(verify_archive(pet, b"abc").is_ok());
         assert!(verify_archive(pet, b"abd").is_err());
         assert!(verify_archive(pet, b"ab").is_err());
-    }
-
-    #[test]
-    fn legacy_owner_catalog_urls_follow_the_new_repository() {
-        let mut catalog = sample();
-        catalog["assets"][0]["downloadUrl"] = "https://github.com/legacy-owner/Pets/releases/download/snapshot-assets-v1/test-pet-1.0.0.zip".into();
-        catalog["assets"][0]["previewUrl"] = "https://raw.githubusercontent.com/legacy-owner/Pets/main/catalog/previews/test-pet.png".into();
-        let parsed = parse(&catalog).unwrap();
-        assert!(parsed.assets[0].download_url.starts_with(RELEASE_PREFIX));
-        assert!(parsed.assets[0].preview_url.starts_with(PREVIEW_PREFIX));
     }
 
     #[test]

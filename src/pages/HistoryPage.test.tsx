@@ -37,7 +37,6 @@ const context: AppContextValue = {
   conflicts: [],
   setConflicts: () => {},
   caps: null,
-  activity: [],
   recording: { active: false, target: null, startedAt: null },
   page: "history",
   navigate: () => {},

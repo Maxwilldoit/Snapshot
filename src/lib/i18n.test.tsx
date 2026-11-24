@@ -79,18 +79,15 @@ describe("interface language", () => {
       .toBe("Couldn’t capture the window. permission denied");
   });
 
-  it("ignores and clears a stored explicit choice: the system locale always wins", () => {
+  it("follows the Chinese system locale", () => {
     vi.spyOn(navigator, "languages", "get").mockReturnValue(["zh-CN", "zh"]);
-    localStorage.setItem("snapshot-language", "en");
     render(<I18nProvider><LanguageProbe /></I18nProvider>);
     expect(screen.getByTestId("language").textContent).toBe("zh");
     expect(screen.getByText("设置")).toBeTruthy();
-    expect(localStorage.getItem("snapshot-language")).toBeNull();
   });
 
   it("uses the English system locale on first launch", () => {
     vi.spyOn(navigator, "languages", "get").mockReturnValue(["en-GB", "en"]);
-    localStorage.removeItem("snapshot-language");
     render(<I18nProvider><LanguageProbe /></I18nProvider>);
     expect(screen.getByTestId("language").textContent).toBe("en");
     expect(screen.getByText("Settings")).toBeTruthy();
@@ -99,7 +96,6 @@ describe("interface language", () => {
 
   it.each(["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-SG"])("uses Simplified Chinese for %s", (locale) => {
     vi.spyOn(navigator, "languages", "get").mockReturnValue([locale]);
-    localStorage.removeItem("snapshot-language");
     render(<I18nProvider><LanguageProbe /></I18nProvider>);
     expect(screen.getByTestId("language").textContent).toBe("zh");
     expect(screen.getByText("设置")).toBeTruthy();

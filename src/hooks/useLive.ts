@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   getRecordingStatus,
-  listActivity,
-  onActivity,
   onRecordingChanged,
 } from "../lib/backend";
-import type { ActivityEntry, RecordingStatus } from "../types";
+import type { RecordingStatus } from "../types";
 
 /** 订阅一个 Tauri 事件；卸载时取消 */
 function useTauriListener(subscribe: () => Promise<() => void>) {
@@ -17,22 +15,6 @@ function useTauriListener(subscribe: () => Promise<() => void>) {
     // 只订阅一次：回调里用的都是 setState
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-}
-
-export function useActivityLog() {
-  const [entries, setEntries] = useState<ActivityEntry[]>([]);
-  useEffect(() => {
-    listActivity()
-      .then((list) => {
-        const next = Array.isArray(list) ? list : [];
-        setEntries((current) => (current.length === 0 && next.length === 0 ? current : next));
-      })
-      .catch(() => {});
-  }, []);
-  useTauriListener(() =>
-    onActivity((entry) => setEntries((list) => [entry, ...list.filter((item) => item.id !== entry.id)].slice(0, 300))),
-  );
-  return entries;
 }
 
 const idle: RecordingStatus = { active: false, target: null, startedAt: null };

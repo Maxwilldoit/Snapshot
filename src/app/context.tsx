@@ -1,6 +1,5 @@
 import { createContext, useContext } from "react";
 import type {
-  ActivityEntry,
   ClipboardHistoryEntry,
   NavPage,
   PlatformCapabilities,
@@ -49,7 +48,6 @@ export type AppContextValue = {
   conflicts: string[];
   setConflicts: (keys: string[]) => void;
   caps: PlatformCapabilities | null;
-  activity: ActivityEntry[];
   recording: RecordingStatus;
   page: NavPage;
   navigate: (page: NavPage, options?: { previewId?: string; petId?: string }) => void;

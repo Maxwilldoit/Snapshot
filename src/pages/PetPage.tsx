@@ -108,7 +108,7 @@ export function PetPage() {
   const stageSrc = asset && !asset.missing ? petUrl(asset.id, activeEntry) : null;
 
   return (
-    <div className={`mw-page pet-page ${dropping ? "is-dropping" : ""}`}>
+    <div className="mw-page pet-page">
       <Toolbar title={name}>
         <button
           type="button"

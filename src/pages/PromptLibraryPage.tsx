@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Toolbar } from "../app/Shell";
-import { WindowTitleBar } from "../components/WindowTitleBar";
 import { SearchField } from "../components/SearchField";
 import { Keys } from "../components/ui/Keys";
 import {
   copyText,
   deleteSavedPrompt,
-  hidePromptLibrary,
   listSavedPrompts,
   onPromptLibraryOpened,
   saveSavedPrompt,
@@ -31,19 +29,15 @@ const errorText = (error: unknown) =>
   localizeMessage(error instanceof Error ? error.message : String(error));
 
 /**
- * Prompt 库。这里保存的是用户反复使用、复制的原文，
- * 与润色规则和润色历史互不相干。
- * 主窗口里作为 Prompt 页的内嵌区块（toolbarExtras 接上页级切换按钮），
- * 兼容窗口里仍以 standalone 方式独占整窗。
+ * Prompt 库：保存用户反复使用、复制的原文，与润色规则和润色历史互不相干。
+ * 在主窗口作为 Prompt 页的内嵌区块渲染（toolbarExtras 接上页级切换按钮）。
  */
 export function PromptLibraryPage({
   active = true,
-  standalone = false,
   toolbarExtras,
   focusRequest = 0,
 }: {
   active?: boolean;
-  standalone?: boolean;
   toolbarExtras?: ReactNode;
   focusRequest?: number;
 }) {
@@ -120,19 +114,13 @@ export function PromptLibraryPage({
     target?.focus();
   }, [active, editing?.key, editing?.id]);
 
+  // 点击工具栏的库按钮不抢焦点；只有全局入口明确要求展开库（focusRequest 递增）才把焦点放进搜索框。
   useEffect(() => {
-    if (!standalone || !active || loading || editing) return;
-    searchRef.current?.focus();
-  }, [active, editing, loading, standalone]);
-
-  // 内嵌在主窗口时，点击工具栏的库按钮不抢焦点；
-  // 只有全局入口明确要求展开库（focusRequest 递增）才把焦点放进搜索框。
-  useEffect(() => {
-    if (standalone || !active || focusRequest === 0 || focusRequest === handledFocusRequest.current) return;
+    if (!active || focusRequest === 0 || focusRequest === handledFocusRequest.current) return;
     if (loading || editing) return;
     handledFocusRequest.current = focusRequest;
     searchRef.current?.focus();
-  }, [active, editing, focusRequest, loading, standalone]);
+  }, [active, editing, focusRequest, loading]);
 
   useEffect(() => {
     if (!deleteArmed) return;
@@ -211,26 +199,14 @@ export function PromptLibraryPage({
         searchRef.current?.select();
         return;
       }
-      if (event.key !== "Escape") return;
-
+      if (event.key !== "Escape" || !editing) return;
       event.preventDefault();
-      if (editing) closeEditor();
-      else if (standalone) {
-        void hidePromptLibrary().catch((error) => {
-          setStatus({
-            kind: "error",
-            text: t("{action}失败：{detail}", {
-              action: t("关闭"),
-              detail: errorText(error),
-            }),
-          });
-        });
-      }
+      closeEditor();
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, closeEditor, editing, saveDraft, standalone, t]);
+  }, [active, closeEditor, editing, saveDraft]);
 
   async function copy(prompt: SavedPrompt) {
     if (copyingId) return;
@@ -334,13 +310,7 @@ export function PromptLibraryPage({
 
   return (
     <div className="mw-page prompt-library-page">
-      {standalone ? (
-        <WindowTitleBar className="mw-toolbar" onError={(text) => setStatus({ kind: "error", text })}>
-          <h1 className="mw-title" data-tauri-drag-region>{t("Prompt 库")}</h1>
-          <span className="mw-fill" data-tauri-drag-region />
-          <span className="mw-tools">{actions}</span>
-        </WindowTitleBar>
-      ) : <Toolbar title={t("Prompt")}>{actions}{toolbarExtras}</Toolbar>}
+      <Toolbar title={t("Prompt")}>{actions}{toolbarExtras}</Toolbar>
       <div className="mw-scroll pane">
         <div className="library-content">
           {editing ? (

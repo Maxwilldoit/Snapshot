@@ -26,7 +26,6 @@ pub(crate) fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 }
                 if let Err(error) = actions::perform(&app, &action).await {
                     eprintln!("snapshot: shortcut action {action} failed: {error}");
-                    activity::record_error(&app, actions::action_failure_title(&action), &error);
                     if action != "polish" {
                         actions::emit_pet_failure(&app, &action);
                     }
@@ -214,7 +213,6 @@ fn reconfigure<T>(
 
 enum Change {
     Bindings(Vec<ShortcutBinding>),
-    Paused(bool),
     TogglePaused,
 }
 
@@ -229,7 +227,6 @@ async fn change_configuration(app: AppHandle, change: Change) -> Result<Settings
         let mut next = previous.clone();
         match change {
             Change::Bindings(bindings) => next.shortcuts = bindings,
-            Change::Paused(paused) => next.shortcuts_paused = paused,
             Change::TogglePaused => next.shortcuts_paused = !next.shortcuts_paused,
         }
         let result = reconfigure(
@@ -290,21 +287,11 @@ pub(crate) async fn save_bindings(
     change_configuration(app, Change::Bindings(bindings)).await
 }
 
-#[tauri::command]
-pub(crate) async fn set_shortcuts_paused(app: AppHandle, paused: bool) -> Result<Settings, String> {
-    change_configuration(app, Change::Paused(paused)).await
-}
-
 pub(crate) fn toggle_from_tray(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(error) = change_configuration(app.clone(), Change::TogglePaused).await {
             use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-            activity::record_error(
-                &app,
-                ui_text("快捷键设置未生效", "Couldn’t change shortcuts"),
-                &error,
-            );
             let message = if interface_is_english() {
                 if error.starts_with("这些快捷键") || error.starts_with("释放快捷键失败")
                 {

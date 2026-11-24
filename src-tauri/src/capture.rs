@@ -190,10 +190,8 @@ pub(crate) fn finalize_capture(
         return Err("截取结果为空图像".into());
     }
     let settings = state.settings.lock().clone();
-    let (width, height) = (image.width(), image.height());
 
-    // 原图已经成功拿到，立即通知主窗口。这里不等待编码、历史或剪贴板；
-    // capture-feedback 仍保留在后处理末尾，表示整条截图流程已经结束。
+    // 原图已经成功拿到，立即通知主窗口播放快门反馈，不等待编码、历史或剪贴板。
     let _ = app.emit_to(
         "main",
         "capture-shot",
@@ -208,48 +206,23 @@ pub(crate) fn finalize_capture(
     );
     trace.mark_capture_ready();
 
-    // 截图固定「复制 + 存历史」；存失败不阻断剪贴板，但写入活动错误方便排查目录权限问题。
-    let record =
+    // 截图固定「复制 + 存历史」；存失败不阻断剪贴板。
+    let archived =
         match snapshots::store_snapshot_traced(state, &image, app_name, app_id.clone(), &trace) {
-            Ok(record) => Some(record),
+            Ok(_) => true,
             Err(error) => {
-                activity::record_error(app, app_name, &error);
-                None
+                eprintln!("snapshot: could not save snapshot for {app_name}: {error}");
+                false
             }
         };
-    let archived = record.is_some();
     if archived {
         let _ = app.emit("snapshots-changed", ());
     }
-    let snapshot_id = record.map(|record| record.id);
 
     clipboard::copy_image(image)?;
     trace.mark("clipboard");
 
-    // 活动、宠物成功反馈和兼容的最终事件都放在必需后处理成功之后，
-    // 避免剪贴板/标注失败时先报一次成功。
-    activity::record(
-        app,
-        activity::Activity::new("capture", app_name)
-            .meta(format!("{width} × {height}"))
-            .snapshot(snapshot_id.clone()),
-    );
-    trace.mark("activity");
     let _ = app.emit("pet-event", "capture.success");
-
-    let _ = app.emit(
-        "capture-feedback",
-        json!({
-            "shotId": trace.shot_id(),
-            "sentAtMs": now_millis(),
-            "ok": true,
-            "historySaveAttempted": true,
-            "historySaved": archived,
-            "shutterSound": settings.shutter_sound,
-            "customSoundPath": settings.custom_sound_path,
-        }),
-    );
-    trace.mark("feedback_event");
     let suffix = cursor_degraded.unwrap_or_default();
     if interface_is_english() {
         let head = if archived {
@@ -361,25 +334,6 @@ fn annotate_window_logical_size(
             .round()
             .clamp(MIN_HEIGHT, max_height),
     )
-}
-
-#[tauri::command]
-pub(crate) fn get_annotate_image(state: State<'_, AppState>) -> Result<Option<String>, String> {
-    Ok(state
-        .annotate_session
-        .lock()
-        .as_ref()
-        .map(annotate_data_url))
-}
-
-#[tauri::command]
-pub(crate) fn annotate_get_title(state: State<'_, AppState>) -> String {
-    state
-        .annotate_session
-        .lock()
-        .as_ref()
-        .map(|session| session.source.record.app_name.clone())
-        .unwrap_or_default()
 }
 
 fn annotate_data_url(session: &AnnotateSession) -> String {

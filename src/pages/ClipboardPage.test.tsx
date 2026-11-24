@@ -4,6 +4,7 @@ import { AppContext, type AppContextValue } from "../app/context";
 import { invokeArgs, setupTauriMock } from "../test/tauri";
 import type { ClipboardHistoryEntry, Settings } from "../types";
 import { ClipboardPage } from "./ClipboardPage";
+import "../styles/main-window.css";
 
 const settings: Settings = {
   baseUrl: "",
@@ -35,7 +36,6 @@ const context: AppContextValue = {
   conflicts: [],
   setConflicts: () => {},
   caps: null,
-  activity: [],
   recording: { active: false, target: null, startedAt: null },
   page: "clipboard",
   navigate: () => {},

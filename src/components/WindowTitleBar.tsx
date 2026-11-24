@@ -1,14 +1,5 @@
-import type { ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { localizeMessage, useI18n } from "../lib/i18n";
-
-type WindowTitleBarProps = {
-  children?: ReactNode;
-  right?: ReactNode;
-  tall?: boolean;
-  className?: string;
-  onError: (message: string) => void;
-};
 
 /**
  * 最小化、最大化、关闭三个按钮。窗口没有系统标题栏（decorations: false），只能自己画。
@@ -50,21 +41,5 @@ export function WindowControls({ variant = "win", onError }: { variant?: "win" |
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" /></svg>
       </button>
     </span>
-  );
-}
-
-/** 独立窗口也可复用的主题标题栏，不依赖主窗口的 AppContext。 */
-export function WindowTitleBar({ children, right, tall = false, className = "", onError }: WindowTitleBarProps) {
-  const { t } = useI18n();
-  return (
-    <header
-      className={`titlebar ${tall ? "is-tall" : ""} ${className}`}
-      data-tauri-drag-region
-    >
-      {children ?? <span className="titlebar-name" data-tauri-drag-region>{t("应用快照")}</span>}
-      <span className="titlebar-fill" data-tauri-drag-region />
-      {right}
-      <WindowControls onError={onError} />
-    </header>
   );
 }

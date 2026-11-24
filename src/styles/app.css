@@ -16,10 +16,9 @@
 
 /* 换页：只有内容区在动，侧栏和标题栏原地不动 */
 :root[data-vt="page"] .main { view-transition-name: page; }
-:root[data-vt="page"] .nav-mark { view-transition-name: nav-mark; }
 :root[data-vt="page"]::view-transition-new(root) { animation: none; }
 /* 旧根快照是整屏位图，macOS 透明窗口下的毛玻璃侧栏会被拍成不透光的浅色板，切页时闪白。
-   隐藏旧快照，让侧栏、标题栏和截图按钮保持实时渲染；内容区和导航墨线仍各自过渡。 */
+   隐藏旧快照，让侧栏、标题栏和截图按钮保持实时渲染；内容区各自过渡。 */
 :root[data-vt="page"]::view-transition-old(root) { display: none; }
 :root[data-vt="page"]::view-transition-group(page) { overflow: clip; animation: none; }
 /* 旧页：很快淡掉（两页别叠在一起糊成一片），同时朝反方向退一小步 */
@@ -30,10 +29,6 @@
 :root[data-vt="page"]::view-transition-new(page) {
   animation: vt-fade-in 230ms var(--ease-out) 90ms both, vt-slide-in var(--t-open) var(--ease-enter) both;
 }
-/* 墨线从旧的一项滑到新的一项 */
-::view-transition-group(nav-mark) { animation-duration: var(--t-open); animation-timing-function: var(--ease-out); }
-::view-transition-old(nav-mark) { animation: none; opacity: 0; }
-::view-transition-new(nav-mark) { animation: none; }
 
 /* 换颜色：新颜色从点的地方圆形铺开 */
 :root[data-vt="theme"]::view-transition-old(root) { animation: none; }
@@ -55,10 +50,7 @@
   display: flex; align-items: stretch; flex: 0 0 auto;
   height: var(--titlebar-h, 34px); padding-left: 16px; user-select: none;
 }
-.titlebar.is-tall { border-bottom: 1px solid var(--rule); }
 .titlebar-name { align-self: center; margin-right: 28px; font-size: var(--text-small); color: var(--ink-3); white-space: nowrap; }
-.titlebar.is-tall .titlebar-name { font-size: var(--text); color: var(--ink); }
-.titlebar-fill { flex: 1 1 auto; }
 .window-controls { display: flex; flex: 0 0 auto; }
 .window-controls button {
   display: grid; place-items: center; width: 46px; height: 100%; padding: 0;
@@ -95,9 +87,6 @@
 .nav-item.is-on { color: var(--ink); font-weight: 600; }
 .nav-item .small { font-weight: 400; }
 .nav-label { position: relative; }
-.nav-mark { position: absolute; left: 0; right: 0; bottom: -4px; height: 1.5px; background: var(--ink-fill); pointer-events: none; }
-/* 侧栏是竖排：标记是字左边的一道竖线，换页时在空白里上下滑，不会从字上划过去 */
-.nav-item .nav-mark { left: -12px; right: auto; top: 2px; bottom: 2px; width: 2px; height: auto; }
 
 /* ---------- 左下角提示 ---------- */
 
@@ -114,13 +103,8 @@
 
 /* ---------- 通用页面骨架 ---------- */
 
-.page-grid { display: grid; column-gap: 44px; row-gap: 28px; padding: 14px 32px 22px 20px; min-height: 100%; }
-.page-grid-2 { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
-.page-single { padding: 14px 32px 22px 20px; max-width: 820px; }
-
 .panel { display: flex; flex-direction: column; min-width: 0; }
 .panel-shortcuts { min-height: 100%; }
-.page-grid-2 > .panel-shortcuts { min-height: calc(100vh - var(--titlebar-h) - 36px); }
 .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .panel-head-left, .panel-head-right { display: flex; align-items: center; gap: 12px; }
 .panel-head-left { align-items: baseline; }
@@ -128,19 +112,13 @@
 .panel-head .panel-title { margin: 0; }
 /* 标题行下面直接接列表时，留出和单独标题一样的间距 */
 .panel-head + .rows { margin-top: 8px; }
-.settings-doc .panel-head + .rows { margin-top: 10px; }
-.panel-title-gap { margin-top: 24px; }
 
 .rows { display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
-.rows-gap { margin-top: 34px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
 .row-stack { flex-direction: column; align-items: stretch; gap: 3px; padding: 11px 0 10px; }
 .row-line { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .row-label { color: var(--ink-2); }
 .row-links { display: flex; align-items: baseline; gap: 12px; }
-.pause-setting { display: flex; align-items: center; gap: 10px; }
-.pause-label { color: var(--ink); }
-.pause-state { color: var(--ink-3); }
 .storage-path-row { gap: 4px; }
 .storage-path {
   align-self: flex-start; max-width: 100%; padding: 0 0 3px; border: 0; border-bottom: 1px dashed var(--rule-strong);
@@ -191,65 +169,11 @@
 .btn.is-armed { color: var(--signal); border-color: var(--signal); }
 .rows-flush { border-top: 0; }
 
-/* ---------- 快捷键行 ---------- */
+/* ---------- 历史与 Prompt 记录 ---------- */
 
-.key-row { position: relative; display: flex; align-items: stretch; border-bottom: 1px solid var(--rule); }
-/* 左右各往外借 10px：内容位置不变，键盘焦点框和字之间留出空隙，不再压着字 */
-.key-row-main {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 1 1 auto;
-  min-height: 46px; margin: 0 -10px; padding: 10px; border: 0; border-radius: 3px; background: none; text-align: left;
-}
-.key-row-main:focus-visible { outline-offset: -2px; }
-.key-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.key-row-name { display: flex; align-items: baseline; gap: 8px; }
-.key-row-value { flex: 0 0 auto; display: flex; align-items: center; }
-.key-row-clear {
-  position: absolute; right: 0; top: 50%; transform: translate(calc(100% + 10px), -50%);
-  padding: 0; border: 0; background: none; font-size: var(--text-small); color: var(--ink-3);
-  opacity: 0; transition: opacity var(--t-press) var(--ease-out);
-}
-.key-row:hover .key-row-clear, .key-row:focus-within .key-row-clear { opacity: 1; }
-.key-row-clear:hover { color: var(--signal); }
-
-/* ---------- Prompt ---------- */
-
-.prompt-tabs { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; min-height: 32px; }
-.prompt-tabs .mono { padding-bottom: 6px; }
-.prompt-rules { display: flex; align-items: baseline; gap: 12px; min-width: 0; padding-bottom: 6px; }
-.prompt-field { position: relative; display: flex; flex: 1 1 auto; min-height: 0; }
-.prompt-textarea { flex: 1; resize: none; padding: 14px 18px; font-size: var(--text); line-height: 22px; white-space: pre-wrap; }
-.prompt-busy {
-  position: absolute; inset: 1px; display: grid; align-content: center; justify-items: start; gap: 12px; padding: 0 18px;
-  background: color-mix(in srgb, var(--paper-raised) 88%, transparent); color: var(--ink-2); font-size: var(--text-small);
-  animation: fade-in var(--t-fade) var(--ease-out);
-}
-.prompt-busy .busy-line { width: 200px; }
-.prompt-failure { margin: 10px 0 0; font-size: var(--text-small); color: var(--signal); animation: rise-in var(--t-open) var(--ease-enter); }
-.prompt-failure .link { margin-left: 8px; color: var(--ink); }
-.prompt-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; }
-.prompt-foot-actions { display: flex; gap: 10px; }
-/* 润色结果弹窗：原文留在页面的编辑框里，这里只放新的一份 */
-.dialog-result { display: flex; flex-direction: column; gap: 12px; width: min(640px, 100%); }
-.dialog-result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.dialog-result-text {
-  height: min(360px, calc(100vh - 220px)); resize: none; padding: 12px 14px;
-  font-size: var(--text); line-height: 22px; white-space: pre-wrap;
-  transition: opacity var(--t-fade) var(--ease-out);
-}
-/* 重新生成期间旧结果先淡下去，新的一到就换上 */
-.dialog-result-text.is-stale { opacity: 0.45; }
-.dialog-result p { margin: 0; }
-.dialog-result .dialog-actions { margin-top: 4px; }
-
-/* ---------- 历史记录 ---------- */
-
-.history-page { display: flex; flex-direction: column; height: calc(100vh - var(--titlebar-h)); padding: 10px 32px 0 20px; }
-.history-bar { display: flex; align-items: center; gap: 16px; min-height: 32px; flex: 0 0 auto; }
-.history-scroll { flex: 1 1 auto; min-height: 0; margin-top: 14px; overflow-y: auto; overscroll-behavior: none; padding-bottom: 24px; }
-.day { display: grid; grid-template-columns: 76px minmax(0, 1fr); padding: 14px 0 16px; border-top: 1px solid var(--rule); }
-.day-label { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.history-page { display: flex; flex-direction: column; height: 100%; }
+.history-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: none; }
 .day-title { margin: 0; font-size: var(--text-small); line-height: 18px; font-weight: 600; }
-.day-items { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: flex-start; }
 .shot {
   display: flex; flex-direction: column; gap: 6px; width: fit-content; min-width: 112px; max-width: 200px; margin: 0;
   transition: opacity var(--t-exit) var(--ease-exit), transform var(--t-exit) var(--ease-exit);
@@ -336,41 +260,10 @@
 
 /* ---------- 桌面伴侣 ---------- */
 
-.pet-page { display: grid; grid-template-columns: 236px minmax(0, 1fr); column-gap: 40px; min-height: calc(100vh - var(--titlebar-h)); padding: 10px 32px 22px 20px; }
-.pet-page > .pet-current { position: sticky; top: 10px; align-self: start; display: flex; flex-direction: column; min-width: 0; min-height: calc(100vh - var(--titlebar-h) - 32px); }
 .pet-stage { position: relative; display: flex; align-items: flex-end; justify-content: center; height: 250px; flex: 0 0 auto; }
 .pet-stage-image { display: block; max-height: 232px; max-width: 100%; object-fit: contain; background: transparent; pointer-events: none; animation: fade-in var(--t-open) var(--ease-out); }
-/* 从架子上飞过来的替身还在路上时，真图先藏着，落地那一刻再露出来 */
-.pet-stage-image.is-landing { opacity: 0; animation: none; }
-.pet-stage-image.is-landed { animation: none; }
-.pet-floor { height: 2px; background: var(--ink-fill); flex: 0 0 auto; }
-
-.pet-collection { display: flex; flex-direction: column; gap: 32px; min-width: 0; }
-.pet-shelf-area { display: flex; flex-direction: column; min-width: 0; }
-.pet-shelf-area .panel-head { min-height: 32px; align-items: center; flex-wrap: wrap; }
-.pet-shelf-area .panel-head-right { flex-wrap: wrap; margin-left: auto; }
-.import-failures { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 8px 0; border-top: 1px solid var(--signal-soft); border-bottom: 1px solid var(--signal-soft); animation: rise-in var(--t-open) var(--ease-enter); }
-.shelf { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); row-gap: 16px; margin-top: 4px; }
-.shelf-item { display: flex; flex-direction: column; min-width: 0; animation: rise-in var(--t-open) var(--ease-enter) both; animation-delay: calc(var(--i, 0) * var(--stagger)); }
-.shelf-button { display: flex; flex-direction: column; align-items: stretch; min-width: 0; padding: 0; border: 0; background: none; }
-.shelf-figure {
-  position: relative; display: flex; align-items: flex-end; justify-content: center; height: 72px;
-  border-bottom: 1px solid var(--rule-strong); margin-bottom: 1px;
-  transition: border-color var(--t-fade) var(--ease-out);
-}
-.shelf-figure img, .shelf-figure video, .shelf-figure canvas { display: block; max-height: 66px; max-width: 86%; object-fit: contain; background: transparent; pointer-events: none; transition: transform var(--t-fade) var(--ease-out); }
-.shelf-figure .app-glyph { margin-bottom: 8px; }
-.shelf-figure .cat-shape { margin-bottom: 6px; }
 .pet-stage .cat-shape { margin-bottom: 14px; }
-.pet-stage > .pet-alpha-colour, .shelf-figure > .pet-alpha-colour { position: absolute; }
-.shelf-button:hover .shelf-figure :is(img, video, canvas) { transform: translateY(-3px); }
-.shelf-item.is-selected .shelf-figure { border-bottom: 2px solid var(--ink); margin-bottom: 0; }
-.shelf-name { margin-top: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: center; font-size: var(--text-small); line-height: 18px; color: var(--ink-2); padding: 0 4px; }
-.shelf-item.is-selected .shelf-name { color: var(--ink); font-weight: 600; }
-.shelf-item.is-broken .shelf-button { cursor: default; }
-.shelf-item.is-broken .shelf-name { color: var(--ink-4); }
-.shelf-broken { text-align: center; color: var(--signal); }
-.shelf-broken .link { color: var(--ink); }
+.pet-stage > .pet-alpha-colour { position: absolute; }
 .shelf-drop {
   position: absolute; inset: -8px; display: grid; place-items: center;
   border: 1.5px dashed var(--ink); border-radius: 4px; background: color-mix(in srgb, var(--paper) 85%, transparent);
@@ -399,9 +292,3 @@
 .pet-catalog-import { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 4px; }
 .pet-catalog-state { padding: 20px 0; margin: 0; border-bottom: 1px solid var(--rule); overflow-wrap: anywhere; }
 .pet-catalog-state p { margin: 0 0 8px; }
-
-/* 窄窗口（最小 820）时，两栏页面的间距收一点 */
-@media (max-width: 900px) {
-  .page-grid { column-gap: 28px; }
-  .pet-page { grid-template-columns: 200px minmax(0, 1fr); column-gap: 28px; }
-}

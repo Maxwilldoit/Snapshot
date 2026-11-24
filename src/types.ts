@@ -200,19 +200,6 @@ export type TrashEntry = { id: string; trashedAt: number } & (
   | { kind: "recording"; record: RecordingRecord }
 );
 
-/** 后端记下的一件事：截了什么、录了什么、润色了什么、哪里失败了 */
-export interface ActivityEntry {
-  id: string;
-  at: number;
-  kind: "capture" | "record" | "polish" | "error";
-  title: string;
-  /** 一小段数字信息，如「1920 × 1080」「58 → 427 字」「02:13」 */
-  meta?: string;
-  /** 润色结果开头、错误原文、录像文件路径 */
-  detail?: string;
-  snapshotId?: string;
-}
-
 /** 一次成功润色保存下来的原文、结果、规则和时间 */
 export interface PromptHistoryEntry {
   id: string;

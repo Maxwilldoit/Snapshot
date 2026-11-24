@@ -7,7 +7,6 @@ import { setInterfaceLanguage } from "./backend";
 export type Language = "zh" | "en";
 export type TranslationParams = Record<string, string | number>;
 
-const LANGUAGE_KEY = "snapshot-language";
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 let activeLanguage: Language = "zh";
 
@@ -91,11 +90,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     applyDocumentLanguage(language);
     if (inTauri) void setInterfaceLanguage(language).catch(() => {});
   }, [language]);
-
-  // 旧版本存过显式语言选择：清掉，语言只跟随系统
-  useEffect(() => {
-    localStorage.removeItem(LANGUAGE_KEY);
-  }, []);
 
   const value = useMemo<I18nValue>(() => ({
     language,

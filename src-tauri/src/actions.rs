@@ -37,7 +37,7 @@ pub(crate) fn set_app_language(
     sync_tray_texts(&state)?;
     let updated = {
         let mut settings = state.settings.lock();
-        let changed = settings::sync_builtin_prompt(&mut settings, english);
+        let changed = polish::sync_builtin_prompt(&mut settings, english);
         if changed {
             let snapshot = settings.clone();
             drop(settings);
@@ -78,11 +78,6 @@ pub(crate) fn toggle_autostart_from_tray(app: &AppHandle) {
         }
         if let Err(error) = result {
             use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-            activity::record_error(
-                &app,
-                ui_text("开机启动设置未生效", "Couldn’t change opening at login"),
-                &error,
-            );
             let message = if interface_is_english() {
                 "Couldn’t update your login items. Check permissions for the startup folder or registry and try again.".to_string()
             } else {
@@ -390,7 +385,6 @@ pub(crate) async fn run_action(
             if let Some(trace) = &trace {
                 trace.finish("error");
             }
-            activity::record_error(&app, action_failure_title(&action), &error);
             emit_pet_failure(&app, &action);
             return Err(error);
         }
@@ -415,11 +409,8 @@ pub(crate) async fn run_action(
     if let Some(trace) = &trace {
         trace.finish(if result.is_ok() { "ok" } else { "error" });
     }
-    if let Err(error) = &result {
-        activity::record_error(&app, action_failure_title(&action), error);
-        if action != "polish" {
-            emit_pet_failure(&app, &action);
-        }
+    if result.is_err() && action != "polish" {
+        emit_pet_failure(&app, &action);
     }
     result
 }
@@ -446,18 +437,6 @@ async fn settle_hidden_quick_menu(window: tauri::WebviewWindow) {
         thread::sleep(Duration::from_millis(160));
     })
     .await;
-}
-
-pub(crate) fn action_failure_title(action: &str) -> &'static str {
-    match action {
-        "snapshot" | "capture" => ui_text("截图失败", "Couldn’t take the screenshot"),
-        "fullscreen" => ui_text("全屏截图失败", "Couldn’t take a full-screen screenshot"),
-        "scrolling" => ui_text("滚动长截图失败", "Couldn’t take the scrolling screenshot"),
-        "record" => ui_text("录制失败", "Couldn’t record"),
-        "polish" => ui_text("润色失败", "Couldn’t enhance the prompt"),
-        "prompts" => ui_text("Prompt 库打开失败", "Couldn’t open the Prompt Library"),
-        _ => ui_text("操作失败", "Something went wrong"),
-    }
 }
 
 pub(crate) fn emit_pet_failure(app: &AppHandle, action: &str) {

@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { LaunchpadView } from "./launchpad";
 import type {
-  ActivityEntry,
   CapturableWindow,
   ClipboardHistoryEntry,
   PetCatalogAsset,
@@ -156,17 +155,9 @@ export const onSettingsChanged = (callback: (settings: Settings) => void) =>
 export const onPreviousAppChanged = (callback: (app: PreviousApp) => void) =>
   listen<PreviousApp>("previous-app-changed", ({ payload }) => callback(payload));
 
-export type CaptureFeedback = {
+export type CaptureShot = {
   shutterSound: Settings["shutterSound"];
   customSoundPath: string | null;
-  shotId?: string;
-  sentAtMs?: number;
-  ok?: boolean;
-  historySaveAttempted?: boolean;
-  historySaved?: boolean;
-};
-
-export type CaptureShot = CaptureFeedback & {
   shotId: string;
   startedAtMs: number;
   sentAtMs: number;
@@ -176,10 +167,6 @@ export type CaptureShot = CaptureFeedback & {
 /** 原图已经拿到；不等历史、缩略图或剪贴板完成。 */
 export const onCaptureShot = (callback: (payload: CaptureShot) => void) =>
   listen<CaptureShot>("capture-shot", ({ payload }) => callback(payload));
-
-/** 兼容事件：保留原有名称和载荷，在整条截图后处理结束后发送。 */
-export const onCaptureFeedback = (callback: (payload: CaptureFeedback) => void) =>
-  listen<CaptureFeedback>("capture-feedback", ({ payload }) => callback(payload));
 
 export const listSnapshots = () => invoke<SnapshotRecord[]>("list_snapshots");
 
@@ -215,13 +202,9 @@ export const onSnapshotsChanged = (callback: () => void) => listen("snapshots-ch
 /** 录完一段或删掉录像后，后端广播一次，历史页据此刷新 */
 export const onRecordingsChanged = (callback: () => void) => listen("recordings-changed", () => callback());
 
-export const listActivity = () => invoke<ActivityEntry[]>("list_activity");
-
 export const listPromptHistory = () => invoke<PromptHistoryEntry[]>("list_prompt_history");
 
-export const showPromptLibrary = () => invoke<void>("show_prompt_library_window");
-
-export const hidePromptLibrary = () => invoke<void>("hide_prompt_library");
+export const showPromptLibrary = () => invoke<void>("show_prompt_library");
 
 export const listSavedPrompts = () => invoke<SavedPrompt[]>("list_saved_prompts");
 
@@ -236,9 +219,6 @@ export const onPromptLibraryOpened = (callback: () => void) =>
 
 export const onPromptHistoryChanged = (callback: () => void) =>
   listen("prompt-history-changed", () => callback());
-
-export const onActivity = (callback: (entry: ActivityEntry) => void) =>
-  listen<ActivityEntry>("activity-added", ({ payload }) => callback(payload));
 
 export const copyText = (text: string) => invoke<void>("copy_text", { text });
 
