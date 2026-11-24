@@ -479,8 +479,7 @@ describe("B2 拆页后逐页渲染", () => {
     expect(screen.queryByRole("radio", { name: /另存为/ })).toBeNull();
   });
 
-  it.each(["companion", "timeline", "ledger", "topbar"])("旧布局 %s 固定为简洁侧栏，不再显示伴侣和主题库", async (layout) => {
-    localStorage.setItem("snapshot-layout", layout);
+  it("主导航固定为简洁侧栏，不再显示独立主题与外观选项", async () => {
     await renderApp();
     const nav = screen.getByRole("navigation", { name: "主导航" });
     // 导入按钮与伴侣名称各是一个按钮，不再显示独立选择圆圈。

@@ -7,7 +7,6 @@ import { QuickMenuWindow } from "./windows/QuickMenuWindow";
 import { AnnotateWindow } from "./windows/AnnotateWindow";
 import { LaunchpadWindow } from "./windows/LaunchpadWindow";
 import { PetCatalogWindow } from "./windows/PetCatalogWindow";
-import { PromptLibraryWindow } from "./windows/PromptLibraryWindow";
 import { applyTheme, readTheme, watchSystemTheme } from "./lib/theme";
 import { suppressNativeContextMenu } from "./lib/contextMenu";
 import { viewTransition, watchSystemMotion } from "./lib/motion";
@@ -25,7 +24,7 @@ function mount() {
   document.documentElement.classList.toggle("transparent-window", usesTransparentSurface);
   // 主窗口的新外观只挂在 data-window="main" 下，桌宠、快捷菜单等其它窗口不受影响
   document.documentElement.dataset.window = label;
-  document.documentElement.dataset.surface = ["main", "prompt-library", "pet-catalog"].includes(label) ? "app" : "overlay";
+  document.documentElement.dataset.surface = ["main", "pet-catalog"].includes(label) ? "app" : "overlay";
   document.body.classList.toggle("transparent-window", usesTransparentSurface);
 
   // 每个 WebView 都在首帧前应用系统颜色和完整动效，不读取旧外观偏好。
@@ -57,7 +56,6 @@ function mount() {
     : label === "annotate" ? AnnotateWindow
     : label === "launchpad" ? LaunchpadWindow
     : label === "pet-catalog" ? PetCatalogWindow
-    : label === "prompt-library" ? PromptLibraryWindow
     : App;
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

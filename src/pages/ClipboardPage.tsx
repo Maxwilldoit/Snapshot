@@ -512,10 +512,7 @@ const ClipboardRow = memo(function ClipboardRow({ record, index, rowHeight, onCo
       <button
         type="button"
         className="clip-main"
-        title={isImage ? undefined : t("放回剪贴板")}
         onClick={() => onCopy(record.id)}
-        onPointerEnter={isImage ? (event) => onHoverStart(record, event.currentTarget, event.clientX) : undefined}
-        onPointerLeave={isImage ? () => onHoverEnd(record.id) : undefined}
         onFocus={isImage ? (event) => {
           if (event.currentTarget.matches(":focus-visible")) onHoverStart(record, event.currentTarget);
         } : undefined}
@@ -531,6 +528,8 @@ const ClipboardRow = memo(function ClipboardRow({ record, index, rowHeight, onCo
             height={box.height}
             loading="lazy"
             decoding="async"
+            onPointerEnter={(event) => onHoverStart(record, event.currentTarget, event.clientX)}
+            onPointerLeave={() => onHoverEnd(record.id)}
           />
         ) : (
           <span className="clip-text" title={previewTitle(record.text)}>{summary}</span>

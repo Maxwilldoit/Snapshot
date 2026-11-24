@@ -3,6 +3,7 @@
 
 use super::*;
 use chrono::Local;
+use serde::Deserialize;
 
 /// 录制选项，来自设置里的偏好
 pub(crate) struct RecordOptions {
@@ -33,12 +34,10 @@ struct Active {
     output: PathBuf,
 }
 
-/// 录完的一段，用来写活动记录
-pub(crate) struct Finished {
-    pub(crate) target: String,
-    pub(crate) app_id: Option<String>,
-    pub(crate) duration_ms: u64,
-    pub(crate) output: PathBuf,
+struct Finished {
+    target: String,
+    app_id: Option<String>,
+    output: PathBuf,
 }
 
 #[derive(Default)]
@@ -115,7 +114,12 @@ pub(crate) fn stop_for_quit(state: &AppState) {
                 .and_then(|name| name.to_str())
                 .and_then(recording_stem)
             {
-                write_recording_meta_entry(&state.recording_meta_path, stem, active.app_id);
+                write_recording_meta_entry(
+                    &state.recording_meta_path,
+                    stem,
+                    &active.target,
+                    active.app_id,
+                );
             }
         }
     }
@@ -148,11 +152,7 @@ pub(crate) fn get_recording_status(app: AppHandle, state: State<'_, AppState>) -
     let status = recorder.status(None);
     drop(recorder);
     if let Some(reason) = failure {
-        activity::record_error(
-            &app,
-            ui_text("录制意外结束", "Recording stopped unexpectedly"),
-            &reason,
-        );
+        eprintln!("snapshot: recording stopped unexpectedly: {reason}");
         let _ = app.emit("recording-changed", &status);
         let _ = app.emit("pet-event", "recording.failure");
     }
@@ -280,11 +280,6 @@ fn toggle_recording_now(
             let status = recorder.status(None);
             drop(recorder);
             drop(finalize_guard);
-            activity::record_error(
-                app,
-                ui_text("录制意外结束", "Recording stopped unexpectedly"),
-                &reason,
-            );
             let _ = app.emit("recording-changed", &status);
             let _ = app.emit("pet-event", "recording.failure");
             return Err(format!(
@@ -301,7 +296,6 @@ fn toggle_recording_now(
         let candidate = Finished {
             target: active.target,
             app_id: active.app_id,
-            duration_ms: now_millis().saturating_sub(active.started_at),
             output: active.output,
         };
         let stop_result = active
@@ -322,20 +316,19 @@ fn toggle_recording_now(
         };
         return match finished {
             Some(finished) => {
-                activity::record(
-                    app,
-                    activity::Activity::new("record", finished.target)
-                        .meta(format_duration(finished.duration_ms))
-                        .detail(finished.output.to_string_lossy().to_string()),
-                );
-                // 来源应用稳定标识单独落盘：活动流水只留最近 300 条，角标却要一直在
+                // 来源应用名与稳定标识持久化在 recording-meta.json，不受数量上限截断
                 if let Some(stem) = finished
                     .output
                     .file_name()
                     .and_then(|name| name.to_str())
                     .and_then(recording_stem)
                 {
-                    write_recording_meta_entry(&state.recording_meta_path, stem, finished.app_id);
+                    write_recording_meta_entry(
+                        &state.recording_meta_path,
+                        stem,
+                        &finished.target,
+                        finished.app_id,
+                    );
                 }
                 drop(finalize_guard);
                 let _ = app.emit("recording-changed", &status);
@@ -351,11 +344,6 @@ fn toggle_recording_now(
                     .as_deref()
                     .unwrap_or("录制组件没有正常结束")
                     .to_string();
-                activity::record_error(
-                    app,
-                    ui_text("录制没能保存", "The recording wasn’t saved"),
-                    &reason,
-                );
                 let _ = app.emit("recording-changed", &status);
                 let _ = app.emit("pet-event", "recording.failure");
                 Err(format!(
@@ -418,17 +406,6 @@ fn toggle_recording_now(
     let _ = app.emit("recording-changed", &status);
     let _ = app.emit("pet-event", "recording.started");
     Ok(status)
-}
-
-/// 03:07、1:02:03
-pub(crate) fn format_duration(ms: u64) -> String {
-    let seconds = ms / 1000;
-    let (hours, minutes, seconds) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes:02}:{seconds:02}")
-    }
 }
 
 /// 历史页里的一段录像。不另建索引：目录就是事实来源，文件名里带着录制时间。
@@ -521,22 +498,51 @@ pub(crate) fn list_recordings_now(state: &AppState) -> Vec<RecordingRecord> {
     list_recordings_in(state, &dir)
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+enum StoredRecordingMeta {
+    Detailed {
+        #[serde(rename = "appName", default, skip_serializing_if = "String::is_empty")]
+        app_name: String,
+        #[serde(rename = "appId", default, skip_serializing_if = "Option::is_none")]
+        app_id: Option<String>,
+    },
+    AppIdOnly(String),
+}
+
+impl StoredRecordingMeta {
+    fn app_name(&self) -> Option<&str> {
+        match self {
+            Self::Detailed { app_name, .. } if !app_name.trim().is_empty() => {
+                Some(app_name.as_str())
+            }
+            _ => None,
+        }
+    }
+
+    fn app_id(&self) -> Option<&str> {
+        match self {
+            Self::Detailed { app_id, .. } => app_id.as_deref(),
+            Self::AppIdOnly(app_id) => Some(app_id.as_str()),
+        }
+    }
+}
+
 fn list_recordings_in(state: &AppState, dir: &Path) -> Vec<RecordingRecord> {
     let active = state.recorder.lock().active_output();
     let mut records = scan_recordings(dir, active.as_deref());
     if !records.is_empty() {
-        // 目标应用名记在活动流水里（detail 是落盘路径）；流水只留最近 300 条，
-        // 更早的录像退回通用称呼，不影响播放和删除
-        let activity = state.activity.lock();
-        // 来源应用稳定标识单独存一份，不受流水 300 条上限影响；旧录像没有条目就没有角标
         let meta = read_recording_meta(&state.recording_meta_path);
         for record in &mut records {
-            let path = dir.join(&record.file_name);
-            record.app_name = activity
-                .recording_target(&path.to_string_lossy())
+            let entry = meta.get(&record.id);
+            record.app_name = entry
+                .and_then(StoredRecordingMeta::app_name)
+                .map(str::to_string)
                 .unwrap_or_else(|| ui_text("录屏", "Recording").to_string());
-            record.app_id =
-                os::reconcile_app_id(&record.app_name, meta.get(&record.id).map(String::as_str));
+            record.app_id = os::reconcile_app_id(
+                &record.app_name,
+                entry.and_then(StoredRecordingMeta::app_id),
+            );
         }
     }
     records
@@ -547,19 +553,33 @@ pub(crate) async fn list_recordings(app: AppHandle) -> Result<Vec<RecordingRecor
     on_worker(app, |_app, state| Ok(list_recordings_now(state))).await
 }
 
-/// 录屏来源应用稳定标识索引：`{ 录像 id: appId }`。只存取得到标识的录像，
-/// 取不到（进程已退出等）就不写条目，历史也就不显示角标。读不了/没有文件按空索引处理。
-fn read_recording_meta(path: &Path) -> HashMap<String, String> {
+/// 录屏元数据索引：`{ 录像 id: { appName, appId } }`（兼容读取早期纯字符串 `appId`）。
+fn read_recording_meta(path: &Path) -> HashMap<String, StoredRecordingMeta> {
     let _guard = RECORDING_META_LOCK.lock();
     read_json_with_backup(path).unwrap_or_default()
 }
 
-/// 停止录制时落一条来源标识。写失败不影响录像本身（角标只是锦上添花）。
-fn write_recording_meta_entry(path: &Path, id: &str, app_id: Option<String>) {
-    let Some(app_id) = app_id else { return };
+/// 停止录制时持久化目标应用名称与稳定标识；均为空时不写冗余条目。
+fn write_recording_meta_entry(path: &Path, id: &str, app_name: &str, app_id: Option<String>) {
+    let trimmed_name = app_name.trim();
+    if trimmed_name.is_empty() && app_id.is_none() {
+        return;
+    }
     let _guard = RECORDING_META_LOCK.lock();
-    let mut meta: HashMap<String, String> = read_json_with_backup(path).unwrap_or_default();
-    meta.insert(id.to_string(), app_id);
+    let mut meta: HashMap<String, StoredRecordingMeta> =
+        read_json_with_backup(path).unwrap_or_default();
+    let preserved_id = app_id.or_else(|| {
+        meta.get(id)
+            .and_then(StoredRecordingMeta::app_id)
+            .map(str::to_string)
+    });
+    meta.insert(
+        id.to_string(),
+        StoredRecordingMeta::Detailed {
+            app_name: trimmed_name.to_string(),
+            app_id: preserved_id,
+        },
+    );
     let _ = write_json_atomic(path, &meta);
 }
 
@@ -702,7 +722,7 @@ pub(crate) fn read_range(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_duration, now_millis};
+    use super::now_millis;
 
     #[test]
     fn hidden_recording_inputs_do_not_leak_preferences_from_another_platform() {
@@ -743,39 +763,34 @@ mod tests {
     }
 
     #[test]
-    fn durations_read_like_a_clock() {
-        assert_eq!(format_duration(0), "00:00");
-        assert_eq!(format_duration(133_400), "02:13");
-        assert_eq!(format_duration(3_723_000), "1:02:03");
-    }
-
-    #[test]
     fn recording_meta_round_trips_and_skips_missing_identity() {
         let path = std::env::temp_dir().join(format!(
             "snapshot-recording-meta-{}-{}.json",
             std::process::id(),
             now_millis()
         ));
-        // 取得到标识就落盘，读得回来；旧录像没有条目就是 None
         super::write_recording_meta_entry(
             &path,
             "应用快照-2026-11-12_10-00-00",
+            "OBS Studio",
             Some("/usr/bin/obs".into()),
         );
         let meta = super::read_recording_meta(&path);
-        assert_eq!(
-            meta.get("应用快照-2026-11-12_10-00-00").map(String::as_str),
-            Some("/usr/bin/obs")
-        );
+        let stored = meta.get("应用快照-2026-11-12_10-00-00").unwrap();
+        assert_eq!(stored.app_name(), Some("OBS Studio"));
+        assert_eq!(stored.app_id(), Some("/usr/bin/obs"));
         assert_eq!(meta.get("没有标识的旧录像"), None);
-        // 取不到标识（None）不写条目，也不覆盖已有的
-        super::write_recording_meta_entry(&path, "应用快照-2026-11-12_10-00-00", None);
-        assert_eq!(
-            super::read_recording_meta(&path)
-                .get("应用快照-2026-11-12_10-00-00")
-                .map(String::as_str),
-            Some("/usr/bin/obs")
-        );
+        // 后续更新名称时若 app_id 为空，保留已有 app_id；两者均空时不写入
+        super::write_recording_meta_entry(&path, "应用快照-2026-11-12_10-00-00", "OBS", None);
+        let updated = super::read_recording_meta(&path);
+        let stored = updated.get("应用快照-2026-11-12_10-00-00").unwrap();
+        assert_eq!(stored.app_name(), Some("OBS"));
+        assert_eq!(stored.app_id(), Some("/usr/bin/obs"));
+        // 早期纯字符串格式仍可正常反序列化出 app_id
+        std::fs::write(&path, r#"{"legacy-rec":"/usr/bin/vlc"}"#).unwrap();
+        let legacy = super::read_recording_meta(&path);
+        assert_eq!(legacy["legacy-rec"].app_name(), None);
+        assert_eq!(legacy["legacy-rec"].app_id(), Some("/usr/bin/vlc"));
         // 文件不存在按空索引处理，不报错
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(crate::json_backup_path(&path));

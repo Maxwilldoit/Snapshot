@@ -1,6 +1,6 @@
 /*
  * 应用窗口外观（v12）：侧栏 + 统一工具栏 + 分组列表，跟随系统浅色/深色。
- * main.tsx 为主窗口、Prompt 库和素材库设置 data-surface="app"，
+ * main.tsx 为主窗口和素材库设置 data-surface="app"，
  * 标注窗口也共用这套颜色变量（见 styles.css 的「截后标注窗口」），
  * 桌宠、快捷菜单、启动台继续用原来的透明窗口样式。
  */
@@ -19,7 +19,7 @@ html[data-surface="app"], html[data-window="annotate"] {
   --btn: #ffffff; --btn-line: rgba(0, 0, 0, 0.14);
   --pop: rgba(250, 250, 252, 0.94); --toast: rgba(30, 30, 32, 0.92); --on-toast: #fff;
   --red: #ff3b30;
-  --side-w: 220px;
+  --side-w: clamp(176px, 18.5vw, 200px);
 
   /* 原来的纸墨变量换成同一套颜色，弹窗、规则编辑这些沿用旧组件的地方也跟着变 */
   --paper: var(--win); --paper-raised: var(--group); --paper-sunk: var(--fill2);
@@ -177,7 +177,6 @@ html[data-surface="app"] .mw-menu {
   box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.2);
   animation: fade-in 120ms var(--ease-out);
 }
-html[data-surface="app"] .mw-menu-note { max-width: 300px; padding: 3px 10px 5px 22px; font-size: 12px; line-height: 17px; color: var(--text3); }
 html[data-surface="app"] .mw-menu-item {
   display: flex; align-items: center; gap: 4px; width: 100%; min-height: 24px; padding: 0 10px 0 4px;
   border: 0; border-radius: 5px; background: none; color: var(--text1); font-size: 13px; text-align: left; white-space: nowrap;
@@ -205,21 +204,12 @@ html[data-surface="app"] .mw-window-title { min-width: 0; max-width: 220px; over
 
 /* ---------- 截图墙 ---------- */
 
-/* 历史页顶栏使用独立合成层纯色底，避免滚动时每帧对下方高分屏照片墙做实时 backdrop-filter 模糊重绘 */
-html[data-surface="app"] .history-page > .mw-toolbar {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 8;
-  background: var(--win);
-  border-bottom: 0.5px solid var(--sep);
-  transform: translateZ(0);
-}
-html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; height: 100%; min-height: 0; }
+html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
 html[data-surface="app"] .history-scroll {
   flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0;
-  scroll-padding-top: 56px;
+  scroll-padding-top: 8px;
 }
 html[data-surface="app"] .history-scroll:focus-visible { outline-offset: -3px; }
-html[data-surface="app"] .history-page .mw-empty { padding-top: 92px; }
-html[data-surface="app"] .history-page .mw-empty-line { margin-top: 80px; }
 
 html[data-surface="app"] .trash-list { list-style: none; margin: 0; padding: 8px 20px 24px; }
 html[data-surface="app"] .trash-row {
@@ -239,7 +229,7 @@ html[data-surface="app"] .trash-meta { margin-top: 3px; color: var(--text2); fon
 html[data-surface="app"] .trash-row .tb-btn { flex: 0 0 auto; }
 
 /* 按日期分组 + 同行等高自适应拼图（Justified）：左界对齐顶栏标题（20px），12px 呼吸间距 */
-html[data-surface="app"] .gallery { display: block; padding: 60px 24px 32px 20px; }
+html[data-surface="app"] .gallery { display: block; padding: 8px 24px 32px 20px; }
 html[data-surface="app"] .mw .day { position: relative; display: block; margin-top: 24px; padding: 0; border-top: 0; contain: layout style; }
 html[data-surface="app"] .mw .day:first-child { margin-top: 4px; }
 html[data-surface="app"] .mw .day-label { display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0; padding: 0 0 8px; background: none; }
@@ -334,7 +324,6 @@ html[data-surface="app"] .mw-empty {
 }
 html[data-surface="app"] .mw-empty .empty-title { font-size: 15px; font-weight: 600; color: var(--text2); }
 html[data-surface="app"] .mw-empty .empty-body { max-width: 420px; margin: 0; color: var(--text3); line-height: 1.5; }
-html[data-surface="app"] .mw-empty .empty-more { display: block; }
 html[data-surface="app"] .mw-empty .empty-actions { justify-content: center; margin-top: 12px; }
 html[data-surface="app"] .mw-empty .empty-hint { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 10px 0 0; color: var(--text2); font-size: 13px; }
 html[data-surface="app"] .mw-empty-line { margin: 28px 24px 0; color: var(--text2); }
@@ -359,7 +348,7 @@ html[data-surface="app"] .clip-main {
   color: var(--text2); font-size: 13px; text-align: left; cursor: pointer; border-radius: 6px;
 }
 html[data-surface="app"] .clip-main:hover { background: var(--fill); color: var(--text1); }
-html[data-surface="app"] .clip-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+html[data-surface="app"] .clip-text { justify-self: start; max-width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 html[data-surface="app"] .clip-thumb {
   display: block; max-height: 64px; max-width: 200px;
   border-radius: 4px; background: var(--stage); object-fit: contain; outline: 0.5px solid var(--sep); justify-self: start;
@@ -436,7 +425,6 @@ html[data-surface="app"] .mw .panel-title, html[data-surface="app"] .group-title
 html[data-surface="app"] .mw .panel-head { align-items: center; margin: 0 6px 6px; }
 html[data-surface="app"] .mw .panel-head .panel-title { margin: 0; }
 html[data-surface="app"] .mw .panel-head + .rows, html[data-surface="app"] .mw .panel-head + .rules { margin-top: 0; }
-html[data-surface="app"] .mw .panel-title-gap { margin-top: 20px; }
 html[data-surface="app"] .mw .rows, html[data-surface="app"] .group, html[data-surface="app"] .mw .rules {
   display: flex; flex-direction: column; border: 0; border-radius: 8px; background: var(--group); box-shadow: 0 0 0 0.5px var(--sep);
 }
@@ -520,7 +508,6 @@ html[data-surface="app"] .kbd {
 }
 html[data-surface="app"] .keys { gap: 3px; }
 html[data-surface="app"] .keys.is-struck .kbd { color: var(--red); }
-html[data-surface="app"] .kbd-slot { border: 1px dashed var(--accent); border-radius: 5px; }
 
 /* 快捷键：两组，每行右边是同一种录制框。暂停/恢复只在菜单栏托盘；暂停时本页只读并给一行说明。
    已绑定的键点一下保留原组合、蓝边待录；Delete 先置空，再点框内或框外才落盘清除。 */
@@ -568,7 +555,7 @@ html[data-surface="app"] .mw .panel-rules .panel-head .text-btn { font-size: 12p
 
 /* ---------- 桌面伴侣 ---------- */
 
-html[data-surface="app"] .mw .pet-page { display: flex; grid-template-columns: none; min-height: 0; padding: 0; }
+html[data-surface="app"] .mw .pet-page { display: flex; min-height: 0; padding: 0; }
 html[data-surface="app"] .pet-page-body {
   flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--pane);
 }
@@ -673,7 +660,6 @@ html[data-surface="app"] .dialog { border-radius: 10px; background: var(--pop); 
 html[data-surface="app"] .dialog-title { font-size: 13px; font-weight: 700; }
 html[data-surface="app"] .dialog-body { font-size: 12px; color: var(--text2); line-height: 1.45; }
 html[data-surface="app"] .mw .loading-state { flex: 1 1 auto; }
-html[data-surface="app"] .mw .history-page { height: 100%; padding: 0; }
 /* 页面标题是这页最大的字，日期头退到次要 */
 html[data-surface="app"] .history-page .mw-title { font-size: 18px; font-weight: 700; }
 html[data-surface="app"] .mw .row-line > .row-label { flex: 0 0 auto; }

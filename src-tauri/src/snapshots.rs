@@ -47,50 +47,6 @@ pub(crate) fn default_history_dir(app_data_snapshots: &Path) -> PathBuf {
         .unwrap_or_else(|| app_data_snapshots.to_path_buf())
 }
 
-/// 早期版本把快照放在 AppData。复制到新目录，重复运行不会生成重复记录。
-pub(crate) fn migrate_legacy_history(
-    legacy: &Path,
-    destination: &Path,
-    marker: &Path,
-) -> Result<(), String> {
-    if marker.exists() || legacy == destination {
-        return Ok(());
-    }
-    if !legacy.is_dir() {
-        if let Some(parent) = marker.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let _ = fs::write(marker, b"1");
-        return Ok(());
-    }
-    fs::create_dir_all(destination).map_err(|error| error.to_string())?;
-    for entry in fs::read_dir(legacy)
-        .map_err(|error| error.to_string())?
-        .flatten()
-    {
-        let source = entry.path();
-        let target = destination.join(entry.file_name());
-        if source.is_file() && !target.exists() {
-            fs::copy(source, target).map_err(|error| error.to_string())?;
-        }
-    }
-
-    let legacy_index = legacy.join("index.json");
-    let target_index = destination.join("index.json");
-    let mut records = read_snapshot_index(&target_index);
-    for record in read_snapshot_index(&legacy_index) {
-        if !records.iter().any(|existing| existing.id == record.id) {
-            records.push(record);
-        }
-    }
-    records.sort_by_key(|record| std::cmp::Reverse(record.created_at));
-    write_snapshot_index(&target_index, &records)?;
-    if let Some(parent) = marker.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    fs::write(marker, b"1").map_err(|error| error.to_string())
-}
-
 /// 历史落盘目录：优先用户配置的 save_dir，否则用默认的用户图片目录。
 pub(crate) fn history_dir(state: &AppState) -> PathBuf {
     let configured = state.settings.lock().save_dir.trim().to_string();
@@ -792,75 +748,6 @@ mod tests {
             assert_eq!((decoded.width(), decoded.height()), (3, 2), "{ext}");
             let _ = fs::remove_file(&path);
         }
-    }
-
-    #[test]
-    fn legacy_history_copies_to_the_visible_default_only_once() {
-        let root = std::env::temp_dir().join(format!(
-            "snapshot-history-migration-{}-{}",
-            std::process::id(),
-            now_millis()
-        ));
-        let legacy = root.join("legacy");
-        let destination = root.join("pictures/Snapshot");
-        let marker = root.join("app-data/migration-complete");
-        fs::create_dir_all(&legacy).unwrap();
-        fs::write(legacy.join("snap-1.png"), b"image").unwrap();
-        let record = SnapshotRecord {
-            id: "snap-1".into(),
-            file_name: "snap-1.png".into(),
-            app_name: "Codex".into(),
-            width: 10,
-            height: 10,
-            size_bytes: 5,
-            created_at: 1,
-            app_id: None,
-        };
-        write_snapshot_index(&legacy.join("index.json"), &[record]).unwrap();
-
-        migrate_legacy_history(&legacy, &destination, &marker).unwrap();
-        fs::remove_file(destination.join("snap-1.png")).unwrap();
-        migrate_legacy_history(&legacy, &destination, &marker).unwrap();
-
-        assert!(!destination.join("snap-1.png").exists());
-        let restored = read_snapshot_index(&destination.join("index.json"));
-        assert_eq!(restored.len(), 1);
-        assert_eq!(restored[0].app_name, "Codex");
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn legacy_history_migration_keeps_every_record_beyond_the_old_limit() {
-        let root = std::env::temp_dir().join(format!(
-            "snapshot-history-no-limit-{}-{}",
-            std::process::id(),
-            now_millis()
-        ));
-        let legacy = root.join("legacy");
-        let destination = root.join("pictures/Snapshot");
-        let marker = root.join("app-data/migration-complete");
-        let records: Vec<_> = (0..250)
-            .map(|index| SnapshotRecord {
-                id: format!("snap-{index}"),
-                file_name: format!("snap-{index}.png"),
-                app_name: "Codex".into(),
-                width: 10,
-                height: 10,
-                size_bytes: 5,
-                created_at: index,
-                app_id: None,
-            })
-            .collect();
-        fs::create_dir_all(&legacy).unwrap();
-        write_snapshot_index(&legacy.join("index.json"), &records).unwrap();
-
-        migrate_legacy_history(&legacy, &destination, &marker).unwrap();
-
-        let restored = read_snapshot_index(&destination.join("index.json"));
-        assert_eq!(restored.len(), 250);
-        assert_eq!(restored.first().unwrap().id, "snap-249");
-        assert_eq!(restored.last().unwrap().id, "snap-0");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

@@ -7,7 +7,6 @@ export const historyEnglish: Record<string, string> = {
   "搜索应用名或日期": "Search app or date",
   "搜索内容或日期": "Search content or date",
   "没有含「{query}」的剪贴板记录。": "No clipboard entries match “{query}”.",
-  "放回剪贴板": "Copy back to clipboard",
   "已放回剪贴板": "Copied back to clipboard",
   "删除这条记录": "Delete this entry",
   "清空剪贴板历史": "Clear clipboard history",

@@ -79,8 +79,7 @@ describe("主窗口 Prompt 页的内嵌 Prompt 库", () => {
     await main.findByText("这里还空着");
     await user.keyboard("{Escape}");
     expect(main.getByRole("heading", { name: "Prompt" })).toBeTruthy();
-    expect(calls).not.toContain("hide_prompt_library");
-    expect(calls).not.toContain("show_prompt_library_window");
+    expect(calls).not.toContain("show_prompt_library");
   });
 
   it("工具栏在历史、库、设置三个区块间切换，草稿跨区块保留", async () => {
@@ -191,7 +190,7 @@ describe("global shortcuts", () => {
 describe("capture feedback", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("does not render a screen flash overlay on capture-shot or capture-feedback", async () => {
+  it("does not render a screen flash overlay on capture-shot", async () => {
     await renderApp((command) => {
       if (command === "load_settings") return settings;
       if (command === "platform_capabilities") return capabilities;
@@ -211,10 +210,6 @@ describe("capture feedback", () => {
     await act(async () => {
       await emit("capture-shot", shot);
       await emit("capture-shot", shot);
-      await emit("capture-feedback", {
-        shutterSound: "crisp",
-        customSoundPath: null,
-      });
     });
 
     expect(document.querySelector(".shutter-flash")).toBeNull();

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { errorText } from "../app/context";
-import { LibraryWindow } from "../components/LibraryWindow";
 import { PetCatalog } from "../components/PetCatalog";
 import { loadSettings, onSettingsChanged } from "../lib/backend";
 import { useI18n, useWindowTitle } from "../lib/i18n";
@@ -37,7 +36,7 @@ export function PetCatalogWindow() {
   }, [attempt]);
 
   return (
-    <LibraryWindow>
+    <div className="window mw">
       <main className="mw-scroll"><div className="library-content">
       {error ? (
         <div className="pet-catalog-state" role="alert">
@@ -48,6 +47,6 @@ export function PetCatalogWindow() {
         <PetCatalog settings={settings} onSaved={setSettings} />
       ) : <p className="quiet" role="status">{t("正在读取设置…")}</p>}
       </div></main>
-    </LibraryWindow>
+    </div>
   );
 }

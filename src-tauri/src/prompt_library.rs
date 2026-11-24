@@ -113,9 +113,8 @@ fn prompt_title(title: &str, content: &str) -> String {
     }
 }
 
+#[tauri::command]
 pub(crate) async fn show_prompt_library(app: AppHandle) -> Result<(), String> {
-    // 保留 IPC / 快捷键动作 / 旧窗口 label；所有正常入口都导航到主窗口的库页面。
-    hide_prompt_library(app.clone());
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "Prompt 库打开失败".to_string())?;
@@ -126,18 +125,6 @@ pub(crate) async fn show_prompt_library(app: AppHandle) -> Result<(), String> {
     app.emit_to("main", "prompt-library-opened", ())
         .map_err(|error| error.to_string())?;
     Ok(())
-}
-
-#[tauri::command]
-pub(crate) async fn show_prompt_library_window(app: AppHandle) -> Result<(), String> {
-    show_prompt_library(app).await
-}
-
-#[tauri::command]
-pub(crate) fn hide_prompt_library(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("prompt-library") {
-        let _ = window.hide();
-    }
 }
 
 #[tauri::command]

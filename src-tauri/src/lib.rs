@@ -1,5 +1,4 @@
 mod actions;
-mod activity;
 mod capabilities;
 mod capture;
 mod capture_timing;
@@ -82,7 +81,6 @@ struct AppState {
     pets_dir: PathBuf,
     /// 导入时复制进来的自定义快门声（只留当前那一份）
     sounds_dir: PathBuf,
-    activity: Mutex<activity::ActivityLog>,
     prompt_history: Mutex<prompt_history::PromptHistory>,
     clipboard_history: Mutex<clipboard_history::ClipboardHistory>,
     saved_prompts: Mutex<prompt_library::PromptLibrary>,
@@ -401,15 +399,13 @@ pub fn run() {
     let data_dir = dirs::data_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join(&profile_id);
-    let legacy_snapshots_dir = data_dir.join("snapshots");
     let snapshots_dir =
-        snapshots::default_history_dir_for_mode(&legacy_snapshots_dir, dev_isolated);
+        snapshots::default_history_dir_for_mode(&data_dir.join("snapshots"), dev_isolated);
     let recordings_dir =
         recording::default_recording_dir_for_mode(&data_dir.join("recordings"), dev_isolated);
     let thumbs_dir = data_dir.join("thumbs");
     let pets_dir = data_dir.join("pets");
     let sounds_dir = data_dir.join("sounds");
-    let activity_path = settings_path.with_file_name("activity.json");
     let recording_meta_path = data_dir.join("recording-meta.json");
     let prompt_history_path = data_dir.join("prompt-history.json");
     let saved_prompts_path = data_dir.join("saved-prompts.json");
@@ -417,16 +413,6 @@ pub fn run() {
     if settings::adopt_custom_sound(&mut settings, &sounds_dir) {
         if let Err(error) = settings::persist_settings(&settings_path, &settings) {
             eprintln!("snapshot: could not record the copied custom sound: {error}");
-        }
-    }
-    if !dev_isolated && settings.save_dir.trim().is_empty() {
-        let migration_marker = data_dir.join("snapshot-history-migrated");
-        if let Err(error) = snapshots::migrate_legacy_history(
-            &legacy_snapshots_dir,
-            &snapshots_dir,
-            &migration_marker,
-        ) {
-            eprintln!("snapshot: could not migrate snapshot history: {error}");
         }
     }
 
@@ -449,7 +435,6 @@ pub fn run() {
             trash_lock: Mutex::new(()),
             pets_dir,
             sounds_dir,
-            activity: Mutex::new(activity::ActivityLog::load(activity_path)),
             prompt_history: Mutex::new(prompt_history::PromptHistory::load(prompt_history_path)),
             clipboard_history: Mutex::new(clipboard_history::ClipboardHistory::load(
                 data_dir.join("clipboard-history.json"),
@@ -551,11 +536,6 @@ pub fn run() {
             let failed = shortcuts::register_all(app.handle(), &settings);
             if !failed.is_empty() {
                 eprintln!("snapshot: {}", shortcuts::conflict_message(&failed));
-                activity::record_error(
-                    app.handle(),
-                    ui_text("快捷键没注册上", "Some shortcuts couldn’t be turned on"),
-                    &failed.join("、"),
-                );
                 *state.shortcut_conflicts.lock() = failed;
             }
 
@@ -716,11 +696,6 @@ pub fn run() {
                     api.prevent_close();
                     capture::conceal_annotate_window(window.app_handle());
                 }
-            } else if window.label() == "prompt-library" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
             } else if window.label() == "pet" {
                 if let WindowEvent::Moved(position) = event {
                     // 边界由前端按可见内容/脚底锚点统一处理。这里若再按整个透明
@@ -775,10 +750,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             actions::set_app_language,
             settings::load_settings,
-            settings::save_prompt_settings,
-            settings::clear_api_key,
-            settings::fetch_models,
-            settings::default_prompt,
+            polish::save_prompt_settings,
+            polish::clear_api_key,
+            polish::fetch_models,
+            polish::default_prompt,
             pet::select_pet_appearance,
             pet::set_pet_frame_shift,
             #[cfg(target_os = "macos")]
@@ -789,8 +764,7 @@ pub fn run() {
             pet_catalog::fetch_pet_catalog,
             pet_catalog::show_pet_catalog,
             pet_catalog::install_catalog_pet,
-            prompt_library::show_prompt_library_window,
-            prompt_library::hide_prompt_library,
+            prompt_library::show_prompt_library,
             prompt_library::list_saved_prompts,
             prompt_library::save_saved_prompt,
             prompt_library::delete_saved_prompt,
@@ -798,7 +772,6 @@ pub fn run() {
             pet::delete_pet_asset,
             settings::save_shortcuts,
             shortcuts::get_shortcut_conflicts,
-            shortcuts::set_shortcuts_paused,
             settings::save_preferences,
             settings::import_custom_sound,
             tracker::get_previous_app,
@@ -820,7 +793,6 @@ pub fn run() {
             trash::restore_trash,
             trash::purge_trash,
             snapshots::copy_snapshot,
-            activity::list_activity,
             prompt_history::list_prompt_history,
             clipboard_history::list_clipboard_history,
             clipboard_history::delete_clipboard_history,
@@ -842,8 +814,6 @@ pub fn run() {
             launchpad::save_launchpad,
             #[cfg(not(target_os = "macos"))]
             launchpad::launch_app,
-            capture::get_annotate_image,
-            capture::annotate_get_title,
             capture::get_annotate_session,
             capture::annotate_save_copy,
             snapshots::annotate_snapshot,
@@ -871,6 +841,24 @@ mod pet_asset_tests {
         assert_eq!(labels.contains(&"launchpad"), !cfg!(target_os = "macos"));
         for label in ["main", "pet", "quick-menu", "annotate", "pet-catalog"] {
             assert!(labels.contains(&label));
+        }
+    }
+
+    #[test]
+    fn content_windows_use_normal_window_level() {
+        let config: tauri::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        for label in ["main", "annotate", "pet-catalog"] {
+            let window = config
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == label)
+                .unwrap_or_else(|| panic!("missing window config: {label}"));
+            assert!(
+                !window.always_on_top,
+                "{label} window should use normal window level"
+            );
         }
     }
 
@@ -953,8 +941,6 @@ mod pet_asset_tests {
             prompts.accelerator.as_deref(),
             Some("CommandOrControl+Shift+P")
         );
-        // 老版录制与快照共用 saveDir，新版应将它迁移到独立录制目录。
-        assert_eq!(settings.recording_dir, "~/LegacyCaptures");
 
         let _ = fs::remove_file(&path);
     }

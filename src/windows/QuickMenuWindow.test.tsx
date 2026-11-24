@@ -337,7 +337,7 @@ describe("快捷菜单：Prompt 库", () => {
       return undefined;
     });
     await user.click(await screen.findByRole("option", { name: /Prompt 库/ }));
-    await waitFor(() => expect(calls.some((call) => call.command === "show_prompt_library_window")).toBe(true));
+    await waitFor(() => expect(calls.some((call) => call.command === "show_prompt_library")).toBe(true));
   });
 });
 

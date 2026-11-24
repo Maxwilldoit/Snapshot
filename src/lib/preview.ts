@@ -1,6 +1,6 @@
 import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import type { ActivityEntry, PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, RecordingRecord, SavedPrompt, Settings, SnapshotRecord, TrashEntry } from "../types";
+import type { PetAsset, PetCatalogAsset, PlatformCapabilities, PromptHistoryEntry, RecordingRecord, SavedPrompt, Settings, SnapshotRecord, TrashEntry } from "../types";
 import { demoVideos } from "./demoVideos";
 
 /**
@@ -197,26 +197,6 @@ let recordings: RecordingRecord[] = demo
       { id: "rec-chrome", fileName: "应用快照-2026-11-12_09-40-00.mp4", appName: "Google Chrome", sizeBytes: 2_627, createdAt: minutesAgo(20), appId: demoAppId("Google Chrome") },
       { id: "rec-wechat", fileName: "应用快照-2026-11-11_15-10-00.mp4", appName: "微信", sizeBytes: 2_276, createdAt: minutesAgo(60 * 24 + 40), appId: demoAppId("微信") },
       { id: "rec-terminal", fileName: "Snapshot-2026-11-09_10-05-00.mp4", appName: "Windows Terminal", sizeBytes: 2_742, createdAt: minutesAgo(60 * 24 * 3 + 120), appId: demoAppId("Windows Terminal") },
-    ]
-  : [];
-
-const activity: ActivityEntry[] = demo
-  ? [
-      { id: "a1", at: minutesAgo(6), kind: "capture", title: demoApps[0][0], meta: "1920 × 1080", snapshotId: "snap-0" },
-      {
-        id: "a2",
-        at: minutesAgo(33),
-        kind: "polish",
-        title: "代码修改任务",
-        meta: "58 → 427 字",
-        detail:
-          "你在修改一个 Tauri 2 + React 的桌面应用「应用快照」。这次只动 src/pages/HistoryPage.tsx，不要改 Rust 侧的命令，也不要改 listSnapshots() 的返回结构。要做的事：1. 历史记录按日期分组……",
-      },
-      { id: "a3", at: minutesAgo(48), kind: "record", title: "Google Chrome", meta: "02:13", detail: "C:\\Users\\max\\Downloads\\应用快照-2026-09-24_13-50-02.mp4" },
-      { id: "a4", at: minutesAgo(165), kind: "capture", title: "Google Chrome", meta: "1280 × 6400", snapshotId: "snap-2" },
-      { id: "a5", at: minutesAgo(210), kind: "error", title: "润色失败", detail: "请求超时（180 秒）" },
-      { id: "a6", at: minutesAgo(254), kind: "capture", title: "Windows Terminal", meta: "1200 × 700", snapshotId: "snap-3" },
-      { id: "a7", at: minutesAgo(300), kind: "error", title: "快捷键没注册上", detail: "CommandOrControl+Alt+R" },
     ]
   : [];
 
@@ -501,8 +481,6 @@ async function handle(command: string, payload?: InvokeArgs): Promise<unknown> {
     }
     case "annotate_save_copy":
       return "已存入历史记录";
-    case "list_activity":
-      return structuredClone(activity);
     case "list_capturable_windows":
       return demo
         ? [

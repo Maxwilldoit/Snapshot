@@ -24,7 +24,7 @@ import {
 } from "./app/context";
 import { NoticeLine, SideNav, WindowChrome } from "./app/Shell";
 import { LoadingState } from "./components/LoadingState";
-import { useActivityLog, useRecordingStatus } from "./hooks/useLive";
+import { useRecordingStatus } from "./hooks/useLive";
 import { ShortcutsPage } from "./pages/ShortcutsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { TrashPage } from "./pages/TrashPage";
@@ -86,7 +86,6 @@ export function App() {
   }).current;
   const mainRef = useRef<HTMLElement>(null);
 
-  const activity = useActivityLog();
   const recording = useRecordingStatus();
 
   const updateNotice = useCallback((next: Notice | null) => {
@@ -268,7 +267,6 @@ export function App() {
         conflicts,
         setConflicts,
         caps,
-        activity,
         recording,
         page,
         navigate,
@@ -277,7 +275,7 @@ export function App() {
         consumePreviewId,
       },
     [
-      settings, notify, dismissNotice, noticeStore, pageCache, conflicts, caps, activity, recording,
+      settings, notify, dismissNotice, noticeStore, pageCache, conflicts, caps, recording,
       page, navigate, viewedPetId, pendingPreviewId, consumePreviewId,
     ],
   );
