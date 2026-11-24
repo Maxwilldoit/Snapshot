@@ -874,6 +874,24 @@ mod pet_asset_tests {
         }
     }
 
+    #[test]
+    fn content_windows_use_normal_window_level() {
+        let config: tauri::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        for label in ["main", "annotate", "pet-catalog"] {
+            let window = config
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == label)
+                .unwrap_or_else(|| panic!("missing window config: {label}"));
+            assert!(
+                !window.always_on_top,
+                "{label} window should use normal window level"
+            );
+        }
+    }
+
     /// 老配置含已废弃的录制目录绑定与（Win/mac 上）不支持的滚动长截图：
     /// 移除它们，补出新动作，保留其它已有绑定。
     #[test]

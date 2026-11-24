@@ -306,6 +306,7 @@ pub(crate) fn open_annotate_window(
         work_area.map_or(1200, |size| size.width),
         work_area.map_or(800, |size| size.height),
     );
+    let _ = window.unminimize();
     let _ = window.unmaximize();
     let _ = window.set_size(LogicalSize::new(width, height));
     if let Some(monitor) = monitor {
