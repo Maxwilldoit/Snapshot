@@ -117,7 +117,7 @@ export function HistoryPage({ active = true }: { active?: boolean } = {}) {
   const [viewportHeight, setViewportHeight] = useState(() =>
     typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 760,
   );
-  const [dayMetrics, setDayMetrics] = useState({ firstGridTop: 92, dayStepOverhead: 52 });
+  const [dayMetrics, setDayMetrics] = useState({ firstGridTop: 40, dayStepOverhead: 52 });
   const [gridWidth, setGridWidth] = useState(() => {
     const cached = getLastMeasuredGridWidth();
     if (cached > 0) return cached;

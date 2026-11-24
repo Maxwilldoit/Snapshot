@@ -205,21 +205,12 @@ html[data-surface="app"] .mw-window-title { min-width: 0; max-width: 220px; over
 
 /* ---------- 截图墙 ---------- */
 
-/* 历史页顶栏使用独立合成层纯色底，避免滚动时每帧对下方高分屏照片墙做实时 backdrop-filter 模糊重绘 */
-html[data-surface="app"] .history-page > .mw-toolbar {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 8;
-  background: var(--win);
-  border-bottom: 0.5px solid var(--sep);
-  transform: translateZ(0);
-}
-html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; height: 100%; min-height: 0; }
+html[data-surface="app"] .history-body { position: relative; display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
 html[data-surface="app"] .history-scroll {
   flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0;
-  scroll-padding-top: 56px;
+  scroll-padding-top: 8px;
 }
 html[data-surface="app"] .history-scroll:focus-visible { outline-offset: -3px; }
-html[data-surface="app"] .history-page .mw-empty { padding-top: 92px; }
-html[data-surface="app"] .history-page .mw-empty-line { margin-top: 80px; }
 
 html[data-surface="app"] .trash-list { list-style: none; margin: 0; padding: 8px 20px 24px; }
 html[data-surface="app"] .trash-row {
@@ -239,7 +230,7 @@ html[data-surface="app"] .trash-meta { margin-top: 3px; color: var(--text2); fon
 html[data-surface="app"] .trash-row .tb-btn { flex: 0 0 auto; }
 
 /* 按日期分组 + 同行等高自适应拼图（Justified）：左界对齐顶栏标题（20px），12px 呼吸间距 */
-html[data-surface="app"] .gallery { display: block; padding: 60px 24px 32px 20px; }
+html[data-surface="app"] .gallery { display: block; padding: 8px 24px 32px 20px; }
 html[data-surface="app"] .mw .day { position: relative; display: block; margin-top: 24px; padding: 0; border-top: 0; contain: layout style; }
 html[data-surface="app"] .mw .day:first-child { margin-top: 4px; }
 html[data-surface="app"] .mw .day-label { display: flex; flex-direction: row; align-items: baseline; gap: 10px; margin: 0; padding: 0 0 8px; background: none; }

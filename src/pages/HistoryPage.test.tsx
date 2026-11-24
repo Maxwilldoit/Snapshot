@@ -5,6 +5,7 @@ import { AppContext, type AppContextValue } from "../app/context";
 import { setupTauriMock, invokeArgs } from "../test/tauri";
 import type { RecordingRecord, Settings, SnapshotRecord } from "../types";
 import { HistoryPage } from "./HistoryPage";
+import "../styles/main-window.css";
 
 const settings: Settings = {
   baseUrl: "",
@@ -80,6 +81,24 @@ describe("history opens markup directly and previews uncompressed media on hover
     expect(container.querySelectorAll(".day-title").length).toBe(2);
     const tiles = [...container.querySelectorAll(".shot .tile-main")];
     expect(tiles.map((tile) => tile.getAttribute("data-thumb-id"))).toEqual(["1", "2"]);
+  });
+
+  it("keeps the toolbar in normal flow above history-scroll so the scrollbar track does not enter the header", async () => {
+    const prevSurface = document.documentElement.dataset.surface;
+    document.documentElement.dataset.surface = "app";
+    try {
+      const { container } = renderHistory();
+      await screen.findByRole("button", { name: "标注：Alpha" });
+      const toolbar = container.querySelector<HTMLElement>(".history-page > .mw-toolbar")!;
+      const body = container.querySelector<HTMLElement>(".history-page > .history-body")!;
+      expect(toolbar).toBeTruthy();
+      expect(body).toBeTruthy();
+      expect(toolbar.nextElementSibling).toBe(body);
+      expect(getComputedStyle(toolbar).position).toBe("relative");
+    } finally {
+      if (prevSurface === undefined) delete document.documentElement.dataset.surface;
+      else document.documentElement.dataset.surface = prevSurface;
+    }
   });
 
   it("clicking a screenshot opens markup directly without opening the modal viewer", async () => {
