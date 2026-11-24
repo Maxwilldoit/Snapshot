@@ -219,7 +219,11 @@ pub(crate) fn finalize_capture(
         let _ = app.emit("snapshots-changed", ());
     }
 
-    clipboard::copy_image(image)?;
+    if archived {
+        clipboard_history::copy_snapshot_to_clipboard(image)?;
+    } else {
+        clipboard::copy_image(image)?;
+    }
     trace.mark("clipboard");
 
     let _ = app.emit("pet-event", "capture.success");
