@@ -38,13 +38,24 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
   latest.current = options;
   const stopRun = useRef<(() => void) | null>(null);
   const direction = useRef<{ behavior: PetBehavior | null; facing: WalkDirection }>({ behavior: null, facing: "left" });
+  const restBeforeRoll = useRef(false);
   const cancel = useCallback(() => stopRun.current?.(), []);
 
   useEffect(() => {
     const { behavior, enabled, paused, wander, randomActions } = options;
-    if (!behavior || !enabled || paused || (!wander && !randomActions)) return;
+    if (!behavior || !enabled || (!wander && !randomActions)) {
+      restBeforeRoll.current = false;
+      return;
+    }
     const profile: PetBehavior = behavior;
-    if (direction.current.behavior !== profile) direction.current = { behavior: profile, facing: "left" };
+    if (direction.current.behavior !== profile) {
+      direction.current = { behavior: profile, facing: "left" };
+      restBeforeRoll.current = false;
+    }
+    if (paused) {
+      restBeforeRoll.current = true;
+      return;
+    }
 
     const petWindow = getCurrentWindow();
     let disposed = false;
@@ -211,7 +222,26 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
       return result;
     }
 
+    const canRest = profile.idle.length > 0 && profile.weights.idle > 0 && Number.isFinite(profile.weights.idle);
+    let mustRest = canRest && restBeforeRoll.current;
+    restBeforeRoll.current = false;
+
+    async function playStationaryWithRest(): Promise<PlaybackResult> {
+      const entry = stationary();
+      if (!entry) return "failed";
+      const result = await play(entry);
+      if (result === "ended" && canRest && !profile.idle.includes(entry)) {
+        mustRest = true;
+      }
+      return result;
+    }
+
     async function segment(): Promise<PlaybackResult> {
+      if (mustRest) {
+        mustRest = false;
+        const rest = pickPetEntry(profile.idle, latest.current.current());
+        return rest ? play(rest) : "failed";
+      }
       const moves = wander && Number.isFinite(profile.referenceWidth) && profile.referenceWidth > 0
         ? profile.moves.filter(validMove) : [];
       const choices = [
@@ -241,11 +271,13 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
           direction.current.facing = opposite;
           return play(move.entry, motion);
         }
-        const entry = stationary();
+        return playStationaryWithRest();
+      }
+      if (kind === "idle") {
+        const entry = pickPetEntry(profile.idle, latest.current.current());
         return entry ? play(entry) : "failed";
       }
-      const entry = kind === "idle" ? pickPetEntry(profile.idle, latest.current.current()) : stationary();
-      return entry ? play(entry) : "failed";
+      return playStationaryWithRest();
     }
 
     async function loop() {

@@ -1712,7 +1712,7 @@ describe("桌宠：DSH 动作交互", () => {
     expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
   });
 
-  it("随机动作只从分类池抽取，播完接下一段，关闭开关后恢复待机", async () => {
+  it("随机动作只从分类池抽取，播完先回一轮待机再接下一段，关闭开关后恢复待机", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.9);
     const { container } = await renderWhale({ petRandomActions: true });
     expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
@@ -1721,7 +1721,12 @@ describe("桌宠：DSH 动作交互", () => {
     expect(shownVideo(container).media).toBe(first);
     await act(async () => { fireEvent.ended(first); });
     await loadPetVideos();
-    expect(shownVideo(container).media).not.toBe(first);
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    expect(shownVideo(container).media.loop).toBe(false);
+    await elapse(20);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await elapse(20);
+    await loadPetVideos();
     expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
 
     await act(async () => { await emit("settings-changed", { ...settingsWith(whale), petRandomActions: false }); });
@@ -1734,7 +1739,7 @@ describe("桌宠：DSH 动作交互", () => {
   });
 
   it("转身片完整播完才翻转朝向，点击和拖拽沿用新的朝向", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(0.11);
+    vi.spyOn(Math, "random").mockReturnValue(0.65);
     const { container } = await renderWhale({ petRandomActions: true });
     expect(shownVideo(container).file).toBe("东张西望.webm");
     expect(shownVideo(container).media.classList.contains("pet-flip")).toBe(false);
@@ -1771,8 +1776,12 @@ describe("桌宠：DSH 动作交互", () => {
     await act(async () => { fireEvent.ended(current); });
     await elapse(20);
     await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    expect(shownVideo(container).media.loop).toBe(false);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await elapse(20);
+    await loadPetVideos();
     expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
-    expect(shownVideo(container).media).not.toBe(current);
   });
 
   it("右键不打断正在播放的点击回应，回应完成后照常回待机", async () => {
@@ -1819,5 +1828,95 @@ describe("桌宠：DSH 动作交互", () => {
     expect(shown(container).img).toBe(current);
     await elapse(3000);
     expect(shown(container).file).toBe("grok_idle.gif");
+  });
+
+  it("大肥鱼支持双击哄睡、睡中拖拽保睡姿、屏蔽事件打扰，并由单击叫醒", async () => {
+    const sleepWhale: PetAsset = {
+      ...whale,
+      animations: [
+        ...whale.animations,
+        "pack/睡觉-开始.webm",
+        "pack/睡觉-循环.webm",
+        "pack/睡觉-起来.webm",
+      ],
+    };
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(10);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(360);
+    const { container, calls } = await renderPet(sleepWhale, { petRandomActions: true });
+    await loadPetVideos();
+
+    // 200ms 内快速双击且不拖拽 => 进入哄睡阶段
+    await act(async () => click(container));
+    await elapse(60);
+    await act(async () => click(container));
+    await loadPetVideos();
+    expect(calls).not.toContain("show_launchpad");
+    expect(shownVideo(container).file).toBe("睡觉-开始.webm");
+    expect(shownVideo(container).media.loop).toBe(false);
+
+    // 入睡过渡播完 => 自动切入无限睡眠循环
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("睡觉-循环.webm");
+    expect(shownVideo(container).media.loop).toBe(true);
+
+    // 睡眠中自主随机动作与截图事件均被屏蔽，拖动窗口保持睡姿不播悬空反馈
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    await elapse(10_000);
+    expect(shownVideo(container).file).toBe("睡觉-循环.webm");
+    await act(async () => { await emit("pet-event", "capture.success"); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("睡觉-循环.webm");
+    await startDrag(container, 100, 100);
+    expect(shownVideo(container).file).toBe("睡觉-循环.webm");
+    await endDrag();
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("睡觉-循环.webm");
+
+    // 睡着时单击 => 播放叫醒过渡，播完自动恢复随机动作链
+    await elapse(300);
+    await act(async () => click(container));
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("睡觉-起来.webm");
+    expect(shownVideo(container).media.loop).toBe(false);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await elapse(20);
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    expect(shownVideo(container).media.loop).toBe(false);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await elapse(20);
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
+  });
+
+  it("大肥鱼支持双击按住回拉触发弹弓反向发射", async () => {
+    const { container, position } = await renderWhale({ petGravity: true });
+    const initialX = position.x;
+    const pet = container.querySelector(".pet-window")!;
+
+    // 第一下点按松开，第二下 80ms 内按住并向左侧（screenX 100 -> 40）回拉松手，应朝右侧弹射（x 增大）
+    await act(async () => click(container));
+    await elapse(80);
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 200, screenY: 200, pointerId: 2 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 5, clientY: 20, screenX: 120, screenY: 200, pointerId: 2 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    const pulledX = position.x;
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 2 });
+    });
+    await elapse(180);
+    expect(position.x).toBeGreaterThan(pulledX);
+    expect(position.x).toBeGreaterThan(initialX);
   });
 });

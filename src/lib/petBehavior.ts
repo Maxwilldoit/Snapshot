@@ -1,4 +1,10 @@
-import type { PetAsset, PetEvent, PetPersistentState } from "../types";
+import type {
+  PetAsset,
+  PetBehaviorManifest,
+  PetBehaviorSleep,
+  PetEvent,
+  PetPersistentState,
+} from "../types";
 
 export interface PetBehaviorMove {
   entry: string;
@@ -15,33 +21,54 @@ export interface PetBehaviorCategory {
   noMirror?: boolean;
 }
 
+interface ResolvedPetInteractions {
+  throw: boolean;
+  slingshot: boolean;
+  sleep: boolean;
+}
+
 export interface PetBehavior {
   id: string;
   idle: string[];
   clicks: string[];
   drag: string[];
   turn: string[];
+  sleep: PetBehaviorSleep | null;
   moves: PetBehaviorMove[];
   categories: PetBehaviorCategory[];
   referenceWidth: number;
   weights: { idle: number; turn: number; move: number; action: number };
+  interactions: ResolvedPetInteractions;
   eventActions: Partial<Record<PetEvent, string>>;
   stateActions: Partial<Record<PetPersistentState, string>>;
 }
 
 // Action names, categories and parameters adapted from PC2005-cloud/dsh-pet (MIT),
-// dsh-pet/assets/config.jsonc at 3229ab287d82d7621af2ee51544a0e746c2e40fd.
-// Copyright (c) 2026 PC2005-cloud. See THIRD_PARTY_NOTICES.md for source and license.
+// dsh-pet/assets/config.jsonc. Copyright (c) 2026 PC2005-cloud.
+// See THIRD_PARTY_NOTICES.md for source and license.
 const DSH_IDLE = ["待机呼吸休闲"];
 const DSH_DRAG = ["被鼠标拖拽悬空反馈"];
 const DSH_TURN = ["东张西望"];
-const DSH_CLICKS = [
+const DSH_PRIMARY_CLICKS = [
   "点击回应-开心跃动",
   "点击回应-害羞惊讶",
   "点击回应-傲娇生气",
   "点击回应-挠痒咯咯笑",
   "点击回应-元气挥手",
 ];
+const DSH_EXTRA_CLICKS = ["原地敲击桌面互动"];
+
+const DSH_SLEEP_PRIMARY = {
+  start: ["睡觉-开始"],
+  loop: ["睡觉-循环"],
+  end: ["睡觉-起来"],
+} as const;
+
+const DSH_SLEEP_FALLBACK = {
+  start: ["哈欠连天"],
+  loop: ["原地小憩沉眠"],
+  end: ["打瞌睡被惊醒"],
+} as const;
 
 const DSH_MOVES: readonly PetBehaviorMove[] = [
   { entry: "螃蟹走路", minDistance: 60, maxDistance: 240, leadMs: 2000, tailMs: 2000 },
@@ -52,7 +79,7 @@ const DSH_MOVES: readonly PetBehaviorMove[] = [
 const DSH_CATEGORIES: readonly PetBehaviorCategory[] = [
   {
     id: "小动作", weight: 20, entries: [
-      "悠闲哼歌", "超大伸懒腰", "原地敲击桌面互动", "原地重力下蹲压缩", "哈欠连天",
+      "悠闲哼歌", "超大伸懒腰", "原地重力下蹲压缩", "哈欠连天",
       "原地小憩沉眠", "女仆屈膝礼仪", "被吓一跳", "小幅度原地360度旋转展示",
       "偷吃零食被抓住", "用鲸鱼尾巴拍打地面", "打瞌睡被惊醒", "照镜子", "整体换装试色",
       "轻快记录", "写代码", "摇扇纳凉", "晨间刷牙",
@@ -104,11 +131,100 @@ function webmName(entry: string): string | null {
   return /\.webm$/i.test(file) ? file.slice(0, -5) : null;
 }
 
-/** 以待机 + 悬空拖拽 + 至少两个不同点击回应识别 DSH，缺失的动作一律不补造。 */
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function resolveManifestBehavior(
+  asset: Pick<PetAsset, "entry" | "animations" | "eventActions" | "stateActions">,
+  manifest: PetBehaviorManifest,
+): PetBehavior | null {
+  const known = new Map<string, string>();
+  for (const entry of [asset.entry, ...asset.animations]) {
+    if (!entry) continue;
+    const key = normalizePath(entry);
+    if (!known.has(key)) known.set(key, entry);
+  }
+  const filterPool = (pool: readonly string[] | undefined): string[] => {
+    if (!pool?.length) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of pool) {
+      const resolved = known.get(normalizePath(raw));
+      if (resolved && !seen.has(resolved)) {
+        seen.add(resolved);
+        out.push(resolved);
+      }
+    }
+    return out;
+  };
+
+  const idle = filterPool(manifest.idle);
+  const drag = filterPool(manifest.drag);
+  const clicks = filterPool(manifest.clicks);
+  if (!idle.length || !drag.length || !clicks.length) return null;
+  if (!(manifest.referenceWidth > 0) || !Number.isFinite(manifest.referenceWidth)) return null;
+
+  let sleep: PetBehaviorSleep | null = null;
+  if (manifest.sleep) {
+    const start = filterPool(manifest.sleep.start);
+    const loop = filterPool(manifest.sleep.loop);
+    const end = filterPool(manifest.sleep.end);
+    if (start.length && loop.length && end.length) {
+      sleep = { start, loop, end };
+    }
+  }
+
+  const eventActions: Partial<Record<PetEvent, string>> = {};
+  for (const [key, raw] of Object.entries(asset.eventActions ?? {}) as Array<[PetEvent, string | undefined]>) {
+    const resolved = raw ? known.get(normalizePath(raw)) : undefined;
+    if (resolved) eventActions[key] = resolved;
+  }
+  const stateActions: Partial<Record<PetPersistentState, string>> = {};
+  for (const [key, raw] of Object.entries(asset.stateActions ?? {}) as Array<[PetPersistentState, string | undefined]>) {
+    const resolved = raw ? known.get(normalizePath(raw)) : undefined;
+    if (resolved) stateActions[key] = resolved;
+  }
+
+  return {
+    id: manifest.id || "custom-behavior",
+    idle,
+    clicks,
+    drag,
+    turn: filterPool(manifest.turn),
+    sleep,
+    moves: (manifest.moves ?? []).flatMap((move) => {
+      const resolved = known.get(normalizePath(move.entry));
+      return resolved ? [{ ...move, entry: resolved }] : [];
+    }),
+    categories: (manifest.categories ?? [])
+      .map((category) => ({
+        id: category.id,
+        weight: category.weight,
+        ...(category.noMirror ? { noMirror: true } : {}),
+        entries: filterPool(category.entries),
+      }))
+      .filter((category) => category.entries.length > 0),
+    referenceWidth: manifest.referenceWidth,
+    weights: { ...manifest.weights },
+    interactions: {
+      throw: Boolean(manifest.interactions?.throw),
+      slingshot: Boolean(manifest.interactions?.slingshot),
+      sleep: Boolean(manifest.interactions?.sleep) && sleep !== null,
+    },
+    eventActions,
+    stateActions,
+  };
+}
+
+/** 优先读取素材包 pet.json 随包导入的声明式 behavior；未声明时按内置 DSH 特征保守识别。 */
 export function resolvePetBehavior(
-  asset: Pick<PetAsset, "entry" | "animations"> | null | undefined,
+  asset: Pick<PetAsset, "entry" | "animations" | "behavior" | "eventActions" | "stateActions"> | null | undefined,
 ): PetBehavior | null {
   if (!asset) return null;
+  if (asset.behavior) {
+    return resolveManifestBehavior(asset, asset.behavior);
+  }
 
   const entries = new Map<string, string>();
   // entry 也是素材中已知的默认动画；保留传入的完整路径供调用方播放。
@@ -124,8 +240,17 @@ export function resolvePetBehavior(
 
   const idle = available(DSH_IDLE);
   const drag = available(DSH_DRAG);
-  const clicks = available(DSH_CLICKS);
-  if (!idle.length || !drag.length || clicks.length < 2) return null;
+  const primaryClicks = available(DSH_PRIMARY_CLICKS);
+  if (!idle.length || !drag.length || primaryClicks.length < 2) return null;
+  const clicks = [...primaryClicks, ...available(DSH_EXTRA_CLICKS)];
+
+  const resolveSleepSet = (set: { readonly start: readonly string[]; readonly loop: readonly string[]; readonly end: readonly string[] }): PetBehaviorSleep | null => {
+    const start = available(set.start);
+    const loop = available(set.loop);
+    const end = available(set.end);
+    return start.length && loop.length && end.length ? { start, loop, end } : null;
+  };
+  const sleep = resolveSleepSet(DSH_SLEEP_PRIMARY) ?? resolveSleepSet(DSH_SLEEP_FALLBACK);
 
   const resolveActions = <T extends string>(actions: Partial<Record<T, string>>): Partial<Record<T, string>> => {
     const result: Partial<Record<T, string>> = {};
@@ -143,6 +268,7 @@ export function resolvePetBehavior(
     clicks,
     drag,
     turn: available(DSH_TURN),
+    sleep,
     moves: DSH_MOVES.flatMap((move) => {
       const entry = entries.get(move.entry);
       return entry === undefined ? [] : [{ ...move, entry }];
@@ -151,7 +277,12 @@ export function resolvePetBehavior(
       .map((category) => ({ ...category, entries: available(category.entries) }))
       .filter((category) => category.entries.length > 0),
     referenceWidth: 462,
-    weights: { idle: 10, turn: 5, move: 5, action: 80 },
+    weights: { idle: 60, turn: 5, move: 5, action: 30 },
+    interactions: {
+      throw: true,
+      slingshot: true,
+      sleep: sleep !== null,
+    },
     eventActions: resolveActions(DSH_EVENT_ACTIONS),
     stateActions: resolveActions(DSH_STATE_ACTIONS),
   };

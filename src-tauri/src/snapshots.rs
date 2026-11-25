@@ -575,7 +575,7 @@ fn copy_snapshot_now(state: &AppState, id: String) -> Result<String, String> {
     let image = image::open(history_dir(state).join(&record.file_name))
         .map_err(|_| "快照文件已被移动或删除".to_string())?
         .to_rgba8();
-    clipboard::copy_image(image)?;
+    clipboard_history::copy_snapshot_to_clipboard(image)?;
     if interface_is_english() {
         Ok(format!("Copied {}.", record.app_name))
     } else {

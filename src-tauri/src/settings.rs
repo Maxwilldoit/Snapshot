@@ -259,6 +259,31 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
                 }
             }
         }
+        if (asset.layout.is_none() || asset.behavior.is_none())
+            && asset.path.to_ascii_lowercase().ends_with(".zip")
+            && PathBuf::from(&asset.path).is_file()
+        {
+            if let Ok(Some(manifest)) =
+                super::pet_layout::read_pet_layout(&PathBuf::from(&asset.path), &asset.animations)
+            {
+                if asset.layout.is_none() {
+                    asset.layout = Some(manifest.layout);
+                    backfilled_action_bounds = true;
+                }
+                if asset.event_actions.is_empty() && !manifest.event_actions.is_empty() {
+                    asset.event_actions = manifest.event_actions;
+                    backfilled_action_bounds = true;
+                }
+                if asset.state_actions.is_empty() && !manifest.state_actions.is_empty() {
+                    asset.state_actions = manifest.state_actions;
+                    backfilled_action_bounds = true;
+                }
+                if asset.behavior.is_none() && manifest.behavior.is_some() {
+                    asset.behavior = manifest.behavior;
+                    backfilled_action_bounds = true;
+                }
+            }
+        }
     }
     super::pet::refresh_missing(&mut settings.pet_assets);
     // 手改过配置文件、写了范围外的值：按边界算
@@ -637,6 +662,7 @@ mod tests {
                 animations: vec!["idle.gif".into()],
                 event_actions: Default::default(),
                 state_actions: Default::default(),
+                behavior: None,
                 source: String::new(),
                 size_bytes: 0,
                 imported_at: 0,
@@ -655,6 +681,82 @@ mod tests {
         assert_eq!((shape.width, shape.height), (4, 4));
         assert_eq!(shape.bounds.left, 0.25);
         assert_eq!(shape.bounds.top, 0.25);
+
+        fs::remove_file(zip_path).unwrap();
+    }
+
+    #[test]
+    fn read_settings_backfills_missing_zip_manifest_layout_and_behavior() {
+        let directory = SettingsTestDir::new("pet-manifest-backfill");
+        let zip_path = directory.0.join("whale.zip");
+        {
+            let file = fs::File::create(&zip_path).unwrap();
+            let mut archive = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default();
+            archive.start_file("idle.webm", options).unwrap();
+            std::io::Write::write_all(&mut archive, b"webm").unwrap();
+            archive.start_file("drag.webm", options).unwrap();
+            std::io::Write::write_all(&mut archive, b"webm").unwrap();
+            archive.start_file("tap.webm", options).unwrap();
+            std::io::Write::write_all(&mut archive, b"webm").unwrap();
+            archive.start_file("pet.json", options).unwrap();
+            std::io::Write::write_all(
+                &mut archive,
+                br#"{
+                  "version": 1,
+                  "base": { "width": 640, "height": 360, "anchor": [320, 330] },
+                  "animations": { "idle.webm": { "anchor": [320, 330] } },
+                  "events": { "capture.success": "tap.webm" },
+                  "behavior": {
+                    "id": "dsh-pet",
+                    "referenceWidth": 462,
+                    "weights": { "idle": 10, "turn": 0, "move": 0, "action": 0 },
+                    "idle": ["idle.webm"],
+                    "clicks": ["tap.webm"],
+                    "drag": ["drag.webm"]
+                  }
+                }"#,
+            )
+            .unwrap();
+            archive.finish().unwrap();
+        }
+        let settings = Settings {
+            pet_assets: vec![super::super::pet::PetAsset {
+                id: "whale".into(),
+                name: "大肥鱼".into(),
+                path: zip_path.to_string_lossy().into(),
+                entry: "idle.webm".into(),
+                animations: vec!["idle.webm".into(), "drag.webm".into(), "tap.webm".into()],
+                event_actions: Default::default(),
+                state_actions: Default::default(),
+                behavior: None,
+                source: String::new(),
+                size_bytes: 0,
+                imported_at: 0,
+                last_used_at: 0,
+                missing: false,
+                layout: None,
+                action_bounds: Default::default(),
+            }],
+            ..Default::default()
+        };
+        let settings_path = directory.0.join("settings.json");
+        persist_settings(&settings_path, &settings).unwrap();
+
+        let reloaded = read_settings(&settings_path);
+        let asset = &reloaded.pet_assets[0];
+        assert_eq!(
+            asset.layout.as_ref().map(|l| (l.base_width, l.base_height)),
+            Some((640, 360))
+        );
+        assert_eq!(
+            asset
+                .event_actions
+                .get("capture.success")
+                .map(String::as_str),
+            Some("tap.webm")
+        );
+        assert!(asset.behavior.is_some());
 
         fs::remove_file(zip_path).unwrap();
     }

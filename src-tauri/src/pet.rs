@@ -44,6 +44,9 @@ pub(crate) struct PetAsset {
     pub(crate) event_actions: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub(crate) state_actions: HashMap<String, String>,
+    /// 压缩包 pet.json 声明的动作分池与物理/睡眠互动配置
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) behavior: Option<pet_layout::PetBehaviorManifest>,
     /// 导入时用户选的原文件，只做展示
     #[serde(default)]
     pub(crate) source: String,
@@ -306,6 +309,7 @@ fn register_imports(
                 existing.action_bounds = asset.action_bounds;
                 existing.event_actions = asset.event_actions;
                 existing.state_actions = asset.state_actions;
+                existing.behavior = asset.behavior;
                 existing.size_bytes = asset.size_bytes;
                 existing.last_used_at = asset.last_used_at;
                 if old_path != existing.path {
@@ -437,6 +441,9 @@ fn prepare_import(state: &AppState, raw_path: &str) -> Result<PetAsset, String> 
             .as_ref()
             .map(|manifest| manifest.state_actions.clone())
             .unwrap_or_default(),
+        behavior: manifest
+            .as_ref()
+            .and_then(|manifest| manifest.behavior.clone()),
         source: canonical.to_string_lossy().to_string(),
         size_bytes,
         imported_at: now,

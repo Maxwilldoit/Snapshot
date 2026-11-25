@@ -253,10 +253,36 @@ fn decode_bounded_image(raw: &RawClipboardImage) -> Option<RgbaImage> {
     }
 }
 
-/// 串行化后台轮询与「放回剪贴板」：放回后同步推进 marker，避免轮询再重复采集或立即推送事件。
-fn poll_marker() -> &'static Mutex<String> {
-    static MARKER: OnceLock<Mutex<String>> = OnceLock::new();
-    MARKER.get_or_init(|| Mutex::new(String::new()))
+#[derive(Default)]
+struct PollState {
+    last_marker: String,
+    /// 本应用写入剪贴板且已存入快照「历史」的图片像素哈希：避免同一张快照在「历史」和「剪贴板」重复出现；
+    /// 一旦系统剪贴板切换到其它内容即自动清除，不影响后续从外部手动复制同一张图。
+    suppressed_image_hash: Option<String>,
+}
+
+/// 串行化后台轮询与本应用的剪贴板写入：写入后同步推进 marker 并记录待跳过的快照哈希。
+fn poll_state() -> &'static Mutex<PollState> {
+    static STATE: OnceLock<Mutex<PollState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(PollState::default()))
+}
+
+/// 将已存入快照「历史」的图片写入系统剪贴板，但不在「剪贴板」历史中重复记账。
+pub(crate) fn copy_snapshot_to_clipboard(image: RgbaImage) -> Result<(), String> {
+    if !os::clipboard_history_supported() {
+        return clipboard::copy_image(image);
+    }
+    let image_hash = hash_rgba(image.width(), image.height(), image.as_raw());
+    let fallback_marker = os::clipboard_marker()
+        .is_none()
+        .then(|| format!("i:{}", hash_bytes(image.as_raw())));
+    let mut poll = poll_state().lock();
+    clipboard::copy_image(image)?;
+    if let Some(marker) = os::clipboard_marker().or(fallback_marker) {
+        poll.last_marker = marker;
+    }
+    poll.suppressed_image_hash = Some(image_hash);
+    Ok(())
 }
 
 /// 后台轮询：不支持剪贴板历史的平台直接退出，不创建空转线程；支持平台在内容未变时零拷贝返回。
@@ -269,37 +295,52 @@ pub(crate) fn start(app: AppHandle) {
         let Some(state) = app.try_state::<AppState>() else {
             continue;
         };
-        let sample = {
-            let mut last_marker = poll_marker().lock();
-            let Some(sample) = os::clipboard_sample(&last_marker) else {
+        let (sample, suppressed_before) = {
+            let mut poll = poll_state().lock();
+            let Some(sample) = os::clipboard_sample(&poll.last_marker) else {
                 continue;
             };
-            if sample.marker == *last_marker {
+            if sample.marker == poll.last_marker {
                 continue;
             }
-            *last_marker = sample.marker.clone();
+            poll.last_marker = sample.marker.clone();
             if sample.concealed {
+                poll.suppressed_image_hash = None;
                 continue;
             }
-            sample
+            if sample.text.is_some() || sample.image.is_none() {
+                poll.suppressed_image_hash = None;
+            }
+            (sample, poll.suppressed_image_hash.clone())
         };
-        if let Ok(Some(entry)) = capture_sample(&state, &sample) {
+        let mut suppressed_after = suppressed_before.clone();
+        if let Ok(Some(entry)) =
+            capture_sample(&state.clipboard_history, &mut suppressed_after, &sample)
+        {
             let _ = app.emit("clipboard-history-changed", &entry);
+        }
+        if suppressed_after != suppressed_before {
+            let mut poll = poll_state().lock();
+            if poll.suppressed_image_hash == suppressed_before {
+                poll.suppressed_image_hash = suppressed_after;
+            }
         }
     });
 }
 
 fn capture_sample(
-    state: &AppState,
+    history_lock: &Mutex<ClipboardHistory>,
+    suppressed_image_hash: &mut Option<String>,
     sample: &Sample,
 ) -> Result<Option<ClipboardHistoryEntry>, String> {
     if let Some(text) = sample.text.as_deref() {
+        *suppressed_image_hash = None;
         let trimmed = text.trim();
         if trimmed.is_empty() || text.chars().count() > MAX_TEXT_CHARS {
             return Ok(None);
         }
         let hash = hash_bytes(text.as_bytes());
-        let mut history = state.clipboard_history.lock();
+        let mut history = history_lock.lock();
         if history.is_head_hash(&hash) {
             return Ok(None);
         }
@@ -311,16 +352,21 @@ fn capture_sample(
     if let Some(raw_image) = sample.image.as_ref() {
         // 解码与 PNG/缩略图压缩全部放在互斥锁之外，避免阻塞主线程列表读取与 media:// 图片加载。
         let Some(rgba) = decode_bounded_image(raw_image) else {
+            *suppressed_image_hash = None;
             return Ok(None);
         };
         let (width, height) = (rgba.width(), rgba.height());
         let hash = hash_rgba(width, height, rgba.as_raw());
-        if state.clipboard_history.lock().is_head_hash(&hash) {
+        if suppressed_image_hash.as_deref() == Some(hash.as_str()) {
+            return Ok(None);
+        }
+        *suppressed_image_hash = None;
+        if history_lock.lock().is_head_hash(&hash) {
             return Ok(None);
         }
         let png = crate::capture::encode_png(&rgba)?;
         let thumb = encode_thumbnail(&rgba).ok();
-        let mut history = state.clipboard_history.lock();
+        let mut history = history_lock.lock();
         if history.is_head_hash(&hash) {
             return Ok(None);
         }
@@ -336,6 +382,7 @@ fn capture_sample(
             .map(Some);
     }
 
+    *suppressed_image_hash = None;
     Ok(None)
 }
 
@@ -386,7 +433,10 @@ pub(crate) async fn copy_clipboard_history(
             let thumb = fs::read(thumb_path(&dir, &entry.id))
                 .ok()
                 .or_else(|| encode_thumbnail(&image).ok());
-            let mut last_marker = poll_marker().lock();
+            let fallback_marker = os::clipboard_marker()
+                .is_none()
+                .then(|| format!("i:{}", hash_bytes(image.as_raw())));
+            let mut poll = poll_state().lock();
             clipboard::copy_image(image)?;
             let created = state.clipboard_history.lock().push(
                 "image",
@@ -396,19 +446,24 @@ pub(crate) async fn copy_clipboard_history(
                 entry.hash,
                 Some((&bytes, thumb.as_deref())),
             )?;
-            if let Some(marker) = os::clipboard_marker() {
-                *last_marker = marker;
+            poll.suppressed_image_hash = None;
+            if let Some(marker) = os::clipboard_marker().or(fallback_marker) {
+                poll.last_marker = marker;
             }
             Ok(created)
         } else {
-            let mut last_marker = poll_marker().lock();
+            let fallback_marker = os::clipboard_marker()
+                .is_none()
+                .then(|| format!("t:{}", hash_bytes(entry.text.as_bytes())));
+            let mut poll = poll_state().lock();
             clipboard::copy_text(entry.text.clone())?;
             let created = state
                 .clipboard_history
                 .lock()
                 .push("text", entry.text, 0, 0, entry.hash, None)?;
-            if let Some(marker) = os::clipboard_marker() {
-                *last_marker = marker;
+            poll.suppressed_image_hash = None;
+            if let Some(marker) = os::clipboard_marker().or(fallback_marker) {
+                poll.last_marker = marker;
             }
             Ok(created)
         }
@@ -687,5 +742,56 @@ mod tests {
     fn hash_is_stable_and_content_sensitive() {
         assert_eq!(hash_bytes(b"abc"), hash_bytes(b"abc"));
         assert_ne!(hash_bytes(b"abc"), hash_bytes(b"abd"));
+    }
+
+    #[test]
+    fn suppressed_snapshot_image_is_skipped_until_clipboard_moves_on() {
+        let dir = TestDir::new();
+        let history = Mutex::new(dir.history());
+        let snapshot = RgbaImage::from_pixel(6, 4, image::Rgba([42, 84, 168, 255]));
+        let png = crate::capture::encode_png(&snapshot).unwrap();
+        let mut suppressed = Some(hash_rgba(
+            snapshot.width(),
+            snapshot.height(),
+            snapshot.as_raw(),
+        ));
+
+        let snap_sample = Sample {
+            marker: "m1".into(),
+            concealed: false,
+            text: None,
+            image: Some(RawClipboardImage::Encoded(png.clone())),
+        };
+        assert!(capture_sample(&history, &mut suppressed, &snap_sample)
+            .unwrap()
+            .is_none());
+        assert!(history.lock().entries.is_empty());
+        assert!(suppressed.is_some());
+
+        // 复制另一段文字后，抑制标记自动清除
+        let text_sample = Sample {
+            marker: "m2".into(),
+            concealed: false,
+            text: Some("external text".into()),
+            image: None,
+        };
+        assert!(capture_sample(&history, &mut suppressed, &text_sample)
+            .unwrap()
+            .is_some());
+        assert!(suppressed.is_none());
+        assert_eq!(history.lock().entries.len(), 1);
+
+        // 之后若用户从外部手动复制同一张图片，仍能正常记入剪贴板历史
+        let external_image_sample = Sample {
+            marker: "m3".into(),
+            concealed: false,
+            text: None,
+            image: Some(RawClipboardImage::Encoded(png)),
+        };
+        let added = capture_sample(&history, &mut suppressed, &external_image_sample)
+            .unwrap()
+            .expect("external image copy should be recorded");
+        assert_eq!(added.kind, "image");
+        assert_eq!(history.lock().entries.len(), 2);
     }
 }

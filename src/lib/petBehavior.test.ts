@@ -148,6 +148,7 @@ function resolved(asset = imported): PetBehavior {
 function allEntries(behavior: PetBehavior): string[] {
   return [
     ...behavior.idle, ...behavior.clicks, ...behavior.drag, ...behavior.turn,
+    ...(behavior.sleep ? [...behavior.sleep.start, ...behavior.sleep.loop, ...behavior.sleep.end] : []),
     ...behavior.moves.map((move) => move.entry),
     ...behavior.categories.flatMap((category) => category.entries),
     ...Object.values(behavior.eventActions), ...Object.values(behavior.stateActions),
@@ -155,29 +156,71 @@ function allEntries(behavior: PetBehavior): string[] {
 }
 
 describe("DSH 动作语义识别", () => {
-  it("识别实际 106 视频包，保留点击顺序、分类与上游权重", () => {
+  it("识别实际 106 视频包，将互动动作归入点击池，非互动动作归入随机池", () => {
     expect(imported.animations).toHaveLength(106);
     const behavior = resolved();
     expect(behavior.id).toBe("dsh-pet");
     expect(behavior.idle).toEqual([webm(IDLE)]);
     expect(behavior.drag).toEqual([webm(DRAG)]);
     expect(behavior.turn).toEqual(["东张西望.webm"]);
-    expect(behavior.clicks).toEqual(CLICKS.map(webm));
+    expect(behavior.clicks).toEqual([...CLICKS, "原地敲击桌面互动"].map(webm));
+    expect(behavior.sleep).toEqual({
+      start: ["哈欠连天.webm"],
+      loop: ["原地小憩沉眠.webm"],
+      end: ["打瞌睡被惊醒.webm"],
+    });
+    expect(behavior.interactions).toEqual({ throw: true, slingshot: true, sleep: true });
     expect(behavior.referenceWidth).toBe(462);
-    expect(behavior.weights).toEqual({ idle: 10, turn: 5, move: 5, action: 80 });
+    expect(behavior.weights).toEqual({ idle: 60, turn: 5, move: 5, action: 30 });
     expect(behavior.categories.map(({ id, weight, entries, noMirror }) =>
       [id, weight, entries.length, noMirror === true],
     )).toEqual([
-      ["小动作", 20, 18, false], ["玩耍", 20, 27, false], ["吃什么", 16, 12, false],
+      ["小动作", 20, 17, false], ["玩耍", 20, 27, false], ["吃什么", 16, 12, false],
       ["时节", 14, 21, false], ["文字", 10, 2, true],
     ]);
 
     const entries = allEntries(behavior);
     expect(new Set(entries).size).toBe(95);
     expect(entries.every((entry) => imported.animations.includes(entry))).toBe(true);
-    expect(entries.some((entry) => /^(余额-|碎碎念-|睡觉-)/.test(entry))).toBe(false);
+    expect(entries.some((entry) => /^(余额-|碎碎念-)/.test(entry))).toBe(false);
     expect(entries).not.toContain("工作状态-思考冒泡.webm");
     expect(entries).not.toContain("工作状态-清点归档.webm");
+  });
+
+  it("优先使用素材包 pet.json 随包导入的声明式 behavior 与专属睡眠动画", () => {
+    const withSleep = [...importedNames, "睡觉-开始", "睡觉-循环", "睡觉-起来"];
+    const animations = withSleep.map(webm);
+    const asset: PetAsset = {
+      id: "catalog-whale",
+      name: "大肥鱼",
+      path: "dsh-pet-whale-1.1.0.zip",
+      entry: webm(IDLE),
+      animations,
+      eventActions: { "capture.success": webm(CELEBRATE) },
+      stateActions: { recording: webm(BUSY) },
+      behavior: {
+        id: "dsh-pet",
+        referenceWidth: 462,
+        weights: { idle: 60, turn: 5, move: 5, action: 30 },
+        idle: [webm(IDLE)],
+        clicks: [...CLICKS, "原地敲击桌面互动"].map(webm),
+        drag: [webm(DRAG)],
+        turn: ["东张西望.webm"],
+        sleep: { start: ["睡觉-开始.webm"], loop: ["睡觉-循环.webm"], end: ["睡觉-起来.webm"] },
+        moves: [{ entry: "原地左转奔跑.webm", minDistance: 120, maxDistance: 320, leadMs: 1750, tailMs: 4800 }],
+        categories: [{ id: "玩耍", weight: 20, entries: ["轻快摇摆舞.webm", "可爱宅舞.webm"] }],
+        interactions: { throw: true, slingshot: true, sleep: true },
+      },
+    };
+    const behavior = resolved(asset);
+    expect(behavior.sleep).toEqual({
+      start: ["睡觉-开始.webm"],
+      loop: ["睡觉-循环.webm"],
+      end: ["睡觉-起来.webm"],
+    });
+    expect(behavior.interactions).toEqual({ throw: true, slingshot: true, sleep: true });
+    expect(behavior.eventActions["capture.success"]).toBe(webm(CELEBRATE));
+    expect(behavior.stateActions.recording).toBe(webm(BUSY));
   });
 
   it("三个移动动作继承默认值，并把秒精确换算为毫秒", () => {

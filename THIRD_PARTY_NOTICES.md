@@ -1,23 +1,18 @@
 # Third-party notices
 
-## DSH Pet animation behavior configuration
+## DSH Pet behavior configuration, throw/slingshot physics, and preview media
 
-The DSH action names, pools, categories, weights, movement parameters and reference
-width in `src/lib/petBehavior.ts`, and the corresponding animation names in
-`src/lib/petBehavior.test.ts`, are adapted from **DSH Pet** by **PC2005-cloud**.
+### 1. Code adaptation (MIT License)
 
-- Project: https://github.com/PC2005-cloud/dsh-pet
-- Pinned revision: `3229ab287d82d7621af2ee51544a0e746c2e40fd`
-- Animation configuration: https://github.com/PC2005-cloud/dsh-pet/blob/3229ab287d82d7621af2ee51544a0e746c2e40fd/dsh-pet/assets/config.jsonc
-- Reference width: https://github.com/PC2005-cloud/dsh-pet/blob/3229ab287d82d7621af2ee51544a0e746c2e40fd/dsh-pet/src/shared/constants.ts
-- Picker semantics: https://github.com/PC2005-cloud/dsh-pet/blob/3229ab287d82d7621af2ee51544a0e746c2e40fd/dsh-pet/src/shared/pickers.ts
-- Original license: https://github.com/PC2005-cloud/dsh-pet/blob/3229ab287d82d7621af2ee51544a0e746c2e40fd/dsh-pet/LICENSE
+The DSH action pools, categories, weights, movement parameters, reference width,
+sleep state transitions, and ballistic throw / wall-bounce / slingshot / landing-squash
+physics in `src/lib/petBehavior.ts`, `src/lib/petThrowPhysics.ts`, `src/windows/PetWindow.tsx`,
+and their corresponding unit tests are adapted from **DSH Pet** by **PC2005-cloud**:
 
-Snapshot resolves these names to existing imported WebM entries, omits missing
-animations, converts movement timing to milliseconds, and maps work-status clips
-to Snapshot events and persistent states. No animation media is bundled by this
-module. The upstream copyright and permission notice is reproduced below.
-The same license is included in release assets as `public/licenses/dsh-pet.txt`.
+- Upstream repository: https://github.com/PC2005-cloud/dsh-pet
+- Animation configuration: `dsh-pet/assets/config.jsonc`
+- Physics & interaction modules: `dsh-pet/src/shared/physics/*`, `dsh-pet/src/client/pet/card/sleep-machine.ts`
+- Code license: MIT License (reproduced below and bundled in release assets at `public/licenses/dsh-pet.txt`)
 
 ```text
 MIT License
@@ -42,3 +37,19 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+### 2. "大肥鱼" character & documentation preview GIFs (CC BY-NC-SA 4.0 — Separate Non-Commercial Asset Notice)
+
+The documentation preview GIFs under `docs/screenshots/dsh-pet/` (and the optional
+`dsh-pet-whale` companion package downloadable from the external Pets catalog) depict
+the community fan-derivative character **「大肥鱼」** (Whale Maid). They are **separate
+creative media works**, not program source code, and are **not** licensed under GPL-3.0:
+
+- Upstream animation project: https://github.com/PC2005-cloud/dsh-pet
+- Character origin: Community derivative of DeepSeek "大肥鱼" (**not** an official DeepSeek mascot);
+  original character **「溟月」** created by Bilibili [@上善无形](https://space.bilibili.com/4456176),
+  DeepSeek maid-whale design created by Bilibili [@ZipZipPipe](https://space.bilibili.com/4168597)
+- Character & media license: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+  (Attribution-NonCommercial-ShareAlike 4.0 International)
+- Original license declaration: https://www.bilibili.com/opus/1247156596114456581
+  ("大肥鱼是遵守 CC BY-NC-SA 4.0 协议的形象，不可以以任何形式商业化。")

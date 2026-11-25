@@ -35,6 +35,17 @@ import { usePetAutonomy } from "../hooks/usePetAutonomy";
 import { petActionDuration } from "../lib/petAnimation";
 import { pickPetEntry, resolvePetBehavior, type PetBehavior } from "../lib/petBehavior";
 import { createPetPlayback, type PetPlaybackOwner } from "../lib/petPlayback";
+import {
+  estimateThrowVelocity,
+  landingSquash,
+  SLINGSHOT_DOUBLE_MS,
+  slingshotLaunchVelocity,
+  slingshotPower,
+  SQ_DURATION_MS,
+  stepThrow,
+  trimPointerTrail,
+  type PointerSample,
+} from "../lib/petThrowPhysics";
 import { usePetBehaviorAutonomy } from "../hooks/usePetBehaviorAutonomy";
 import type { PetAsset, PetEvent, PetLayout, PreviousApp, RecordingStatus, Settings } from "../types";
 
@@ -205,9 +216,17 @@ type DragGeometry = {
   scale: number;
   /** 按脚底而非透明方窗计算的窗口左上角物理像素上限。 */
   floorY: number | null;
+  /** 按角色头顶计算的窗口左上角物理像素下限（天花板）。 */
+  ceilingY: number | null;
   size: { width: number; height: number };
   areas: PetWorkArea[];
   content: MediaBounds | null;
+};
+
+type ActiveSleep = {
+  phase: "start" | "loop" | "end";
+  entry: string;
+  set: { start: string; loop: string; end: string };
 };
 
 async function readDragGeometry(petWindow: Window, content: MediaBounds | null, groundY: number | null): Promise<DragGeometry | null> {
@@ -222,8 +241,11 @@ async function readDragGeometry(petWindow: Window, content: MediaBounds | null, 
   const floorY = monitor
     ? petFloorY(monitor.workArea, size.height, content, scale, groundY)
     : null;
+  const ceilingY = monitor
+    ? monitor.workArea.position.y - Math.round((content?.top ?? 0) * scale)
+    : null;
   const areas = monitors?.length ? monitors.map((item) => item.workArea) : monitor ? [monitor.workArea] : [];
-  return { position, scale, floorY, size, areas, content };
+  return { position, scale, floorY, ceilingY, size, areas, content };
 }
 
 export function PetWindow() {
@@ -263,6 +285,10 @@ export function PetWindow() {
   const [falling, setFalling] = useState(false);
   const [manualAction, setManualAction] = useState(false);
   const [squashing, setSquashing] = useState(false);
+  const [sleepState, setSleepState] = useState<ActiveSleep | null>(null);
+  const sleepRef = useRef<ActiveSleep | null>(null);
+  const flyingRef = useRef(false);
+  const lastPressAtRef = useRef<number | null>(null);
   const dragged = useRef(false);
   // 点过之后下一次从这里接着换，回到待机也不清掉，免得每次点击都是同一个动作
   const actionCursor = useRef(0);
@@ -300,6 +326,7 @@ export function PetWindow() {
   const alphaReader = useRef<ReturnType<typeof createPetAlphaReader> | null>(null);
   const readAlpha = alphaReader.current ??= createPetAlphaReader();
   const squash = useRef<Animation | null>(null);
+  const tensionSurface = useRef<HTMLElement | null>(null);
 
   function rememberMediaDimensions(frame: PetImageFrame, media: PetMediaElement) {
     const width = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
@@ -342,6 +369,7 @@ export function PetWindow() {
   const regularAnimations = ordinaryAnimations({ animations, eventActions, stateActions });
   const behaviorEntries = behavior ? new Set([
     ...behavior.idle, ...behavior.clicks, ...behavior.turn, ...behavior.moves.map((move) => move.entry),
+    ...(behavior.sleep ? [...behavior.sleep.start, ...behavior.sleep.loop, ...behavior.sleep.end] : []),
     ...behavior.categories.flatMap((category) => category.entries),
   ]) : null;
   const cycle = behaviorEntries ? regularAnimations.filter((entry) => behaviorEntries.has(entry))
@@ -378,12 +406,74 @@ export function PetWindow() {
     }
   }
 
+  function clearPullTension() {
+    if (tensionSurface.current) {
+      tensionSurface.current.style.transform = "";
+      tensionSurface.current.style.transformOrigin = "";
+      tensionSurface.current = null;
+    }
+  }
+
   function cancelBehaviorPlayback() {
     behaviorRevision.current += 1;
     playback.cancel();
     squash.current?.cancel();
     squash.current = null;
+    clearPullTension();
     setSquashing(false);
+  }
+
+  function triggerMediaSquash(media: PetMediaElement, facing: WalkDirection, minScaleY = 0.84, duration = 280) {
+    if (motionReduced()) return;
+    const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
+    if (!(surface instanceof HTMLElement) || typeof surface.animate !== "function") return;
+    squash.current?.cancel();
+    const mirror = facing === "right" ? "scaleX(-1) " : "";
+    const stretchX = Number((1 + (1 - minScaleY) * 0.5).toFixed(3));
+    const animation = surface.animate([
+      { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
+      { transform: `${mirror}scale(${stretchX}, ${minScaleY})`, transformOrigin: "50% 100%", offset: 0.35 },
+      { transform: `${mirror}scale(.97, 1.04)`, transformOrigin: "50% 100%", offset: 0.7 },
+      { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
+    ], { duration, easing: "ease-out" });
+    squash.current = animation;
+    setSquashing(true);
+    const release = () => {
+      if (squash.current !== animation) return;
+      squash.current = null;
+      setSquashing(false);
+      requestBoundsReport.current();
+    };
+    void animation.finished?.then(release, release);
+  }
+
+  function triggerCurrentSquash(minScaleY = 0.84, duration = 280) {
+    const media = petRootRef.current?.querySelector<PetMediaElement>(".pet-current");
+    if (media) triggerMediaSquash(media, facingRef.current, minScaleY, duration);
+  }
+
+  function setPullTension(pullDist: number, refWidth: number) {
+    if (pullDist <= 0 || motionReduced()) {
+      clearPullTension();
+      return;
+    }
+    const media = petRootRef.current?.querySelector<PetMediaElement>(".pet-current");
+    const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
+    if (!(surface instanceof HTMLElement)) {
+      clearPullTension();
+      return;
+    }
+    if (tensionSurface.current && tensionSurface.current !== surface) {
+      tensionSurface.current.style.transform = "";
+      tensionSurface.current.style.transformOrigin = "";
+    }
+    tensionSurface.current = surface;
+    const power = Math.min(1.4, slingshotPower(pullDist, refWidth));
+    const sx = (1 + power * 0.1).toFixed(3);
+    const sy = Math.max(0.72, 1 - power * 0.16).toFixed(3);
+    const mirror = facingRef.current === "right" ? "scaleX(-1) " : "";
+    surface.style.transformOrigin = "50% 100%";
+    surface.style.transform = `${mirror}scale(${sx}, ${sy})`;
   }
 
   function playBehavior(entry: string, facing: WalkDirection, owner: PetPlaybackOwner, onReady?: (media: HTMLVideoElement) => void) {
@@ -397,30 +487,62 @@ export function PetWindow() {
     const pulse = bumpPulse();
     const key = petImageFrame(asset.id, entry, false, facing === "right", pulse).key;
     const result = playback.play(key, owner, (media) => {
-      const surface = petVideoPixels(media);
-      if (owner === "click" && behaviorRef.current?.clicks.includes(entry) && !motionReduced() && surface instanceof HTMLElement && typeof surface.animate === "function") {
-        squash.current?.cancel();
-        const mirror = facing === "right" ? "scaleX(-1) " : "";
-        const animation = surface.animate([
-          { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
-          { transform: `${mirror}scale(1.08, .84)`, transformOrigin: "50% 100%", offset: 0.3 },
-          { transform: `${mirror}scale(.97, 1.04)`, transformOrigin: "50% 100%", offset: 0.65 },
-          { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
-        ], { duration: 280, easing: "ease-out" });
-        squash.current = animation;
-        setSquashing(true);
-        const release = () => {
-          if (squash.current !== animation) return;
-          squash.current = null;
-          setSquashing(false);
-          requestBoundsReport.current();
-        };
-        void animation.finished?.then(release, release);
+      if (owner === "click" && behaviorRef.current?.clicks.includes(entry)) {
+        triggerMediaSquash(media, facing, 0.84, 280);
       }
       onReady?.(media);
     });
     setShownEntry(entry);
     return result;
+  }
+
+  function enterSleep() {
+    const profile = behaviorRef.current;
+    if (!profile?.interactions.sleep || !profile.sleep || sleepRef.current) return;
+    const start = pickPetEntry(profile.sleep.start);
+    const loop = pickPetEntry(profile.sleep.loop);
+    const end = pickPetEntry(profile.sleep.end);
+    if (!start || !loop || !end) return;
+    behaviorAutonomy.cancel();
+    cancelBehaviorPlayback();
+    cancelGravity();
+    setEventEntry(null);
+    setManualAction(false);
+    const initial: ActiveSleep = { phase: "start", entry: start, set: { start, loop, end } };
+    sleepRef.current = initial;
+    setSleepState(initial);
+    const completed = playBehavior(start, facingRef.current, "sleep");
+    void completed.then((outcome) => {
+      if (outcome === "cancelled" || sleepRef.current !== initial) return;
+      const looping: ActiveSleep = { ...initial, phase: "loop", entry: loop };
+      sleepRef.current = looping;
+      setSleepState(looping);
+      showManualEntry(loop);
+    });
+  }
+
+  function wakeFromSleep() {
+    const currentSleep = sleepRef.current;
+    if (!currentSleep || currentSleep.phase === "end") return;
+    if (currentSleep.phase === "start") {
+      sleepRef.current = null;
+      setSleepState(null);
+      cancelBehaviorPlayback();
+      switchOnClick();
+      return;
+    }
+    const waking: ActiveSleep = { ...currentSleep, phase: "end", entry: currentSleep.set.end };
+    sleepRef.current = waking;
+    setSleepState(waking);
+    const completed = playBehavior(currentSleep.set.end, facingRef.current, "sleep", (media) => {
+      triggerMediaSquash(media, facingRef.current, 0.84, 280);
+    });
+    void completed.then((outcome) => {
+      if (outcome === "cancelled" || sleepRef.current !== waking) return;
+      sleepRef.current = null;
+      setSleepState(null);
+      showManualEntry(restingRef.current);
+    });
   }
 
   function playBehaviorInteraction(entry: string) {
@@ -464,12 +586,15 @@ export function PetWindow() {
       } : undefined;
       latestAsset.current = asset ?? null;
       const key = JSON.stringify([id, asset?.path, asset?.entry, asset?.animations, asset?.layout,
-        asset?.actionBounds, asset?.eventActions, asset?.stateActions]);
+        asset?.actionBounds, asset?.eventActions, asset?.stateActions, asset?.behavior]);
       if (appearanceKey.current !== key) {
         appearanceKey.current = key;
         cancelBehaviorPlayback();
         behaviorRef.current = profile;
         setBehavior(profile);
+        sleepRef.current = null;
+        setSleepState(null);
+        lastPressAtRef.current = null;
         facingRef.current = "left";
         setBehaviorFacing("left");
         setDragEntry(null);
@@ -535,6 +660,7 @@ export function PetWindow() {
     const eventListener = onPetEvent((event: PetEvent) => {
       if (event === "shortcuts.paused") setShortcutsPaused(true);
       if (event === "shortcuts.resumed") setShortcutsPaused(false);
+      if (sleepRef.current) return;
       const asset = latestAsset.current;
       const entry = asset?.eventActions?.[event];
       if (!entry || !asset?.animations.includes(entry)) return;
@@ -588,7 +714,7 @@ export function PetWindow() {
   const shownWalk = stateEntry || eventEntry ? null : walks.find((walk) => walk.direction === walking && walk.choice)?.direction ?? null;
   const shownChoice = walks.find((walk) => walk.direction === shownWalk)?.choice ?? null;
   const normalEntry = behavior
-    ? (dragging && dragEntry ? dragEntry : manualAction ? currentEntry : eventEntry ?? stateEntry ?? currentEntry)
+    ? (dragging && dragEntry ? dragEntry : sleepState ? sleepState.entry : manualAction ? currentEntry : eventEntry ?? stateEntry ?? currentEntry)
     : stateEntry ?? eventEntry ?? currentEntry;
   const normalPulse = behavior && dragging && dragEntry ? 0 : actionPulse;
   const normalFrame = custom ? petImageFrame(appearanceId, normalEntry, false, Boolean(behavior && behaviorFacing === "right"), normalPulse) : null;
@@ -598,8 +724,8 @@ export function PetWindow() {
     // request during the hand-off would restart a completed clip at frame zero.
     normalFrame.loop = !playback.matches(normalFrame.key) && normalEntry !== eventEntry;
   }
-  const dragHeldFrame = custom && behavior && dragging && (stateEntry ?? resting)
-    ? [petImageFrame(appearanceId, stateEntry ?? resting, false, behaviorFacing === "right", 0)]
+  const dragHeldFrame = custom && behavior && dragging && (sleepState?.entry ?? stateEntry ?? resting)
+    ? [petImageFrame(appearanceId, sleepState?.entry ?? stateEntry ?? resting, false, behaviorFacing === "right", 0)]
     : [];
   const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
   const dragFrames = behavior?.drag.map((entry) => petImageFrame(appearanceId, entry, false, behaviorFacing === "right")) ?? [];
@@ -635,7 +761,7 @@ export function PetWindow() {
   const behaviorAutonomy = usePetBehaviorAutonomy({
     behavior,
     enabled: custom && !motionReduced(),
-    paused: pressed || dragging || falling || manualAction || recording || shortcutsPaused || Boolean(stateEntry) || Boolean(eventEntry),
+    paused: pressed || dragging || falling || manualAction || Boolean(sleepState) || recording || shortcutsPaused || Boolean(stateEntry) || Boolean(eventEntry),
     wander: petWander,
     randomActions: petRandomActions,
     current: () => targetEntry.current,
@@ -662,7 +788,7 @@ export function PetWindow() {
   });
 
   useEffect(() => {
-    if (!behaviorRef.current) return;
+    if (!behaviorRef.current || sleepRef.current) return;
     cancelBehaviorPlayback();
     setManualAction(false);
   }, [recording, shortcutsPaused]);
@@ -718,7 +844,79 @@ export function PetWindow() {
   function cancelGravity() {
     gravityToken.current += 1;
     cancelAnimationFrame(gravityFrame.current);
+    flyingRef.current = false;
     setFalling(false);
+  }
+
+  function launchThrow(
+    originNormal: { x: number; y: number },
+    vx: number,
+    vy: number,
+    geometry: DragGeometry,
+  ) {
+    const petWindow = getCurrentWindow();
+    const token = ++gravityToken.current;
+    cancelAnimationFrame(gravityFrame.current);
+    const scale = geometry.scale > 0 ? geometry.scale : 1;
+    const shift = { ...frameShift.current };
+    const currentOuter = { x: originNormal.x + shift.x, y: originNormal.y + shift.y };
+    const hLimits = petHorizontalLimits(geometry.areas, currentOuter, geometry.size, visibleBounds.current, scale);
+    const minX = hLimits ? (hLimits.minX - shift.x) / scale : originNormal.x / scale - 2000;
+    const maxX = Math.max(minX, hLimits ? (hLimits.maxX - shift.x) / scale : originNormal.x / scale + 2000);
+    const minY = geometry.ceilingY !== null ? (geometry.ceilingY - shift.y) / scale : originNormal.y / scale - 2000;
+    const maxY = Math.max(minY, geometry.floorY !== null ? (geometry.floorY - shift.y) / scale : originNormal.y / scale + 2000);
+    const bounds = { minX, maxX, minY, maxY };
+
+    if (motionReduced()) {
+      const restY = gravityEnabled.current ? maxY : Math.min(maxY, Math.max(minY, originNormal.y / scale));
+      const restX = Math.min(maxX, Math.max(minX, originNormal.x / scale));
+      void petWindow.setPosition(new PhysicalPosition(
+        Math.round(restX * scale + frameShift.current.x),
+        Math.round(restY * scale + frameShift.current.y),
+      )).catch(() => {});
+      return;
+    }
+
+    if (Math.abs(vx) > 30 && !sleepRef.current) {
+      const nextFacing: WalkDirection = vx > 0 ? "right" : "left";
+      facingRef.current = nextFacing;
+      setBehaviorFacing(nextFacing);
+    }
+
+    flyingRef.current = true;
+    setFalling(true);
+    let state = { x: originNormal.x / scale, y: originNormal.y / scale, vx, vy };
+    let previous = performance.now();
+    let lastSquashAt = 0;
+
+    const step = (now: number) => {
+      if (token !== gravityToken.current || pointerHeld.current) {
+        if (token === gravityToken.current) {
+          flyingRef.current = false;
+          setFalling(false);
+        }
+        return;
+      }
+      const dt = (now - previous) / 1000;
+      previous = now;
+      const next = stepThrow(state, dt, bounds, gravityEnabled.current);
+      state = { x: next.x, y: next.y, vx: next.vx, vy: next.vy };
+      void petWindow.setPosition(new PhysicalPosition(
+        Math.round(state.x * scale + frameShift.current.x),
+        Math.round(state.y * scale + frameShift.current.y),
+      )).catch(() => {});
+      if (next.hit && (next.hit.edge === "floor" || next.hit.speed >= 350) && now - lastSquashAt >= 120) {
+        lastSquashAt = now;
+        triggerCurrentSquash(landingSquash(next.hit.speed), SQ_DURATION_MS);
+      }
+      if (next.atRest) {
+        flyingRef.current = false;
+        setFalling(false);
+        return;
+      }
+      gravityFrame.current = requestAnimationFrame(step);
+    };
+    gravityFrame.current = requestAnimationFrame(step);
   }
 
   async function dropToFloor(canMove = () => true) {
@@ -911,11 +1109,21 @@ export function PetWindow() {
     setPressed(true);
     positionRevision.current += 1;
     needsHorizontalFit.current = false;
+    const profile = behaviorRef.current;
+    const pressNow = performance.now();
+    const wasFlying = flyingRef.current;
+    const hasDoubleGesture = Boolean(profile && (profile.interactions.slingshot || profile.interactions.sleep));
+    const isDoublePress = hasDoubleGesture && lastPressAtRef.current !== null && pressNow - lastPressAtRef.current <= SLINGSHOT_DOUBLE_MS;
+    lastPressAtRef.current = isDoublePress ? null : pressNow;
+    const sling = isDoublePress && Boolean(profile?.interactions.slingshot) && !sleepRef.current;
+
     autonomy.cancel();
-    if (behaviorRef.current) {
+    if (profile) {
       behaviorAutonomy.cancel();
-      cancelBehaviorPlayback();
-      setEventEntry(null);
+      if (!sleepRef.current) {
+        cancelBehaviorPlayback();
+        setEventEntry(null);
+      }
     }
     cancelGravity();
     setWalking(null);
@@ -935,6 +1143,7 @@ export function PetWindow() {
     let lastScreenY = startScreenY;
     let geometry: DragGeometry | null = null;
     let target: { x: number; y: number } | null = null;
+    let trail: PointerSample[] = [{ t: pressNow, x: startScreenX, y: startScreenY }];
     let frame = 0;
     let finished = false;
     const moved = { x: startScreenX, y: startScreenY };
@@ -955,6 +1164,7 @@ export function PetWindow() {
       element.removeEventListener("lostpointercapture", loseCapture);
       if (frame) window.cancelAnimationFrame(frame);
       frame = 0;
+      setPullTension(0, fittedSize ?? petSize);
       try {
         if (element.hasPointerCapture?.(pointerId)) element.releasePointerCapture(pointerId);
       } catch {
@@ -1025,7 +1235,9 @@ export function PetWindow() {
       if (dragged.current) return;
       dragged.current = true;
       setDragging(true);
-      if (behaviorRef.current) setDragEntry(pickPetEntry(behaviorRef.current.drag, targetEntry.current));
+      if (behaviorRef.current && !sleepRef.current) {
+        setDragEntry(pickPetEntry(behaviorRef.current.drag, targetEntry.current));
+      }
       window.clearTimeout(clickTimer.current);
       clickTimer.current = undefined;
       dragMotion.current = STANDING;
@@ -1041,6 +1253,11 @@ export function PetWindow() {
         if (Math.hypot(move.clientX - startX, move.clientY - startY) < (behaviorRef.current ? 5 : 4)) return;
         startMoving();
       }
+      const now = performance.now();
+      trail = trimPointerTrail([...trail, { t: now, x: move.screenX, y: move.screenY }], now);
+      if (sling) {
+        setPullTension(Math.hypot(move.screenX - startScreenX, move.screenY - startScreenY), fittedSize ?? petSize);
+      }
       if (!geometry) return;
       target = clampTarget(lastScreenX, lastScreenY);
       schedulePlace();
@@ -1054,7 +1271,25 @@ export function PetWindow() {
       cleanup();
       if (!dragged.current) {
         if (cancelled) return;
-        if (!hasLaunchpad) {
+        if (wasFlying) {
+          // 飞行途中点中 = 空中接住停稳，不触发普通点击动作，若开启重力则自然落地
+          if (behaviorRef.current && !sleepRef.current) showManualEntry(restingRef.current);
+          const revision = positionRevision.current;
+          if (gravityEnabled.current) {
+            void dropToFloor(() => revision === positionRevision.current && !pointerHeld.current).catch(() => {});
+          }
+          return;
+        }
+        if (sleepRef.current) {
+          wakeFromSleep();
+          return;
+        }
+        const interceptsDoubleClick = Boolean(behaviorRef.current?.interactions.sleep && behaviorRef.current.sleep);
+        if (isDoublePress && interceptsDoubleClick) {
+          enterSleep();
+          return;
+        }
+        if (!hasLaunchpad || interceptsDoubleClick) {
           switchOnClick();
           return;
         }
@@ -1084,8 +1319,29 @@ export function PetWindow() {
       setWalking(null);
       setDragging(false);
       setDragEntry(null);
-      if (behaviorRef.current) showManualEntry(restingRef.current);
+      if (behaviorRef.current && !sleepRef.current) showManualEntry(restingRef.current);
       dragMotion.current = STANDING;
+
+      if (!cancelled && geometry && target && behaviorRef.current) {
+        if (sling) {
+          const launch = slingshotLaunchVelocity(
+            lastScreenX - startScreenX,
+            lastScreenY - startScreenY,
+            fittedSize ?? petSize,
+          );
+          if (launch) {
+            launchThrow(target, launch.vx, launch.vy, geometry);
+            return;
+          }
+        } else if (behaviorRef.current.interactions.throw) {
+          const velocity = estimateThrowVelocity(trail, performance.now());
+          if (velocity) {
+            launchThrow(target, velocity.vx, velocity.vy, geometry);
+            return;
+          }
+        }
+      }
+
       const revision = positionRevision.current;
       const landing = target && geometry
         ? petWindow.setPosition(new PhysicalPosition(Math.round(target.x + frameShift.current.x), Math.round(target.y + frameShift.current.y))).catch(() => {})
