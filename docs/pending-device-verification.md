@@ -403,5 +403,11 @@ macOS 本机已完成：
 本轮已完成四平台 GitHub Actions CI（Run `44933858929`：`frontend`、`windows-latest`、`ubuntu-24.04`、`ubuntu-22.04`、`macos-latest`、`security` 全绿，契约快照 0 差异）、真实 WebView 200 / 1,000 / 5,000 条对照性能实测，以及 macOS 独立标识（`com.appsnapshot.snapshot.smoke`）原生 Tauri 二进制带 1,000 条真实磁盘快照与 1 段 MP4 的冷启动、单实例唤醒（`90ms`）、主窗口与桌宠并存稳态运行（`0.0%` 空闲 CPU、`141.0 MB` 稳定 RSS、70 FD 无泄漏）、`SIGTERM` 正常退出、`SIGKILL` 异常关闭后陈旧 socket 清理重启验证。以下硬件与真机桌面场景本机无法覆盖，发布前需在对应真机补验：
 
 - [ ] **macOS 真实采集、触控板与多显示器交互**：退出已安装的 `/Applications/snapshot.app` 后安装或启动新包，在真实用户历史下验证 120Hz ProMotion 触控板快速滚动/反向滚动与悬停预览、ScreenCaptureKit 真实窗口录制开始/停止/拖动播放（含 >50MB 录屏）、录制停止与托盘退出并发、多显示器不同 DPI/刷新率拖窗切换。
-- [ ] **Windows 10/11 真机桌面验收**：运行 `os/windows/recorder.rs` 中 5 个 `#[ignore]` 录制用例与 `own_capture.rs` 交互用例；验证 D3D11 Staging 纹理复用在 60–144Hz 录制与窗口尺寸/DPI 变更时的画面稳定、单色光标（如 I-beam）叠加截图、启动台 COM 公寓复用、WebView2 历史墙（1,000+ 条）虚拟化滚动/搜索/多选/缩放与长时间运行内存稳定。
+- [ ] **Windows 10/11 真机桌面验收（2026-11-23 已完成大部分项并补齐 2 项修复）**：
+  - [x] `os/windows/recorder.rs` 5 个 `#[ignore]` WGC 录制用例与 `os/windows/own_capture.rs` 交互用例已在 Windows 11 真机桌面全部实跑通过（`main @ 836b33c`，6/6 passed，无跳过；含 90 帧 MP4、最小化 45→0 帧对照、方向校准与动态改尺寸录屏）。
+  - [x] 启动台 COM 公寓复用与图标提取（`os/windows/apps.rs`、`os/windows/icon.rs`）：真实应用内 5 轮 `launchpad_state` 刷新（148 应用 / 84 网格项）、84/84 图标 0 破图、搜索恢复正常、GDI/USER 句柄平稳（`198→199` / `263→266`）。
+  - [x] WebView2 历史墙虚拟化与缩放（2560×1600 @ 240Hz、原生 175% DPI、WebView2 `157.0.4341.60`、隔离 `.dev` 灌入 1,200 条 PNG）：90 步快滚平均帧时 `4.63ms`（约 216 FPS）、0 长任务、0px 漂移、0 重叠，搜索/清除筛选、右键菜单/多选、`125%/150%/200%` 缩放矩阵与句柄/内存均通过。
+  - [x] 单色/反色光标叠加（`os/windows/cursor.rs`）：实测发现 `IDC_IBEAM`/`IDC_CROSS` 为纯 XOR 反色光标在黑底 DIB 会变实心纯白导致白底文本框隐身；已在 `codex/windows-cursor-and-wgc-resize` 改为黑/白双底反推 GDI `(dst & and) ^ xor` 掩码，并补齐真实系统 `IDC_IBEAM`/`IDC_CROSS`/`IDC_ARROW` 单测通过。
+  - [x] **修复后 WGC 帧池重建补验（2026-11-25，`codex/windows-cursor-and-wgc-resize`）**：在真实 Windows 11 桌面重跑全部 6 项 `os::` 交互单测（6/6 passed，无跳过）及动态改尺寸录屏（90 帧 / 329,748 字节有效 MP4），确认新增的 `frame_pool.Recreate(...)` 与 `StagingTexture` 重建复用路径运行稳定。
+  - [ ] **可选人工观感补验**：按需手验带系统音频+麦克风录屏、双屏跨 DPI 拖窗录制，以及真实白色输入框内 I-beam 光标截图观感。
 - [ ] **Linux X11 / Wayland 真机桌面验收**：在 Ubuntu 22.04/24.04（X11 与 Wayland）实机验证共享常驻 `arboard::Clipboard` 在无剪贴板管理器环境下连续复制图片/文本及程序退出释放、`xdg-desktop-portal` 选窗等待期间点击托盘退出不阻塞且无残留 `ffmpeg` 进程、窗口位于负坐标时的 X11 截屏/录屏裁剪、WebKitGTK 历史墙与剪贴板虚拟化滚动及高分屏缩放。
