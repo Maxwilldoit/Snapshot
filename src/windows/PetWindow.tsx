@@ -326,6 +326,7 @@ export function PetWindow() {
   const alphaReader = useRef<ReturnType<typeof createPetAlphaReader> | null>(null);
   const readAlpha = alphaReader.current ??= createPetAlphaReader();
   const squash = useRef<Animation | null>(null);
+  const tensionSurface = useRef<HTMLElement | null>(null);
 
   function rememberMediaDimensions(frame: PetImageFrame, media: PetMediaElement) {
     const width = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
@@ -405,11 +406,20 @@ export function PetWindow() {
     }
   }
 
+  function clearPullTension() {
+    if (tensionSurface.current) {
+      tensionSurface.current.style.transform = "";
+      tensionSurface.current.style.transformOrigin = "";
+      tensionSurface.current = null;
+    }
+  }
+
   function cancelBehaviorPlayback() {
     behaviorRevision.current += 1;
     playback.cancel();
     squash.current?.cancel();
     squash.current = null;
+    clearPullTension();
     setSquashing(false);
   }
 
@@ -443,14 +453,21 @@ export function PetWindow() {
   }
 
   function setPullTension(pullDist: number, refWidth: number) {
-    const media = petRootRef.current?.querySelector<PetMediaElement>(".pet-current");
-    const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
-    if (!(surface instanceof HTMLElement)) return;
     if (pullDist <= 0 || motionReduced()) {
-      surface.style.transform = "";
-      surface.style.transformOrigin = "";
+      clearPullTension();
       return;
     }
+    const media = petRootRef.current?.querySelector<PetMediaElement>(".pet-current");
+    const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
+    if (!(surface instanceof HTMLElement)) {
+      clearPullTension();
+      return;
+    }
+    if (tensionSurface.current && tensionSurface.current !== surface) {
+      tensionSurface.current.style.transform = "";
+      tensionSurface.current.style.transformOrigin = "";
+    }
+    tensionSurface.current = surface;
     const power = Math.min(1.4, slingshotPower(pullDist, refWidth));
     const sx = (1 + power * 0.1).toFixed(3);
     const sy = Math.max(0.72, 1 - power * 0.16).toFixed(3);
@@ -1256,6 +1273,7 @@ export function PetWindow() {
         if (cancelled) return;
         if (wasFlying) {
           // 飞行途中点中 = 空中接住停稳，不触发普通点击动作，若开启重力则自然落地
+          if (behaviorRef.current && !sleepRef.current) showManualEntry(restingRef.current);
           const revision = positionRevision.current;
           if (gravityEnabled.current) {
             void dropToFloor(() => revision === positionRevision.current && !pointerHeld.current).catch(() => {});
