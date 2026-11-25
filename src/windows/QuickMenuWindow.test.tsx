@@ -390,17 +390,17 @@ describe("快捷菜单：窗口大小", () => {
   it("每次打开都量新挂上的面板，旧面板移走时不会把窗口缩到最小", async () => {
     FakeResizeObserver.live.clear();
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
-    let panelHeight = 300;
+    let panelHeight = 168;
     // 面板在页面里时有高度，被移出页面后是 0（浏览器里就是这样）
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
       return this.isConnected && this.classList.contains("palette") ? panelHeight : 0;
     });
 
     const { calls } = await renderPalette(() => undefined);
-    // 没有桌宠形象时上方留 24，下方留 40
+    // 面板上下各留 12px 透明边距
     const heights = () =>
       calls.filter((call) => call.command === "resize_quick_menu").map((call) => (call.payload as { height: number }).height);
-    await waitFor(() => expect(heights()).toContain(300 + 24 + 40));
+    await waitFor(() => expect(heights()).toContain(168 + 24));
 
     const firstPanel = document.querySelector(".palette");
     const { emit } = await import("@tauri-apps/api/event");
@@ -408,40 +408,39 @@ describe("快捷菜单：窗口大小", () => {
     await waitFor(() => expect(document.querySelector(".palette")).not.toBe(firstPanel));
 
     // 新面板更高（比如开着录制时那一行多了时长）：窗口要跟着变高
-    panelHeight = 380;
+    panelHeight = 200;
     FakeResizeObserver.notifyAll();
-    await waitFor(() => expect(heights().at(-1)).toBe(380 + 24 + 40));
-    expect(heights().every((height) => height >= 300 + 24 + 40)).toBe(true);
+    await waitFor(() => expect(heights().at(-1)).toBe(200 + 24));
+    expect(heights().every((height) => height >= 168 + 24)).toBe(true);
     vi.unstubAllGlobals();
   });
 
-  it("菜单与窗口列表保持同宽，切页按包裹后的高度只更新一次原生窗口", async () => {
+  it("菜单与窗口列表按各自密度定宽，切页按包裹后的尺寸只更新一次原生窗口", async () => {
     // jsdom 没有布局：宽度取外层视图宽度，高度按当前正文模拟恰好包裹
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
       return this.classList.contains("palette") ? parseFloat((this.parentElement as HTMLElement).style.width) || 0 : 0;
     });
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
       if (!this.isConnected || !this.classList.contains("palette")) return 0;
-      return this.querySelector(".palette-windows") ? 194 : 225;
+      return this.querySelector(".palette-windows") ? 140 : 168;
     });
     const { calls, user } = await renderPalette((command) => (command === "list_capturable_windows" ? windowList : undefined));
     const sizes = () =>
       calls
         .filter((call) => call.command === "resize_quick_menu")
         .map((call) => call.payload as { width: number; height: number });
-    // 面板宽 + 左右各 40
-    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 225 + 24 + 40 }));
+    // 面板宽高 + 四周各 12
+    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 220 + 24, height: 168 + 24 }));
     const callsBeforeSwitch = sizes().length;
 
     await user.click(await screen.findByRole("option", { name: "截图" }));
     expect(await screen.findByRole("listbox", { name: "选择要截取的窗口" })).toBeTruthy();
-    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 194 + 24 + 40 }));
+    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 280 + 24, height: 140 + 24 }));
     expect(sizes()).toHaveLength(callsBeforeSwitch + 1);
 
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 360 + 80, height: 225 + 24 + 40 }));
+    await waitFor(() => expect(sizes().at(-1)).toEqual({ width: 220 + 24, height: 168 + 24 }));
     expect(sizes()).toHaveLength(callsBeforeSwitch + 2);
-    expect(sizes().every((size) => size.width === 360 + 80)).toBe(true);
   });
 
   it("六项菜单按实际高度包裹，最后一项不被固定五行高度裁掉", async () => {
@@ -451,13 +450,26 @@ describe("快捷菜单：窗口大小", () => {
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
       if (!this.isConnected || !this.classList.contains("palette")) return 0;
       const menu = this.querySelector(".palette-menu");
-      return menu ? menu.querySelectorAll(".palette-item").length * 45 : 194;
+      return menu ? menu.querySelectorAll(".palette-item").length * 32 + 8 : 140;
     });
     const { calls } = await renderPalette((command) => command === "platform_capabilities"
       ? { os: "linux", displayServer: "X11", recording: { available: true }, scrolling: { available: true } }
       : undefined);
-    await waitFor(() => expect(calls.some((call) => call.command === "resize_quick_menu" && (call.payload as { height: number }).height === 270 + 24 + 40)).toBe(true));
+    await waitFor(() => expect(calls.some((call) => call.command === "resize_quick_menu" && (call.payload as { height: number }).height === 200 + 24)).toBe(true));
     expect(screen.getAllByRole("option")).toHaveLength(6);
+  });
+
+  it("面板始终保持纯白底色，不受深色主题覆盖", async () => {
+    const paletteStyles = (await import("../styles.css?raw")).default;
+    document.documentElement.dataset.theme = "dark";
+    try {
+      await renderPalette(() => undefined);
+      render(<style>{paletteStyles}</style>);
+      const dialog = await screen.findByRole("dialog", { name: "应用快照快捷菜单" });
+      expect(getComputedStyle(dialog).backgroundColor).toBe("rgb(255, 255, 255)");
+    } finally {
+      delete document.documentElement.dataset.theme;
+    }
   });
 });
 

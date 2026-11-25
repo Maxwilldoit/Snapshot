@@ -45,8 +45,8 @@
       {
         "label": "quick-menu",
         "title": "快速操作",
-        "width": 286,
-        "height": 150,
+        "width": 244,
+        "height": 192,
         "resizable": false,
         "decorations": false,
         "transparent": true,

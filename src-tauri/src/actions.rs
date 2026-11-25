@@ -95,11 +95,12 @@ pub(crate) fn toggle_autostart_from_tray(app: &AppHandle) {
     });
 }
 
-/// 输入框窗口的逻辑大小由页面按当前视图量好再告诉这里（resize_quick_menu）；
+/// 快捷菜单窗口的逻辑大小由页面按当前视图量好再告诉这里（resize_quick_menu）；
 /// 这是页面还没量过时的初始值，以及防止量错的上下限
-const PALETTE_INITIAL_SIZE: (f64, f64) = (400.0, 360.0);
-const PALETTE_WIDTH_RANGE: (f64, f64) = (240.0, 760.0);
-const PALETTE_HEIGHT_RANGE: (f64, f64) = (160.0, 760.0);
+const PALETTE_EDGE: f64 = 12.0;
+const PALETTE_INITIAL_SIZE: (f64, f64) = (244.0, 192.0);
+const PALETTE_WIDTH_RANGE: (f64, f64) = (160.0, 760.0);
+const PALETTE_HEIGHT_RANGE: (f64, f64) = (80.0, 760.0);
 
 /// 右键桌宠：在桌宠旁边展开，往屏幕中心的方向开
 #[tauri::command]
@@ -310,14 +311,14 @@ fn palette_position(
                 None => (true, true),
             };
             let px = if open_right {
-                sx - 40.0 * scale
+                sx - PALETTE_EDGE * scale
             } else {
-                sx - width + 40.0 * scale
+                sx - width + PALETTE_EDGE * scale
             };
             let py = if open_down {
-                sy - 24.0 * scale
+                sy - PALETTE_EDGE * scale
             } else {
-                sy - height + 24.0 * scale
+                sy - height + PALETTE_EDGE * scale
             };
             (px, py, monitor)
         }

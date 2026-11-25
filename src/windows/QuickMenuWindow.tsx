@@ -32,12 +32,10 @@ type Item = { id: "capture" | "fullscreen" | "scrolling" | "record" | "prompts" 
 
 /** 成功类提示停留多久后自动收起 */
 const OK_HIDE_DELAY_MS = 900;
-/** 面板上方的透明边，与 .palette-root 的 padding-top 一致 */
-const TOP_EDGE = 24;
-/** 面板左右和下方的透明边 */
-const EDGE = 40;
-/** 菜单和窗口列表同宽；高度按各自内容包裹，切换时只更新一次原生窗口尺寸 */
-const PANEL_WIDTH: Record<View, number> = { menu: 360, windows: 360, polish: 480 };
+/** 面板四周的透明边，与 .palette-root 的 padding 一致，给描边与轻阴影留余量 */
+const EDGE = 12;
+/** 各视图按自身信息密度定宽；高度按内容包裹，切换时只更新一次原生窗口尺寸 */
+const PANEL_WIDTH: Record<View, number> = { menu: 220, windows: 280, polish: 420 };
 
 const errorText = (error: unknown) => localizeMessage(
   typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error),
@@ -159,7 +157,7 @@ export function QuickMenuWindow() {
     const apply = () => {
       if (!panel.isConnected || panel.offsetHeight === 0) return;
       const width = panel.offsetWidth + EDGE * 2;
-      const height = panel.offsetHeight + TOP_EDGE + EDGE;
+      const height = panel.offsetHeight + EDGE * 2;
       const previous = lastQuickMenuSize.current;
       if (previous?.width === width && previous.height === height) return;
       lastQuickMenuSize.current = { width, height };
