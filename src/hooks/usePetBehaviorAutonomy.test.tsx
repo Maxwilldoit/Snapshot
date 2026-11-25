@@ -16,9 +16,11 @@ type Clip = {
 function profile(overrides: Partial<PetBehavior> = {}): PetBehavior {
   return {
     id: "profile", idle: ["idle.webm"], clicks: ["click.webm"], drag: ["drag.webm"], turn: ["turn.webm"],
+    sleep: null,
     moves: [{ entry: "move.webm", minDistance: 200, maxDistance: 200, leadMs: 1000, tailMs: 1000 }],
     categories: [{ id: "play", weight: 1, entries: ["action.webm"] }],
     referenceWidth: 200, weights: { idle: 10, turn: 5, move: 5, action: 80 },
+    interactions: { throw: false, slingshot: false, sleep: false },
     eventActions: { "capture.success": "event.webm" }, stateActions: { recording: "state.webm" },
     ...overrides,
   };

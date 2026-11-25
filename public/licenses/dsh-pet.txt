@@ -1,7 +1,7 @@
-DSH Pet animation behavior configuration
-https://github.com/PC2005-cloud/dsh-pet
-Revision: 3229ab287d82d7621af2ee51544a0e746c2e40fd
+DSH Pet animation behavior, physics & media attribution
+Upstream repository: https://github.com/PC2005-cloud/dsh-pet
 
+1. Code adaptation (behavior pools, sleep state machine, throw/slingshot physics):
 MIT License
 
 Copyright (c) 2026 PC2005-cloud
@@ -23,3 +23,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+2. "大肥鱼" character & animation media (separate creative assets, non-commercial only):
+- Not an official DeepSeek mascot.
+- Prototype "溟月": @上善无形 (https://space.bilibili.com/4456176)
+- DeepSeek "大肥鱼" design: @ZipZipPipe (https://space.bilibili.com/4168597)
+- License: CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/)
+- Statement: https://www.bilibili.com/opus/1247156596114456581

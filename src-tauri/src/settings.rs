@@ -259,6 +259,19 @@ pub(crate) fn read_settings(path: &PathBuf) -> Settings {
                 }
             }
         }
+        if asset.behavior.is_none()
+            && asset.path.to_ascii_lowercase().ends_with(".zip")
+            && PathBuf::from(&asset.path).is_file()
+        {
+            if let Ok(Some(manifest)) =
+                super::pet_layout::read_pet_layout(&PathBuf::from(&asset.path), &asset.animations)
+            {
+                if manifest.behavior.is_some() {
+                    asset.behavior = manifest.behavior;
+                    backfilled_action_bounds = true;
+                }
+            }
+        }
     }
     super::pet::refresh_missing(&mut settings.pet_assets);
     // 手改过配置文件、写了范围外的值：按边界算
@@ -637,6 +650,7 @@ mod tests {
                 animations: vec!["idle.gif".into()],
                 event_actions: Default::default(),
                 state_actions: Default::default(),
+                behavior: None,
                 source: String::new(),
                 size_bytes: 0,
                 imported_at: 0,

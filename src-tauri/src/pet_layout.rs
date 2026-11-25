@@ -25,6 +25,81 @@ pub(crate) struct PetFrame {
     pub(crate) anchor_y: f64,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PetBehaviorWeights {
+    pub(crate) idle: f64,
+    pub(crate) turn: f64,
+    #[serde(rename = "move")]
+    pub(crate) r#move: f64,
+    pub(crate) action: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PetBehaviorSleep {
+    pub(crate) start: Vec<String>,
+    #[serde(rename = "loop")]
+    pub(crate) r#loop: Vec<String>,
+    pub(crate) end: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PetBehaviorMove {
+    pub(crate) entry: String,
+    pub(crate) min_distance: f64,
+    pub(crate) max_distance: f64,
+    pub(crate) lead_ms: f64,
+    pub(crate) tail_ms: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PetBehaviorCategory {
+    pub(crate) id: String,
+    pub(crate) weight: f64,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(crate) no_mirror: bool,
+    pub(crate) entries: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PetBehaviorInteractions {
+    #[serde(default)]
+    pub(crate) throw: bool,
+    #[serde(default)]
+    pub(crate) slingshot: bool,
+    #[serde(default)]
+    pub(crate) sleep: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PetBehaviorManifest {
+    pub(crate) id: String,
+    pub(crate) reference_width: f64,
+    pub(crate) weights: PetBehaviorWeights,
+    pub(crate) idle: Vec<String>,
+    pub(crate) clicks: Vec<String>,
+    pub(crate) drag: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) turn: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) sleep: Option<PetBehaviorSleep>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) moves: Vec<PetBehaviorMove>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) categories: Vec<PetBehaviorCategory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) interactions: Option<PetBehaviorInteractions>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Deserialize)]
 struct ManifestFile {
     version: u32,
@@ -35,6 +110,8 @@ struct ManifestFile {
     events: HashMap<String, String>,
     #[serde(default)]
     states: HashMap<String, String>,
+    #[serde(default)]
+    behavior: Option<PetBehaviorManifest>,
 }
 
 #[derive(Debug)]
@@ -42,6 +119,7 @@ pub(crate) struct PetManifest {
     pub(crate) layout: PetLayout,
     pub(crate) event_actions: HashMap<String, String>,
     pub(crate) state_actions: HashMap<String, String>,
+    pub(crate) behavior: Option<PetBehaviorManifest>,
 }
 
 #[derive(Deserialize)]
@@ -239,6 +317,11 @@ pub(crate) fn read_pet_layout(
         state_actions.insert(state, entry);
     }
 
+    let behavior = match manifest.behavior {
+        Some(raw) => Some(validate_behavior(raw, animations)?),
+        None => None,
+    };
+
     Ok(Some(PetManifest {
         layout: PetLayout {
             base_width,
@@ -249,7 +332,85 @@ pub(crate) fn read_pet_layout(
         },
         event_actions,
         state_actions,
+        behavior,
     }))
+}
+
+fn validate_behavior(
+    mut behavior: PetBehaviorManifest,
+    animations: &[String],
+) -> Result<PetBehaviorManifest, String> {
+    if behavior.id.trim().is_empty() || behavior.id.len() > 64 {
+        return Err("pet.json 的 behavior.id 无效".into());
+    }
+    if !behavior.reference_width.is_finite() || behavior.reference_width <= 0.0 {
+        return Err("pet.json 的 behavior.referenceWidth 须为正数".into());
+    }
+    for weight in [
+        behavior.weights.idle,
+        behavior.weights.turn,
+        behavior.weights.r#move,
+        behavior.weights.action,
+    ] {
+        if !weight.is_finite() || weight < 0.0 {
+            return Err("pet.json 的 behavior.weights 须为非负数".into());
+        }
+    }
+    if behavior.idle.is_empty() || behavior.clicks.is_empty() || behavior.drag.is_empty() {
+        return Err("pet.json 的 behavior 须提供非空 idle、clicks 与 drag".into());
+    }
+
+    let resolve_entry = |raw: &str| -> Result<String, String> {
+        animations
+            .iter()
+            .find(|candidate| zip_path(candidate) == zip_path(raw))
+            .cloned()
+            .ok_or_else(|| format!("behavior 指向的动画不存在：{raw}"))
+    };
+    let resolve_list = |items: &[String]| -> Result<Vec<String>, String> {
+        items.iter().map(|item| resolve_entry(item)).collect()
+    };
+
+    behavior.idle = resolve_list(&behavior.idle)?;
+    behavior.clicks = resolve_list(&behavior.clicks)?;
+    behavior.drag = resolve_list(&behavior.drag)?;
+    behavior.turn = resolve_list(&behavior.turn)?;
+    if let Some(sleep) = behavior.sleep.as_mut() {
+        if sleep.start.is_empty() || sleep.r#loop.is_empty() || sleep.end.is_empty() {
+            return Err("pet.json 的 behavior.sleep 三段均不能为空".into());
+        }
+        sleep.start = resolve_list(&sleep.start)?;
+        sleep.r#loop = resolve_list(&sleep.r#loop)?;
+        sleep.end = resolve_list(&sleep.end)?;
+    }
+    for item in &mut behavior.moves {
+        if ![
+            item.min_distance,
+            item.max_distance,
+            item.lead_ms,
+            item.tail_ms,
+        ]
+        .into_iter()
+        .all(|v| v.is_finite() && v >= 0.0)
+            || item.max_distance < item.min_distance
+            || item.max_distance <= 0.0
+        {
+            return Err(format!("behavior.moves 参数无效：{}", item.entry));
+        }
+        item.entry = resolve_entry(&item.entry)?;
+    }
+    for category in &mut behavior.categories {
+        if category.id.trim().is_empty()
+            || !category.weight.is_finite()
+            || category.weight <= 0.0
+            || category.entries.is_empty()
+        {
+            return Err(format!("behavior.categories 配置无效：{}", category.id));
+        }
+        category.entries = resolve_list(&category.entries)?;
+    }
+
+    Ok(behavior)
 }
 
 #[cfg(test)]
@@ -438,6 +599,52 @@ mod tests {
         let unknown = format!(r#"{{{base},"events":{{"capture.succeeded":"idle.gif"}}}}"#);
         let path = zip_with(&[("pet.json", unknown.as_bytes())]);
         assert!(read_pet_layout(&path, &["idle.gif".into()]).is_err());
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn behavior_manifest_validates_pools_and_resolves_entries() {
+        let manifest = br#"{
+            "version": 1,
+            "base": { "width": 640, "height": 360, "anchor": [320, 330] },
+            "behavior": {
+                "id": "dsh-pet",
+                "referenceWidth": 462,
+                "weights": { "idle": 10, "turn": 5, "move": 5, "action": 80 },
+                "idle": ["idle.webm"],
+                "clicks": ["click.webm"],
+                "drag": ["drag.webm"],
+                "sleep": { "start": ["sleep-in.webm"], "loop": ["sleep-loop.webm"], "end": ["wake.webm"] },
+                "moves": [{ "entry": "walk.webm", "minDistance": 40, "maxDistance": 120, "leadMs": 1000, "tailMs": 1000 }],
+                "categories": [{ "id": "play", "weight": 20, "entries": ["dance.webm"] }],
+                "interactions": { "throw": true, "slingshot": true, "sleep": true }
+            }
+        }"#;
+        let entries: Vec<String> = [
+            "idle.webm",
+            "click.webm",
+            "drag.webm",
+            "sleep-in.webm",
+            "sleep-loop.webm",
+            "wake.webm",
+            "walk.webm",
+            "dance.webm",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let path = zip_with(&[("pet.json", manifest), ("idle.webm", b"webm")]);
+        let parsed = read_pet_layout(&path, &entries).unwrap().unwrap();
+        let behavior = parsed.behavior.expect("behavior should parse");
+        assert_eq!(behavior.id, "dsh-pet");
+        assert_eq!(
+            behavior.sleep.as_ref().unwrap().r#loop,
+            vec!["sleep-loop.webm"]
+        );
+        assert!(behavior.interactions.unwrap().slingshot);
+
+        // 缺少被引用的动画时应拒绝导入
+        assert!(read_pet_layout(&path, &entries[..3]).is_err());
         let _ = fs::remove_file(&path);
     }
 }

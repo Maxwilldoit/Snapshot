@@ -58,11 +58,35 @@
   </tr>
 </table>
 
+## 桌宠动作预览（大肥鱼）
+
+来自社区开源项目 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) 的「大肥鱼」同样收录在内置 [Pets 素材库](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md) 中，从素材库导入时会一并载入它的专属鼠标物理与动作逻辑（右键仍保持应用快照自身的快捷菜单）：
+
+- **纯左键鼠标互动（仅对大肥鱼生效）**：单击触发日常逗弄（带 Q 弹挤压反馈，飞行途中单击可空中接住）；按住快速甩出触发惯性抛掷、屏幕边缘反弹与落地挤压；快速双击且第二下按住回拉触发弹弓反向发射；快速双击原地松手哄睡（睡着时保持安静，单击即可叫醒）。
+- **百余段非互动日常动画**：开启自由走动与随机动作后，写代码、奏乐、跳舞、吃美食与节气小剧场等非互动透明 WebM 动画会在空闲时自然衔接播放。
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/dsh-pet/run-turn-left.gif" width="168" alt="原地左转奔跑"><br><sub>原地左转奔跑</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/sway-dance.gif" width="168" alt="轻快摇摆舞"><br><sub>轻快摇摆舞</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/look-around.gif" width="168" alt="东张西望"><br><sub>东张西望</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/coding.gif" width="168" alt="写代码"><br><sub>写代码</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/dsh-pet/catnap.gif" width="168" alt="原地小憩沉眠"><br><sub>原地小憩沉眠</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/otaku-dance.gif" width="168" alt="可爱宅舞"><br><sub>可爱宅舞</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/violin.gif" width="168" alt="小提琴演奏"><br><sub>小提琴演奏</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/humming.gif" width="168" alt="悠闲哼歌"><br><sub>悠闲哼歌</sub></td>
+  </tr>
+</table>
+
+> **形象出处与授权声明**：动画与交互参数源自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（代码 MIT）。「大肥鱼」（鲸鱼娘）为社区二创形象，**非 DeepSeek 官方形象**；原型「溟月」出自 B 站 [@上善无形](https://space.bilibili.com/4456176)，DeepSeek 版（女仆鲸鱼娘）设计出自 B 站 [@ZipZipPipe](https://space.bilibili.com/4168597)。该角色形象及展示动画遵循 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)（署名 · 非商业性使用 · 相同方式共享，[声明原文](https://www.bilibili.com/opus/1247156596114456581)），**不可用于任何商业用途**。
+
 ## 平时能拿它干嘛
 
 - **截窗口、截全屏，不绕弯**：挑一个窗口或者直接截全屏，截完立刻进剪贴板，同时自动存进历史记录。想圈重点就点一下打开标注窗口。Linux X11 上还支持滚动长截图。
 - **盯着单个窗口录屏**：选好窗口就能录成 MP4，默认存到下载目录，也支持把系统声音和麦克风一起录进去。
-- **翻旧图很省心**：截图和录屏都在「历史」里按天拼成照片墙，右侧有时间尺可以快速拖，鼠标移上去直接浮出高清预览，点一下就能接着标注。macOS 和 Linux 上还顺带有一份剪贴板历史。
+- **翻旧图很省心**：截图和录屏都在「历史」里按天拼成照片墙，鼠标移上去直接浮出高清预览，点一下就能接着标注。macOS 和 Linux 上还顺带有一份剪贴板历史（自动跳过已存入历史的快照复制，避免两边重复）。
 - **随手标注，删错也能找回**：标注窗口支持连续裁剪（松手即裁，还能接着裁剩下的部分）并随时撤销；画笔和荧光笔会唤起悬浮的颜色与粗细弹层。点「保存」后会把改好的图留进历史、原图挪进回收站，随时能在侧栏「回收站」里把误删的截图或录屏捞回来。
 - **随手润色 & 存 Prompt**：填上任意 OpenAI 兼容接口（API Key 存在系统钥匙串/凭据库，不会写明文），快捷键就能把剪贴板里的草稿整理成清晰的指令；常用的 Prompt 也可以单独存进 Prompt 库，默认按 `Ctrl/Cmd+Shift+P` 就能搜出来直接复制。
 - **一只不吵人的桌面伴侣**：默认显示你当前在用的应用图标，也可以把 GIF、WebM 或素材 ZIP 直接拖进窗口，或者从内置素材库挑现成的。能自己在屏幕边溜达、发呆时随机做动作、拖起来松手会带着重力落回任务栏上沿。右键呼出快捷菜单；Windows 和 Linux 双击还能打开应用启动台。
@@ -189,4 +213,6 @@ docs/                   截图资源与真机验证记录
 
 Copyright (C) 2026 Snapshot contributors.
 
-本项目采用 [GNU 通用公共许可证第 3 版或更新版本](LICENSE)（GPL-3.0-or-later）开源。如果你修改并分发了本软件，请按 GPL 协议一并公开修改后的源码。
+本项目程序源码采用 [GNU 通用公共许可证第 3 版或更新版本](LICENSE)（GPL-3.0-or-later）开源。如果你修改并分发了本软件，请按 GPL 协议一并公开修改后的源码。
+
+第三方代码与独立展示素材声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)：其中适配自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) 的动作配置与抛掷物理逻辑遵循 MIT 协议；`docs/screenshots/dsh-pet/` 下的「大肥鱼」预览动画及对应素材库资源属于独立第三方二创作品，遵循 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)（仅限非商业用途），不纳入 GPL 商业使用授权范围。

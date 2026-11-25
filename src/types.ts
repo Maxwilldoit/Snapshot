@@ -64,6 +64,43 @@ interface PetActionShape {
   bounds: PetBounds;
 }
 
+export interface PetBehaviorSleep {
+  start: string[];
+  loop: string[];
+  end: string[];
+}
+
+interface PetBehaviorInteractions {
+  throw?: boolean;
+  slingshot?: boolean;
+  sleep?: boolean;
+}
+
+export interface PetBehaviorManifest {
+  id: string;
+  referenceWidth: number;
+  weights: { idle: number; turn: number; move: number; action: number };
+  idle: string[];
+  clicks: string[];
+  drag: string[];
+  turn?: string[];
+  sleep?: PetBehaviorSleep | null;
+  moves?: Array<{
+    entry: string;
+    minDistance: number;
+    maxDistance: number;
+    leadMs: number;
+    tailMs: number;
+  }>;
+  categories?: Array<{
+    id: string;
+    weight: number;
+    noMirror?: boolean;
+    entries: string[];
+  }>;
+  interactions?: PetBehaviorInteractions | null;
+}
+
 export interface PetAsset {
   id: string;
   name: string;
@@ -74,6 +111,8 @@ export interface PetAsset {
   eventActions?: Partial<Record<PetEvent, string>>;
   /** 作者为录制中、快捷键暂停等持续状态指定的动作 */
   stateActions?: Partial<Record<PetPersistentState, string>>;
+  /** 素材包 pet.json 声明的动作分池与物理/睡眠互动配置 */
+  behavior?: PetBehaviorManifest | null;
   /** 导入时用户选的原文件 */
   source?: string;
   sizeBytes?: number;

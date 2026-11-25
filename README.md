@@ -58,11 +58,35 @@ The pixel Makima pack comes from the [Pets catalog](https://github.com/Maxwilldo
   </tr>
 </table>
 
+## Meet Chubby Whale / 大肥鱼 (Interactive Companion)
+
+Adapted from [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) and available in the built-in [Pets catalog](https://github.com/Maxwilldoit/Pets/blob/main/catalog/README.md), installing **大肥鱼 (Chubby Whale)** imports both her 100+ transparent WebM animations and her dedicated mouse-driven interaction profile (while keeping right-click exclusively for Snapshot's quick menu):
+
+- **Left-button mouse interactions (exclusive to 大肥鱼)**: Single-click for playful reactions with Q-bounce squash (or catch her mid-air); drag and flick to throw her with screen-edge bounces and landing squash; double-click and pull back on the second press to launch her like a slingshot; double-click in place to put her to sleep (pausing idle wandering and reactions until a single click wakes her up).
+- **100+ autonomous everyday animations**: When wandering and random actions are enabled, non-interactive clips — coding, violin solos, dances, snacks, and seasonal scenes — chain naturally while you work.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/dsh-pet/run-turn-left.gif" width="168" alt="Turn &amp; Run"><br><sub>Turn &amp; Run (原地左转奔跑)</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/sway-dance.gif" width="168" alt="Sway Dance"><br><sub>Sway Dance (轻快摇摆舞)</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/look-around.gif" width="168" alt="Look Around"><br><sub>Look Around (东张西望)</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/coding.gif" width="168" alt="Coding"><br><sub>Coding (写代码)</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/dsh-pet/catnap.gif" width="168" alt="Catnap"><br><sub>Catnap (原地小憩沉眠)</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/otaku-dance.gif" width="168" alt="Otaku Dance"><br><sub>Otaku Dance (可爱宅舞)</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/violin.gif" width="168" alt="Violin Solo"><br><sub>Violin Solo (小提琴演奏)</sub></td>
+    <td align="center"><img src="docs/screenshots/dsh-pet/humming.gif" width="168" alt="Humming"><br><sub>Humming (悠闲哼歌)</sub></td>
+  </tr>
+</table>
+
+> **Character Origin & License Notice**: Animations and interaction parameters come from [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (code under MIT). The "大肥鱼" (Whale Maid) character is a community fan derivative (**not** an official DeepSeek mascot); original character "溟月" by Bilibili [@上善无形](https://space.bilibili.com/4456176), DeepSeek maid-whale design by Bilibili [@ZipZipPipe](https://space.bilibili.com/4168597). The character design and animation media are licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) (Attribution-NonCommercial-ShareAlike; [original statement](https://www.bilibili.com/opus/1247156596114456581)) and **may not be used commercially in any form**.
+
 ## What It Does
 
 - **Screenshots without the extra steps**: Pick a window or grab the whole screen. Every shot lands on your clipboard and in History right away, and you can open the annotation window whenever you need to mark something up. Linux X11 also supports scrolling capture.
 - **Window recording**: Record any single window straight to MP4 (saved in Downloads by default), with optional system audio and microphone capture.
-- **Browsable History & Clipboard**: Screenshots and recordings share a day-by-day gallery with a side timeline scrubber. Hover for an instant sharp preview, or click a screenshot to jump into annotation. macOS and Linux also include clipboard history for text and images.
+- **Browsable History & Clipboard**: Screenshots and recordings share a day-by-day justified gallery. Hover for an instant sharp preview, or click a screenshot to jump into annotation. macOS and Linux also include clipboard history for external text and images (automatically skipping Snapshot's own History captures so entries aren't duplicated).
 - **Quick markup & safety-net Trash**: Crop repeatedly in the markup window (release to crop, keep trimming what's left, undo any step), and tweak Pen or Highlighter color and stroke size from a floating popover. Clicking **Save** puts the edited copy in History and moves the original to **Trash**, where deleted screenshots and recordings can be restored anytime.
 - **Prompt rewriting & reusable library**: Point it at any OpenAI-compatible API (your key stays in the OS credential store, never plain text) to polish clipboard drafts with reusable rules. Keep your go-to prompts in the built-in Prompt Library and pull them up anytime with `Ctrl/Cmd+Shift+P`.
 - **A low-key desktop companion**: Mirrors the active app icon out of the box, or drop in your own GIF/WebM/ZIP (or grab one from the built-in catalog). Let it wander, play random idle motions, and fall back to the bottom of your screen with gravity. Right-click opens a quick menu; double-click on Windows and Linux opens an app launchpad.
@@ -189,4 +213,6 @@ Pushing a `v*` tag triggers the release workflow, building macOS universal, Wind
 
 Copyright (C) 2026 Snapshot contributors.
 
-Released under the [GNU General Public License, version 3 or later](LICENSE) (GPL-3.0-or-later). If you distribute a modified version, you must also release its source under the GPL.
+Snapshot's program source code is released under the [GNU General Public License, version 3 or later](LICENSE) (GPL-3.0-or-later). If you distribute a modified version, you must also release its source under the GPL.
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party code and separate media notices: behavior and throw/slingshot physics adapted from [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) are under the MIT License; the "大肥鱼" preview GIFs in `docs/screenshots/dsh-pet/` and corresponding catalog pack are separate third-party creative works under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) (non-commercial use only) and are excluded from Snapshot's GPL commercial grant.
