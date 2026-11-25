@@ -19,7 +19,7 @@ function profile(overrides: Partial<PetBehavior> = {}): PetBehavior {
     sleep: null,
     moves: [{ entry: "move.webm", minDistance: 200, maxDistance: 200, leadMs: 1000, tailMs: 1000 }],
     categories: [{ id: "play", weight: 1, entries: ["action.webm"] }],
-    referenceWidth: 200, weights: { idle: 10, turn: 5, move: 5, action: 80 },
+    referenceWidth: 200, weights: { idle: 60, turn: 5, move: 5, action: 30 },
     interactions: { throw: false, slingshot: false, sleep: false },
     eventActions: { "capture.success": "event.webm" }, stateActions: { recording: "state.webm" },
     ...overrides,
@@ -119,28 +119,45 @@ async function setup(
 
 describe("profile 自主行为选择", () => {
   it.each([
-    [0, "idle.webm"], [0.0999, "idle.webm"],
-    [0.10, "turn.webm"], [0.1499, "turn.webm"],
-    [0.15, "move.webm"], [0.1999, "move.webm"],
-    [0.20, "action.webm"], [0.9999, "action.webm"],
-  ] as const)("随机数 %s 遵守 idle10/turn5/move5/action80", async (random, entry) => {
+    [0, "idle.webm"], [0.5999, "idle.webm"],
+    [0.6001, "turn.webm"], [0.6499, "turn.webm"],
+    [0.6501, "move.webm"], [0.6999, "move.webm"],
+    [0.7001, "action.webm"], [0.9999, "action.webm"],
+  ] as const)("随机数 %s 遵守 idle60/turn5/move5/action30", async (random, entry) => {
     vi.spyOn(Math, "random").mockReturnValue(random);
     const { clips } = await setup();
     expect(clips.map((clip) => clip.entry)).toEqual([entry]);
   });
 
-  it("真实 ended 后立即接下一段，不等待固定空闲间隔", async () => {
+  it("真实 ended 后零延迟接力，分类动作后强制先回一轮待机再继续掷骰", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.8);
     const rig = await setup();
     await rig.advance(6000);
     expect(rig.play).toHaveBeenCalledTimes(1);
+    expect(rig.clips[0].entry).toBe("action.webm");
     await flush(() => rig.clips[0].finish("ended"));
     expect(rig.play).toHaveBeenCalledTimes(2);
+    expect(rig.clips[1].entry).toBe("idle.webm");
     expect(vi.getTimerCount()).toBe(0);
+    await rig.advance(1000);
+    await flush(() => rig.clips[1].finish("ended"));
+    expect(rig.play).toHaveBeenCalledTimes(3);
+    expect(rig.clips[2].entry).toBe("action.webm");
+  });
+
+  it("互动或事件暂停恢复后先播一轮待机呼吸，不直接连发大动作", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const rig = await setup({ paused: true });
+    expect(rig.play).not.toHaveBeenCalled();
+    await rig.update({ paused: false });
+    expect(rig.clips[0].entry).toBe("idle.webm");
+    await rig.advance(1000);
+    await flush(() => rig.clips[0].finish("ended"));
+    expect(rig.clips[1].entry).toBe("action.webm");
   });
 
   it("turn 播放时仍使用原朝向，ended 后的下一段才换向", async () => {
-    const random = vi.spyOn(Math, "random").mockReturnValue(0.12);
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.62);
     const rig = await setup();
     expect(rig.clips[0]).toMatchObject({ entry: "turn.webm", facing: "left" });
     await rig.advance(1000);
@@ -150,19 +167,22 @@ describe("profile 自主行为选择", () => {
   });
 
   it("turn 失败不会改变朝向，动作分类按当前朝向排除 noMirror", async () => {
-    const random = vi.spyOn(Math, "random").mockReturnValue(0.12);
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.62);
     const rig = await setup({ behavior: profile({ categories: [{ id: "text", weight: 1, entries: ["text.webm"], noMirror: true }] }) });
     await flush(() => rig.clips[0].finish("failed"));
     random.mockReturnValue(0.8);
     await rig.advance(250);
     expect(rig.clips[1]).toMatchObject({ entry: "text.webm", facing: "left" });
-    random.mockReturnValue(0.12);
     await rig.advance(1000);
     await flush(() => rig.clips[1].finish("ended"));
+    expect(rig.clips[2]).toMatchObject({ entry: "idle.webm", facing: "left" });
+    random.mockReturnValue(0.62);
+    await rig.advance(1000);
+    await flush(() => rig.clips[2].finish("ended"));
     await rig.advance(1000);
     random.mockReturnValue(0.8);
-    await flush(() => rig.clips[2].finish("ended"));
-    expect(rig.clips[3]).toMatchObject({ entry: "idle.webm", facing: "right" });
+    await flush(() => rig.clips[3].finish("ended"));
+    expect(rig.clips[4]).toMatchObject({ entry: "idle.webm", facing: "right" });
   });
 
   it.each([
@@ -176,7 +196,7 @@ describe("profile 自主行为选择", () => {
   });
 
   it("wander 关闭时不抽移动，randomActions 关闭时不抽 turn/action", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(0.8);
+    vi.spyOn(Math, "random").mockReturnValue(0.95);
     const rig = await setup({ wander: false });
     expect(rig.clips[0].entry).toBe("action.webm");
     await rig.update({ wander: true, randomActions: false });

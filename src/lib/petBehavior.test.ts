@@ -171,7 +171,7 @@ describe("DSH 动作语义识别", () => {
     });
     expect(behavior.interactions).toEqual({ throw: true, slingshot: true, sleep: true });
     expect(behavior.referenceWidth).toBe(462);
-    expect(behavior.weights).toEqual({ idle: 10, turn: 5, move: 5, action: 80 });
+    expect(behavior.weights).toEqual({ idle: 60, turn: 5, move: 5, action: 30 });
     expect(behavior.categories.map(({ id, weight, entries, noMirror }) =>
       [id, weight, entries.length, noMirror === true],
     )).toEqual([
@@ -201,7 +201,7 @@ describe("DSH 动作语义识别", () => {
       behavior: {
         id: "dsh-pet",
         referenceWidth: 462,
-        weights: { idle: 10, turn: 5, move: 5, action: 80 },
+        weights: { idle: 60, turn: 5, move: 5, action: 30 },
         idle: [webm(IDLE)],
         clicks: [...CLICKS, "原地敲击桌面互动"].map(webm),
         drag: [webm(DRAG)],

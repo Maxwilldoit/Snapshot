@@ -277,7 +277,7 @@ export function resolvePetBehavior(
       .map((category) => ({ ...category, entries: available(category.entries) }))
       .filter((category) => category.entries.length > 0),
     referenceWidth: 462,
-    weights: { idle: 10, turn: 5, move: 5, action: 80 },
+    weights: { idle: 60, turn: 5, move: 5, action: 30 },
     interactions: {
       throw: true,
       slingshot: true,

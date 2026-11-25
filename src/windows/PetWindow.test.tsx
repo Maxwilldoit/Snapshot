@@ -1712,7 +1712,7 @@ describe("桌宠：DSH 动作交互", () => {
     expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
   });
 
-  it("随机动作只从分类池抽取，播完接下一段，关闭开关后恢复待机", async () => {
+  it("随机动作只从分类池抽取，播完先回一轮待机再接下一段，关闭开关后恢复待机", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.9);
     const { container } = await renderWhale({ petRandomActions: true });
     expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
@@ -1721,7 +1721,12 @@ describe("桌宠：DSH 动作交互", () => {
     expect(shownVideo(container).media).toBe(first);
     await act(async () => { fireEvent.ended(first); });
     await loadPetVideos();
-    expect(shownVideo(container).media).not.toBe(first);
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    expect(shownVideo(container).media.loop).toBe(false);
+    await elapse(20);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await elapse(20);
+    await loadPetVideos();
     expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
 
     await act(async () => { await emit("settings-changed", { ...settingsWith(whale), petRandomActions: false }); });
@@ -1734,7 +1739,7 @@ describe("桌宠：DSH 动作交互", () => {
   });
 
   it("转身片完整播完才翻转朝向，点击和拖拽沿用新的朝向", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(0.11);
+    vi.spyOn(Math, "random").mockReturnValue(0.65);
     const { container } = await renderWhale({ petRandomActions: true });
     expect(shownVideo(container).file).toBe("东张西望.webm");
     expect(shownVideo(container).media.classList.contains("pet-flip")).toBe(false);
@@ -1771,8 +1776,12 @@ describe("桌宠：DSH 动作交互", () => {
     await act(async () => { fireEvent.ended(current); });
     await elapse(20);
     await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+    expect(shownVideo(container).media.loop).toBe(false);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await elapse(20);
+    await loadPetVideos();
     expect(shownVideo(container).file).toBe("原地专心玩魔方.webm");
-    expect(shownVideo(container).media).not.toBe(current);
   });
 
   it("右键不打断正在播放的点击回应，回应完成后照常回待机", async () => {
@@ -1874,6 +1883,11 @@ describe("桌宠：DSH 动作交互", () => {
     await act(async () => click(container));
     await loadPetVideos();
     expect(shownVideo(container).file).toBe("睡觉-起来.webm");
+    expect(shownVideo(container).media.loop).toBe(false);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await elapse(20);
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
     expect(shownVideo(container).media.loop).toBe(false);
     await act(async () => { fireEvent.ended(shownVideo(container).media); });
     await elapse(20);
