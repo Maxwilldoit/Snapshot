@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { cycleEntries, isWalkEntry, nextDragWalk, pickWalk, STANDING, walkDirection } from "./petWalk";
+import {
+  cycleEntries,
+  hasVerticalWalkEntries,
+  isWalkEntry,
+  nextDragWalk,
+  pickWalk,
+  pickWanderVector,
+  STANDING,
+  vectorWalkDirection,
+  walkDirection,
+} from "./petWalk";
 
 // 下面的动作名都取自实际的素材包
 const grok = [
@@ -112,5 +122,30 @@ describe("拖动方向", () => {
     expect(nextDragWalk(jitter!, 3, 0)).toEqual({ direction: "right", backtrack: 0 });
     // 抖完继续往左，累计清零
     expect(nextDragWalk(jitter!, -5, 0)).toEqual({ direction: "left", backtrack: 0 });
+  });
+
+  it("支持识别上下行走素材、二维向量方向与全平面随机漫游角度", () => {
+    const fourWay = ["idle.gif", "walk_left.gif", "walk_right.gif", "walk_up.gif", "walk_down.gif"];
+    expect(walkDirection("walk_up.gif")).toBe("up");
+    expect(walkDirection("walk_down.gif")).toBe("down");
+    expect(walkDirection("向上走.gif")).toBe("up");
+    expect(isWalkEntry("stand_up.gif")).toBe(false);
+    expect(hasVerticalWalkEntries(fourWay)).toBe(true);
+    expect(hasVerticalWalkEntries(grok)).toBe(false);
+    expect(pickWalk(fourWay, "up", "idle.gif")).toEqual({ entry: "walk_up.gif", flip: false });
+    expect(pickWalk(fourWay, "down", "idle.gif")).toEqual({ entry: "walk_down.gif", flip: false });
+    // 无专门上下图时，优先用无朝向走路，再回退侧向走路
+    expect(pickWalk(clawd, "up", clawd[0])).toEqual({ entry: "clawd_gifs/clawd-crabwalk.gif", flip: false });
+    expect(pickWalk(grok, "up", grok[0])).toEqual({ entry: "grok_pixel/gifs/grok_walk_left.gif", flip: false });
+
+    expect(vectorWalkDirection(0.4, -0.9, true)).toBe("up");
+    expect(vectorWalkDirection(0.4, -0.9, false)).toBe("right");
+    expect(nextDragWalk(STANDING, 1, -8, true)).toEqual({ direction: "up", backtrack: 0 });
+    expect(nextDragWalk(STANDING, 1, 9, true)).toEqual({ direction: "down", backtrack: 0 });
+
+    const diag = pickWanderVector(true, true, () => 0.625);
+    expect(Math.hypot(diag.ux, diag.uy)).toBeCloseTo(1, 5);
+    expect(Math.abs(diag.ux)).toBeGreaterThan(0.1);
+    expect(Math.abs(diag.uy)).toBeGreaterThan(0.1);
   });
 });

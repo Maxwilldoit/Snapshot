@@ -411,3 +411,8 @@ macOS 本机已完成：
   - [x] **修复后 WGC 帧池重建补验（2026-11-25，`codex/windows-cursor-and-wgc-resize`）**：在真实 Windows 11 桌面重跑全部 6 项 `os::` 交互单测（6/6 passed，无跳过）及动态改尺寸录屏（90 帧 / 329,748 字节有效 MP4），确认新增的 `frame_pool.Recreate(...)` 与 `StagingTexture` 重建复用路径运行稳定。
   - [ ] **可选人工观感补验**：按需手验带系统音频+麦克风录屏、双屏跨 DPI 拖窗录制，以及真实白色输入框内 I-beam 光标截图观感。
 - [ ] **Linux X11 / Wayland 真机桌面验收**：在 Ubuntu 22.04/24.04（X11 与 Wayland）实机验证共享常驻 `arboard::Clipboard` 在无剪贴板管理器环境下连续复制图片/文本及程序退出释放、`xdg-desktop-portal` 选窗等待期间点击托盘退出不阻塞且无残留 `ffmpeg` 进程、窗口位于负坐标时的 X11 截屏/录屏裁剪、WebKitGTK 历史墙与剪贴板虚拟化滚动及高分屏缩放。
+
+## 三十八、全角色全角度漫游与抛掷受击反馈（2026-11-27，`codex/pet-omni-wander-and-impact`）
+
+- [ ] **macOS / Windows / Linux X11 原生透明窗交互**：验证「应用图标」开启自由走动与拖拽时的迈步摇摆动效；关闭「重力」后应用图标、素材库 GIF 与大肥鱼在竖直、水平及任意斜向角度全屏漫游并在四边折返；快甩任意角色碰触四壁/地面时触发对应受击反馈（应用图标果冻挤压、素材库 GIF 受击动作/震颤、大肥鱼撞墙受惊与落地重力压缩），且 Windows `SetWindowRgn` 命中区同步更新。
+- [ ] **Linux Wayland 会话预期边界**：确认 Wayland 合成器禁止客户端调用 `setPosition` 时不报错卡死，普通窗口拖拽与点击交互仍保持可用。

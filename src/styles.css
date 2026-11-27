@@ -231,7 +231,24 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .pet-window:active { cursor: grabbing; }
 /* 格子固定为外框大小：不固定时，竖长的 GIF 会按自身宽高比把格子撑高，下半身被 overflow 裁掉 */
 .pet-orb { display: grid; grid-template: 100% / 100%; width: var(--pet-icon-size, 56px); height: var(--pet-icon-size, 56px); place-items: center; overflow: hidden; color: var(--ink-2); background: transparent; }
+.pet-window.app-icon .pet-orb { overflow: visible; }
 .pet-orb img, .pet-orb video, .pet-orb canvas { display: block; grid-area: 1 / 1; width: 100%; height: 100%; object-fit: contain; background: transparent; pointer-events: none; }
+.pet-icon-actor { display: grid; grid-area: 1 / 1; width: 100%; height: 100%; place-items: center; transform-origin: 50% 88%; will-change: transform; }
+.pet-icon-actor.is-walking { animation: pet-icon-walk 420ms ease-in-out infinite; }
+.pet-icon-actor.is-walking.is-up, .pet-icon-actor.is-walking.is-down { animation-name: pet-icon-climb; animation-duration: 380ms; }
+@keyframes pet-icon-walk {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1.03, 0.96); }
+  25% { transform: translateY(-4px) rotate(-6deg) scale(0.98, 1.03); }
+  50% { transform: translateY(0) rotate(0deg) scale(1.03, 0.96); }
+  75% { transform: translateY(-4px) rotate(6deg) scale(0.98, 1.03); }
+}
+@keyframes pet-icon-climb {
+  0%, 100% { transform: translateY(0) rotate(-3deg) scale(1.02, 0.97); }
+  50% { transform: translateY(-5px) rotate(3deg) scale(0.97, 1.04); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pet-icon-actor.is-walking { animation: none; }
+}
 /* WebKit's colour decoder remains the playback clock, but must never show its black matte. */
 .pet-alpha-colour { opacity: 0 !important; }
 video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

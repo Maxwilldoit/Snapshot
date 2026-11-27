@@ -15,7 +15,7 @@ type Clip = {
 
 function profile(overrides: Partial<PetBehavior> = {}): PetBehavior {
   return {
-    id: "profile", idle: ["idle.webm"], clicks: ["click.webm"], drag: ["drag.webm"], turn: ["turn.webm"],
+    id: "profile", idle: ["idle.webm"], clicks: ["click.webm"], drag: ["drag.webm"], hit: [], turn: ["turn.webm"],
     sleep: null,
     moves: [{ entry: "move.webm", minDistance: 200, maxDistance: 200, leadMs: 1000, tailMs: 1000 }],
     categories: [{ id: "play", weight: 1, entries: ["action.webm"] }],
@@ -600,5 +600,43 @@ describe("profile 取消和异常时序", () => {
     await rig.frame();
     expect(rig.play).toHaveBeenCalledTimes(1);
     expect(rig.placements).toEqual([]);
+  });
+
+  it("关闭重力后支持竖直与任意斜向角度全屏漫游，竖向优先挑漂浮移动片段", async () => {
+    const floatProfile = profile({
+      weights: { idle: 0, turn: 0, move: 1, action: 0 },
+      moves: [
+        { entry: "螃蟹走路.webm", minDistance: 120, maxDistance: 120, leadMs: 1000, tailMs: 1000 },
+        { entry: "原地漂浮踏步.webm", minDistance: 120, maxDistance: 120, leadMs: 1000, tailMs: 1000 },
+      ],
+    });
+    // roll=0.25 落在纯竖直分支，第二个随机数 0.8 选向下 (+1)，竖向优先选原地漂浮踏步
+    const random = vi.spyOn(Math, "random");
+    random.mockReturnValueOnce(0) // segment kind roll -> move
+      .mockReturnValueOnce(0.25) // pickWanderVector mode -> pure vertical
+      .mockReturnValueOnce(0.8) // uy = +1 (downward)
+      .mockReturnValueOnce(0) // pick from floatMoves
+      .mockReturnValueOnce(0.5); // distance
+    const rig = await setup({ behavior: floatProfile, gravity: false, randomActions: false }, { position: { x: 400, y: 200 } });
+    expect(rig.clips[0].entry).toBe("原地漂浮踏步.webm");
+    const media = video(6, 5);
+    await flush(() => rig.clips[0].ready?.(media));
+    await rig.frame();
+    expect(rig.position.x).toBe(400);
+    expect(rig.position.y).toBe(320);
+
+    // 下一段测试斜向角度 (mode=0.8 >= 0.36, angle=0.125*2π = 45° => ux > 0, uy > 0)
+    await rig.advance(1000);
+    random.mockReturnValue(0.8);
+    random.mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.8)
+      .mockReturnValueOnce(0.125)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.5);
+    await flush(() => rig.clips[0].finish("ended"));
+    await flush(() => rig.clips[1].ready?.(video(6, 5)));
+    await rig.frame();
+    expect(rig.position.x).toBeGreaterThan(400);
+    expect(rig.position.y).toBeGreaterThan(320);
   });
 });

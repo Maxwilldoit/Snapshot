@@ -227,4 +227,22 @@ describe("桌宠空闲行为", () => {
     expect(placements).toEqual([]);
     expect(onAction).not.toHaveBeenCalled();
   });
+
+  it("关闭重力后支持竖直与斜向全角度漫游，触碰上下边界平滑折返", async () => {
+    const random = vi.spyOn(Math, "random");
+    // 先触发 walk，再选斜向角度 (mode=0.8, angle=0.85*2π => ux > 0, uy < 0 向右上移动并在顶边折返)
+    random.mockReturnValue(0.85);
+    const { placements, setWalking } = await setup(
+      { wander: true, gravity: false, hasVerticalWalk: true },
+      { initialPosition: { x: 200, y: 150 } },
+    );
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
+
+    expect(placements.length).toBeGreaterThan(10);
+    expect(placements.some(({ x }) => x > 200)).toBe(true);
+    expect(placements.some(({ y }) => y === 0)).toBe(true);
+    expect(placements.at(-1)!.y).toBeGreaterThan(0);
+    expect(setWalking).toHaveBeenCalledWith("up");
+  });
 });

@@ -3,6 +3,7 @@ import type { PetAsset } from "../types";
 import {
   pickPetBehaviorAction,
   pickPetEntry,
+  pickPetHitEntry,
   resolvePetBehavior,
   type PetBehavior,
   type PetBehaviorCategory,
@@ -441,5 +442,14 @@ describe("pickPetBehaviorAction", () => {
     };
     expect(pickPetBehaviorAction(behavior, "left", null, () => 0)).toBe("valid");
     expect(pickPetBehaviorAction(behavior, "left", null, () => 0.999999)).toBe("valid");
+  });
+
+  it("大肥鱼解析专属碰撞受击动作池，并按落地/侧墙碰撞偏好挑选动作", () => {
+    const behavior = resolved();
+    expect(behavior.hit).toEqual(["被吓一跳.webm", "原地重力下蹲压缩.webm", "打瞌睡被惊醒.webm"]);
+    expect(pickPetHitEntry(behavior, "floor", null, () => 0)).toBe("原地重力下蹲压缩.webm");
+    expect(pickPetHitEntry(behavior, "ceiling", null, () => 0)).toBe("原地重力下蹲压缩.webm");
+    expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("被吓一跳.webm");
+    expect(pickPetHitEntry(behavior, "right", "被吓一跳.webm", () => 0)).toBe("打瞌睡被惊醒.webm");
   });
 });

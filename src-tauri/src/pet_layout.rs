@@ -85,6 +85,8 @@ pub(crate) struct PetBehaviorManifest {
     pub(crate) clicks: Vec<String>,
     pub(crate) drag: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) hit: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) turn: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) sleep: Option<PetBehaviorSleep>,
@@ -289,6 +291,7 @@ pub(crate) fn read_pet_layout(
         "polish.failure",
         "shortcuts.paused",
         "shortcuts.resumed",
+        "pet.hit",
     ];
     let mut event_actions = HashMap::new();
     for (event, entry) in manifest.events {
@@ -374,6 +377,7 @@ fn validate_behavior(
     behavior.idle = resolve_list(&behavior.idle)?;
     behavior.clicks = resolve_list(&behavior.clicks)?;
     behavior.drag = resolve_list(&behavior.drag)?;
+    behavior.hit = resolve_list(&behavior.hit)?;
     behavior.turn = resolve_list(&behavior.turn)?;
     if let Some(sleep) = behavior.sleep.as_mut() {
         if sleep.start.is_empty() || sleep.r#loop.is_empty() || sleep.end.is_empty() {
@@ -607,6 +611,7 @@ mod tests {
         let manifest = br#"{
             "version": 1,
             "base": { "width": 640, "height": 360, "anchor": [320, 330] },
+            "events": { "pet.hit": "hit.webm" },
             "behavior": {
                 "id": "dsh-pet",
                 "referenceWidth": 462,
@@ -614,6 +619,7 @@ mod tests {
                 "idle": ["idle.webm"],
                 "clicks": ["click.webm"],
                 "drag": ["drag.webm"],
+                "hit": ["hit.webm"],
                 "sleep": { "start": ["sleep-in.webm"], "loop": ["sleep-loop.webm"], "end": ["wake.webm"] },
                 "moves": [{ "entry": "walk.webm", "minDistance": 40, "maxDistance": 120, "leadMs": 1000, "tailMs": 1000 }],
                 "categories": [{ "id": "play", "weight": 20, "entries": ["dance.webm"] }],
@@ -624,6 +630,7 @@ mod tests {
             "idle.webm",
             "click.webm",
             "drag.webm",
+            "hit.webm",
             "sleep-in.webm",
             "sleep-loop.webm",
             "wake.webm",
@@ -637,6 +644,11 @@ mod tests {
         let parsed = read_pet_layout(&path, &entries).unwrap().unwrap();
         let behavior = parsed.behavior.expect("behavior should parse");
         assert_eq!(behavior.id, "dsh-pet");
+        assert_eq!(behavior.hit, vec!["hit.webm"]);
+        assert_eq!(
+            parsed.event_actions.get("pet.hit").map(String::as_str),
+            Some("hit.webm")
+        );
         assert_eq!(
             behavior.sleep.as_ref().unwrap().r#loop,
             vec!["sleep-loop.webm"]

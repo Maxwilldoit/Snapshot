@@ -83,6 +83,7 @@ export interface PetBehaviorManifest {
   idle: string[];
   clicks: string[];
   drag: string[];
+  hit?: string[];
   turn?: string[];
   sleep?: PetBehaviorSleep | null;
   moves?: Array<{
@@ -149,7 +150,8 @@ export type PetEvent =
   | "polish.success"
   | "polish.failure"
   | "shortcuts.paused"
-  | "shortcuts.resumed";
+  | "shortcuts.resumed"
+  | "pet.hit";
 
 export type PetPersistentState = "recording" | "shortcuts-paused";
 

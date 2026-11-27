@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { availableMonitors, currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { pickPetBehaviorAction, pickPetEntry, type PetBehavior, type PetBehaviorMove } from "../lib/petBehavior";
-import { clampPetX, petFloorY, petHorizontalLimits } from "../lib/petBounds";
+import { clampPetX, clampPetY, petFloorY, petHorizontalLimits, petVerticalLimits } from "../lib/petBounds";
 import type { MediaBounds } from "../lib/petSize";
-import type { WalkDirection } from "../lib/petWalk";
+import { pickWanderVector, type PetFacing } from "../lib/petWalk";
 
 type PlaybackResult = "ended" | "cancelled" | "failed";
 
@@ -12,9 +12,10 @@ export type PetBehaviorAutonomyOptions = {
   enabled: boolean;
   paused: boolean;
   wander: boolean;
+  gravity?: boolean;
   randomActions: boolean;
   current: () => string | null;
-  play: (entry: string, facing: WalkDirection, onReady?: (media: HTMLVideoElement) => void) => Promise<PlaybackResult>;
+  play: (entry: string, facing: PetFacing, onReady?: (media: HTMLVideoElement) => void) => Promise<PlaybackResult>;
   cancelPlayback: () => void;
   contentBounds?: () => MediaBounds | null;
   groundY?: () => number | null;
@@ -37,12 +38,13 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
   const latest = useRef(options);
   latest.current = options;
   const stopRun = useRef<(() => void) | null>(null);
-  const direction = useRef<{ behavior: PetBehavior | null; facing: WalkDirection }>({ behavior: null, facing: "left" });
+  const direction = useRef<{ behavior: PetBehavior | null; facing: PetFacing }>({ behavior: null, facing: "left" });
   const restBeforeRoll = useRef(false);
   const cancel = useCallback(() => stopRun.current?.(), []);
 
   useEffect(() => {
     const { behavior, enabled, paused, wander, randomActions } = options;
+    const gravity = options.gravity ?? true;
     if (!behavior || !enabled || (!wander && !randomActions)) {
       restBeforeRoll.current = false;
       return;
@@ -65,7 +67,8 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
     let playing = false;
     let abortPending: (() => void) | undefined;
     const alive = () => !disposed && latest.current.behavior === profile && latest.current.enabled
-      && !latest.current.paused && latest.current.wander === wander && latest.current.randomActions === randomActions;
+      && !latest.current.paused && latest.current.wander === wander
+      && (latest.current.gravity ?? true) === gravity && latest.current.randomActions === randomActions;
     const stopFrames = () => {
       if (raf !== undefined) cancelAnimationFrame(raf);
       raf = undefined;
@@ -121,32 +124,64 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
       if (!alive()) return null;
       const areas = monitors?.length ? monitors.map((item) => item.workArea) : monitor ? [monitor.workArea] : [];
       const content = latest.current.contentBounds?.() ?? null;
+      const ground = latest.current.groundY?.() ?? null;
       const limits = petHorizontalLimits(areas, position, size, content, scale);
-      if (!limits || limits.minX >= limits.maxX) return null;
-      // Native positions are whole physical pixels. Rounding may not cross a fractional DPI limit.
-      const pixels = { minX: Math.ceil(limits.minX), maxX: Math.floor(limits.maxX) };
-      if (pixels.minX > pixels.maxX) return null;
       const area = monitor?.workArea;
-      const floor = area ? petFloorY(area, size.height, content, scale, latest.current.groundY?.() ?? null) : null;
-      const y = area && floor !== null
-        ? Math.min(floor, Math.max(area.position.y, position.y))
-        : position.y;
+      const vLimits = area ? petVerticalLimits(area, size.height, content, scale, ground) : null;
+      const pixels = limits && Math.ceil(limits.minX) <= Math.floor(limits.maxX)
+        ? { minX: Math.ceil(limits.minX), maxX: Math.floor(limits.maxX) }
+        : null;
+      const vPixels = vLimits && Math.ceil(vLimits.minY) <= Math.floor(vLimits.maxY)
+        ? { minY: Math.ceil(vLimits.minY), maxY: Math.floor(vLimits.maxY) }
+        : null;
+      if (gravity) {
+        if (!limits || limits.minX >= limits.maxX || !pixels) return null;
+      } else if (!pixels && !vPixels) {
+        return null;
+      }
+      const floor = area ? petFloorY(area, size.height, content, scale, ground) : null;
+      const y = !gravity && vLimits
+        ? clampPetY(position.y, vLimits)
+        : area && floor !== null
+          ? Math.min(floor, Math.max(area.position.y, position.y))
+          : position.y;
       const shift = latest.current.frameShift?.() ?? { x: 0, y: 0 };
-      return { position: { x: position.x, y }, size, scale, limits, pixels, shift };
+      return { position: { x: position.x, y }, size, scale, limits, pixels, vLimits, vPixels, shift };
     }
     type Geometry = NonNullable<Awaited<ReturnType<typeof geometry>>>;
-    type Motion = { move: PetBehaviorMove; distance: number };
-    const physicalDistance = (motion: Motion, view: Geometry) => {
+    type Motion = { move: PetBehaviorMove; distance: number; ux?: number; uy?: number };
+    const unitScale = (view: Geometry) => {
       // Tauri's native width is physical; scale to the profile's logical reference, then back to physical.
       const logicalWidth = latest.current.canvasWidth?.() ?? view.size.width / view.scale;
-      return motion.distance * (logicalWidth / profile.referenceWidth) * view.scale;
+      return (logicalWidth / profile.referenceWidth) * view.scale;
     };
-    const targetX = (motion: Motion, view: Geometry, facing: WalkDirection) =>
-      view.position.x + (facing === "left" ? -1 : 1) * physicalDistance(motion, view);
-    const fits = (motion: Motion, view: Geometry, facing: WalkDirection) => {
+    const physicalDistance = (motion: Motion, view: Geometry) => motion.distance * unitScale(view);
+    const targetX = (motion: Motion, view: Geometry, facing: PetFacing) => {
+      const ux = motion.ux ?? (facing === "left" ? -1 : 1);
+      return view.position.x + ux * physicalDistance(motion, view);
+    };
+    const targetY = (motion: Motion, view: Geometry) =>
+      view.position.y + (motion.uy ?? 0) * physicalDistance(motion, view);
+    const fits = (motion: Motion, view: Geometry, facing: PetFacing) => {
       const x = targetX(motion, view, facing);
-      return Number.isFinite(x) && clampPetX(view.position.x, view.limits) === view.position.x
-        && clampPetX(x, view.limits) === x;
+      const y = targetY(motion, view);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+      if (motion.ux === undefined && motion.uy === undefined) {
+        return Boolean(view.limits && view.pixels)
+          && clampPetX(view.position.x, view.limits) === view.position.x
+          && clampPetX(x, view.limits) === x;
+      }
+      const okX = Math.abs(motion.ux ?? 0) <= 1e-4 || (
+        Boolean(view.limits && view.pixels)
+        && clampPetX(view.position.x, view.limits) === view.position.x
+        && clampPetX(x, view.limits) === x
+      );
+      const okY = Math.abs(motion.uy ?? 0) <= 1e-4 || (
+        Boolean(view.vLimits && view.vPixels)
+        && clampPetY(view.position.y, view.vLimits) === view.position.y
+        && clampPetY(y, view.vLimits) === y
+      );
+      return okX && okY;
     };
 
     async function play(entry: string, motion?: Motion): Promise<PlaybackResult> {
@@ -164,6 +199,7 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
         void geometry().then((view) => {
           if (!valid() || !view || !fits(motion, view, facing)) return;
           const endX = targetX(motion, view, facing);
+          const endY = targetY(motion, view);
           let progress = 0;
           let lastX = Math.round(view.position.x);
           let lastY = Math.round(view.position.y);
@@ -178,8 +214,10 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
             // Lead and tail do not reposition even if window rounding differs from the source position.
             if (progress === 0) return;
             const shift = latest.current.frameShift?.() ?? view.shift;
-            const x = clampPetX(Math.round(view.position.x + (endX - view.position.x) * progress), view.pixels) + shift.x - view.shift.x;
-            const y = Math.round(view.position.y + shift.y - view.shift.y);
+            const rawX = Math.round(view.position.x + (endX - view.position.x) * progress);
+            const rawY = Math.round(view.position.y + (endY - view.position.y) * progress);
+            const x = clampPetX(rawX, view.pixels) + shift.x - view.shift.x;
+            const y = (motion.uy !== undefined ? clampPetY(rawY, view.vPixels) : rawY) + shift.y - view.shift.y;
             if (x === lastX && y === lastY) return;
             writing = true;
             lastX = x;
@@ -257,6 +295,51 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
       const kind = choices.find((choice) => (roll -= choice.weight / maxWeight) < 0)?.kind;
       if (kind === "turn") return turn();
       if (kind === "move") {
+        if (!gravity) {
+          const view = await interruptible(geometry(), null);
+          if (!alive()) return "cancelled";
+          const canX = Boolean(view?.limits && view.pixels && view.limits.minX < view.limits.maxX
+            && clampPetX(view.position.x, view.limits) === view.position.x);
+          const canY = Boolean(view?.vLimits && view.vPixels && view.vLimits.minY < view.vLimits.maxY
+            && clampPetY(view.position.y, view.vLimits) === view.position.y);
+          if (!view || (!canX && !canY)) return playStationaryWithRest();
+          let { ux, uy } = pickWanderVector(canX, canY);
+          const floatMoves = Math.abs(uy) > Math.abs(ux)
+            ? moves.filter((item) => /漂浮|float|fly|swim|游|飞/i.test(item.entry))
+            : [];
+          const pool = floatMoves.length ? floatMoves : moves;
+          const move = pool[Math.floor(Math.random() * pool.length)];
+          if (!move) return "failed";
+          const scalePx = unitScale(view);
+          if (!(scalePx > 0)) return playStationaryWithRest();
+          const rawDistance = move.minDistance + Math.random() * (move.maxDistance - move.minDistance);
+          const wantPx = rawDistance * scalePx;
+          if (canX && view.limits && Math.abs(ux) > 1e-4) {
+            const roomForward = ux < 0 ? view.position.x - view.limits.minX : view.limits.maxX - view.position.x;
+            const roomReverse = ux < 0 ? view.limits.maxX - view.position.x : view.position.x - view.limits.minX;
+            if (roomForward < wantPx && roomReverse > roomForward) ux = -ux;
+          }
+          if (canY && view.vLimits && Math.abs(uy) > 1e-4) {
+            const roomForward = uy < 0 ? view.position.y - view.vLimits.minY : view.vLimits.maxY - view.position.y;
+            const roomReverse = uy < 0 ? view.vLimits.maxY - view.position.y : view.position.y - view.vLimits.minY;
+            if (roomForward < wantPx && roomReverse > roomForward) uy = -uy;
+          }
+          let maxPx = Infinity;
+          if (ux < -1e-4 && view.limits) maxPx = Math.min(maxPx, (view.position.x - view.limits.minX) / -ux);
+          else if (ux > 1e-4 && view.limits) maxPx = Math.min(maxPx, (view.limits.maxX - view.position.x) / ux);
+          if (uy < -1e-4 && view.vLimits) maxPx = Math.min(maxPx, (view.position.y - view.vLimits.minY) / -uy);
+          else if (uy > 1e-4 && view.vLimits) maxPx = Math.min(maxPx, (view.vLimits.maxY - view.position.y) / uy);
+          const minRequiredPx = Math.min(move.minDistance * scalePx, 24 * view.scale);
+          if (!(maxPx >= minRequiredPx) || !(maxPx > 1)) return playStationaryWithRest();
+          const distance = Math.min(rawDistance, maxPx / scalePx);
+          const desiredFacing: PetFacing = Math.abs(ux) > 1e-4 ? (ux < 0 ? "left" : "right") : direction.current.facing;
+          if (desiredFacing !== direction.current.facing) {
+            if (randomActions && profile.turn.length) return turn();
+            direction.current.facing = desiredFacing;
+          }
+          return play(move.entry, { move, distance, ux, uy });
+        }
+
         const move = moves[Math.floor(Math.random() * moves.length)];
         if (!move) return "failed";
         const motion = { move, distance: move.minDistance + Math.random() * (move.maxDistance - move.minDistance) };
@@ -295,7 +378,7 @@ export function usePetBehaviorAutonomy(options: PetBehaviorAutonomyOptions): { c
       stop();
       if (stopRun.current === stop) stopRun.current = null;
     };
-  }, [options.behavior, options.enabled, options.paused, options.wander, options.randomActions]);
+  }, [options.behavior, options.enabled, options.paused, options.wander, options.gravity, options.randomActions]);
 
   return { cancel };
 }

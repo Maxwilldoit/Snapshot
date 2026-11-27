@@ -1919,4 +1919,114 @@ describe("桌宠：DSH 动作交互", () => {
     expect(position.x).toBeGreaterThan(pulledX);
     expect(position.x).toBeGreaterThan(initialX);
   });
+
+  it("应用图标支持自由走动与拖拽迈步动效，甩出碰壁触发果冻受击形变", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.85);
+    const monitor = {
+      name: "test", scaleFactor: 1,
+      position: { x: 0, y: 0 }, size: { width: 1000, height: 800 },
+      workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 740 } },
+    };
+    const { container, position } = await renderPet(
+      grok,
+      { selectedAppearanceId: "app-icon", petWander: true, petGravity: false },
+      { x: 300, y: 300 },
+      monitor,
+    );
+    const actor = container.querySelector<HTMLElement>(".pet-icon-actor")!;
+    expect(actor).not.toBeNull();
+
+    await elapse(7200);
+    expect(position.x !== 300 || position.y !== 300).toBe(true);
+    expect(actor.classList.contains("is-walking")).toBe(true);
+
+    const animate = vi.fn(() => ({ cancel: vi.fn(), finished: Promise.resolve() } as unknown as Animation));
+    Object.defineProperty(actor, "animate", { configurable: true, value: animate });
+    const pet = container.querySelector(".pet-window")!;
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 300, screenY: 300, pointerId: 5 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 50, clientY: 20, screenX: 450, screenY: 300, pointerId: 5 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 90, clientY: 20, screenX: 700, screenY: 300, pointerId: 5 });
+    });
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 5 });
+    });
+    await elapse(600);
+    expect(animate).toHaveBeenCalled();
+  });
+
+  it("素材库 GIF 角色与大肥鱼在甩出撞墙瞬间分别触发各自专属受击动作", async () => {
+    const monitor = {
+      name: "test", scaleFactor: 1,
+      position: { x: 0, y: 0 }, size: { width: 1000, height: 800 },
+      workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 740 } },
+    };
+    const hitGrok: PetAsset = {
+      ...grok,
+      animations: [...grok.animations, "gifs/grok_hurt.gif"],
+    };
+    const { container } = await renderPet(hitGrok, { petGravity: true }, { x: 600, y: 300 }, monitor, { "gifs/grok_hurt.gif": 1200 });
+    const pet = container.querySelector(".pet-window")!;
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 600, screenY: 300, pointerId: 7 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 50, clientY: 20, screenX: 720, screenY: 300, pointerId: 7 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 90, clientY: 20, screenX: 820, screenY: 300, pointerId: 7 });
+    });
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 7 });
+    });
+    await elapse(240);
+    expect(shown(container).file).toBe("grok_hurt.gif");
+    await elapse(2400);
+    expect(shown(container).file).toBe("grok_idle.gif");
+
+    // 切换为含受击片段的大肥鱼，撞右墙时播放「被吓一跳.webm」，结束后回到待机呼吸
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(6);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(360);
+    const hitWhale: PetAsset = {
+      ...whale,
+      animations: [...whale.animations, "pack/被吓一跳.webm"],
+    };
+    await act(async () => {
+      await emit("settings-changed", { ...settingsWith(hitWhale), petGravity: true });
+    });
+    await loadPetVideos();
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 500, screenY: 300, pointerId: 8 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 50, clientY: 20, screenX: 650, screenY: 300, pointerId: 8 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 90, clientY: 20, screenX: 780, screenY: 300, pointerId: 8 });
+    });
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 8 });
+    });
+    await elapse(240);
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("被吓一跳.webm");
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+  });
 });

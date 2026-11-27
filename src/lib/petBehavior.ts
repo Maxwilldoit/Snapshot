@@ -32,6 +32,7 @@ export interface PetBehavior {
   idle: string[];
   clicks: string[];
   drag: string[];
+  hit: string[];
   turn: string[];
   sleep: PetBehaviorSleep | null;
   moves: PetBehaviorMove[];
@@ -48,6 +49,7 @@ export interface PetBehavior {
 // See THIRD_PARTY_NOTICES.md for source and license.
 const DSH_IDLE = ["待机呼吸休闲"];
 const DSH_DRAG = ["被鼠标拖拽悬空反馈"];
+const DSH_HIT = ["被吓一跳", "原地重力下蹲压缩", "打瞌睡被惊醒"];
 const DSH_TURN = ["东张西望"];
 const DSH_PRIMARY_CLICKS = [
   "点击回应-开心跃动",
@@ -191,6 +193,7 @@ function resolveManifestBehavior(
     idle,
     clicks,
     drag,
+    hit: filterPool(manifest.hit),
     turn: filterPool(manifest.turn),
     sleep,
     moves: (manifest.moves ?? []).flatMap((move) => {
@@ -267,6 +270,7 @@ export function resolvePetBehavior(
     idle,
     clicks,
     drag,
+    hit: available(DSH_HIT),
     turn: available(DSH_TURN),
     sleep,
     moves: DSH_MOVES.flatMap((move) => {
@@ -288,6 +292,20 @@ export function resolvePetBehavior(
   };
 }
 
+/** 按碰撞边缘挑选受击回应：落地/撞顶优先挑重力压缩动作，撞左右侧墙优先挑受惊反馈。 */
+export function pickPetHitEntry(
+  behavior: PetBehavior,
+  edge: "left" | "right" | "ceiling" | "floor",
+  current?: string | null,
+  random: () => number = Math.random,
+): string | null {
+  if (!behavior.hit.length) return null;
+  const vertical = edge === "floor" || edge === "ceiling";
+  const preferred = behavior.hit.filter((entry) =>
+    vertical ? /重力|下蹲|压缩|squash|land/i.test(entry) : !/下蹲|squash/i.test(entry),
+  );
+  return pickPetEntry(preferred.length ? preferred : behavior.hit, current, random);
+}
 /** 等概率抽取；有其它候选时避开当前动作，单候选仍可重播，空池返回 null。 */
 export function pickPetEntry(
   pool: readonly string[],

@@ -6,6 +6,7 @@ export type PetWorkArea = {
 };
 
 type HorizontalLimits = { minX: number; maxX: number };
+type VerticalLimits = { minY: number; maxY: number };
 
 /** 脚底贴住工作区底边；透明窗口的下沿可以越过 Dock/任务栏。groundY 为逻辑像素。 */
 export function petFloorY(
@@ -28,6 +29,27 @@ export function petFloorY(
   // setPosition 使用整数物理像素，向内取整，脚底不会越过边界半个像素。
   const floor = Math.floor(bottom - offset);
   return Number.isFinite(floor) ? floor : null;
+}
+
+/** 输入及返回值均为物理像素；头顶贴齐工作区上沿，脚底贴齐底边。 */
+export function petVerticalLimits(
+  area: PetWorkArea,
+  windowHeight: number,
+  content: MediaBounds | null,
+  scale: number,
+  groundY: number | null = null,
+): VerticalLimits | null {
+  const floor = petFloorY(area, windowHeight, content, scale, groundY);
+  if (floor === null) return null;
+  const topInset = content && Number.isFinite(content.top) && content.height > 0
+    ? content.top * scale
+    : 0;
+  if (!Number.isFinite(topInset)) return null;
+  let minY = Math.ceil(area.position.y - topInset);
+  let maxY = floor;
+  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return null;
+  if (minY > maxY) minY = maxY = Math.round((minY + maxY) / 2);
+  return { minY, maxY };
 }
 
 /** 输入及返回值均为物理像素，只有 content 使用 CSS 逻辑像素。 */
@@ -108,6 +130,10 @@ export function petHorizontalLimits(
 
 export function clampPetX(x: number, limits: HorizontalLimits | null): number {
   return limits === null ? x : Math.min(limits.maxX, Math.max(limits.minX, x));
+}
+
+export function clampPetY(y: number, limits: VerticalLimits | null): number {
+  return limits === null ? y : Math.min(limits.maxY, Math.max(limits.minY, y));
 }
 
 /**

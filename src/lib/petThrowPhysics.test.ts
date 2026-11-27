@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampLaunchAtBounds,
   DEAD_ZONE_SPEED,
   estimateThrowVelocity,
+  impactDeformation,
   landingSquash,
   slingshotLaunchVelocity,
   SQ_MAX_SQUASH,
@@ -98,5 +100,21 @@ describe("petThrowPhysics", () => {
     expect(trimmed).toHaveLength(2);
     expect(landingSquash(100)).toBeCloseTo(0.8, 5);
     expect(landingSquash(2000)).toBeCloseTo(SQ_MAX_SQUASH, 5);
+  });
+
+  it("贴边松手剔除向墙内推的速度分量，不同角色按碰撞边生成差异化法线受击形变", () => {
+    const bounds = { minX: 0, maxX: 500, minY: 0, maxY: 400 };
+    expect(clampLaunchAtBounds({ x: 0, y: 200 }, { vx: -1200, vy: 0 }, bounds)).toBeNull();
+    expect(clampLaunchAtBounds({ x: 200, y: 400 }, { vx: 0, vy: 1200 }, bounds)).toBeNull();
+    expect(clampLaunchAtBounds({ x: 200, y: 200 }, { vx: -1200, vy: -300 }, bounds)).toEqual({ vx: -1200, vy: -300 });
+
+    const iconLeft = impactDeformation("left", 1000, "app-icon", false);
+    const spriteCeiling = impactDeformation("ceiling", 1000, "sprite", true);
+    const whaleRight = impactDeformation("right", 1000, "behavior", true);
+    expect(iconLeft.keyframes).toHaveLength(5);
+    expect(String(iconLeft.keyframes[1].transform)).toContain("rotate(8deg)");
+    expect(spriteCeiling.keyframes[1].transformOrigin).toBe("50% 0%");
+    expect(String(spriteCeiling.keyframes[1].transform)).toContain("scaleX(-1)");
+    expect(String(whaleRight.keyframes[1].transform)).toMatch(/^translateX\(\d/);
   });
 });

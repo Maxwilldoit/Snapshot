@@ -1,5 +1,5 @@
 export type PetPlaybackOutcome = "ended" | "cancelled" | "failed";
-export type PetPlaybackOwner = "auto" | "click" | "sleep";
+export type PetPlaybackOwner = "auto" | "click" | "sleep" | "hit";
 
 type Playback = {
   key: string;

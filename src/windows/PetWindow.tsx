@@ -27,24 +27,28 @@ import { coverPetPlacements, cropPetPlacement, groundForEntry, mediaPlacement, p
 import { PET_SCALE, containedMediaBounds, petWindowSize, type MediaBounds } from "../lib/petSize";
 import { clampPetPixelX, clampPetX, petFloorY, petHorizontalLimits, type PetWorkArea } from "../lib/petBounds";
 import { ensurePetAutoScale, readPetBaseScale, watchPetBaseScales } from "../lib/petScale";
-import { nextDragWalk, pickWalk, STANDING, type DragWalk, type WalkDirection } from "../lib/petWalk";
-import { clickableAnimations, ordinaryAnimations } from "../lib/petActions";
+import { hasVerticalWalkEntries, nextDragWalk, pickWalk, STANDING, type DragWalk, type PetFacing, type WalkDirection } from "../lib/petWalk";
+import { clickableAnimations, ordinaryAnimations, pickHitAnimation } from "../lib/petActions";
 import { useI18n, useWindowTitle } from "../lib/i18n";
 import { motionReduced } from "../lib/motion";
 import { usePetAutonomy } from "../hooks/usePetAutonomy";
 import { petActionDuration } from "../lib/petAnimation";
-import { pickPetEntry, resolvePetBehavior, type PetBehavior } from "../lib/petBehavior";
+import { pickPetEntry, pickPetHitEntry, resolvePetBehavior, type PetBehavior } from "../lib/petBehavior";
 import { createPetPlayback, type PetPlaybackOwner } from "../lib/petPlayback";
 import {
+  clampLaunchAtBounds,
   estimateThrowVelocity,
-  landingSquash,
+  HIT_ACTION_MIN_SPEED,
+  impactDeformation,
   SLINGSHOT_DOUBLE_MS,
   slingshotLaunchVelocity,
   slingshotPower,
-  SQ_DURATION_MS,
   stepThrow,
   trimPointerTrail,
+  type ContactEdge,
+  type PetImpactKind,
   type PointerSample,
+  type ThrowBounds,
 } from "../lib/petThrowPhysics";
 import { usePetBehaviorAutonomy } from "../hooks/usePetBehaviorAutonomy";
 import type { PetAsset, PetEvent, PetLayout, PreviousApp, RecordingStatus, Settings } from "../types";
@@ -62,11 +66,11 @@ function framePlacement(side: number, layout: PetLayout | null, frame: PetImageF
 function viewportPlacement(side: number, layout: PetLayout | null, current: PetImageFrame | null, previous: PetImageFrame | null, shapes: Map<string, MediaShape>, squashing = false) {
   let place = framePlacement(side, layout, current, shapes);
   if (place && squashing) {
-    // 点击 Q 弹最大横向放大 8%、向上放大 4%；只在这 280ms 内为变形留余量。
-    const x = Math.ceil(place.imageWidth * .04);
-    const y = Math.ceil(place.imageHeight * .04);
+    // Q 弹与碰撞形变在水平和竖直方向均会短暂外扩；只在这段动画内为变形留余量。
+    const x = Math.ceil(place.imageWidth * .06);
+    const y = Math.ceil(place.imageHeight * .06);
     place = { ...place, shiftX: place.shiftX - x, shiftY: place.shiftY - y,
-      width: place.width + x * 2, height: place.height + y };
+      width: place.width + x * 2, height: place.height + y * 2 };
   }
   return place ? coverPetPlacements(place, framePlacement(side, layout, previous, shapes)) : null;
 }
@@ -262,16 +266,20 @@ export function PetWindow() {
   const [restingEntry, setRestingEntry] = useState<string | null>(null);
   const [shownEntry, setShownEntry] = useState<string | null>(null);
   const [eventEntry, setEventEntry] = useState<string | null>(null);
+  const eventEntryRef = useRef<string | null>(null);
+  eventEntryRef.current = eventEntry;
   // 每次换动作都给 img 新 key，让 GIF 从首帧播放一轮，而不是接着隐藏时的进度。
   const [actionPulse, setActionPulse] = useState(0);
   const pulseRef = useRef(0);
   const [behavior, setBehavior] = useState<PetBehavior | null>(null);
   const behaviorRef = useRef<PetBehavior | null>(null);
-  const [behaviorFacing, setBehaviorFacing] = useState<WalkDirection>("left");
-  const facingRef = useRef<WalkDirection>("left");
+  const [behaviorFacing, setBehaviorFacing] = useState<PetFacing>("left");
+  const facingRef = useRef<PetFacing>("left");
   const [dragEntry, setDragEntry] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [shortcutsPaused, setShortcutsPaused] = useState(false);
+  const statusFlagsRef = useRef({ recording: false, shortcutsPaused: false });
+  statusFlagsRef.current = { recording, shortcutsPaused };
   const [petSize, setPetSize] = useState(80);
   // 读到设置前不定大小，免得先按默认缩放一次再跳到用户设的大小
   const [petScale, setPetScale] = useState<number | null>(null);
@@ -368,7 +376,7 @@ export function PetWindow() {
   // 点击切换只在常规动作里转，走路动作留给拖动
   const regularAnimations = ordinaryAnimations({ animations, eventActions, stateActions });
   const behaviorEntries = behavior ? new Set([
-    ...behavior.idle, ...behavior.clicks, ...behavior.turn, ...behavior.moves.map((move) => move.entry),
+    ...behavior.idle, ...behavior.clicks, ...behavior.hit, ...behavior.turn, ...behavior.moves.map((move) => move.entry),
     ...(behavior.sleep ? [...behavior.sleep.start, ...behavior.sleep.loop, ...behavior.sleep.end] : []),
     ...behavior.categories.flatMap((category) => category.entries),
   ]) : null;
@@ -423,33 +431,59 @@ export function PetWindow() {
     setSquashing(false);
   }
 
-  function triggerMediaSquash(media: PetMediaElement, facing: WalkDirection, minScaleY = 0.84, duration = 280) {
-    if (motionReduced()) return;
-    const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
-    if (!(surface instanceof HTMLElement) || typeof surface.animate !== "function") return;
+  function animateSurface(surface: HTMLElement, keyframes: Keyframe[], duration: number, expandWindow: boolean) {
+    if (typeof surface.animate !== "function") return;
     squash.current?.cancel();
-    const mirror = facing === "right" ? "scaleX(-1) " : "";
-    const stretchX = Number((1 + (1 - minScaleY) * 0.5).toFixed(3));
-    const animation = surface.animate([
-      { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
-      { transform: `${mirror}scale(${stretchX}, ${minScaleY})`, transformOrigin: "50% 100%", offset: 0.35 },
-      { transform: `${mirror}scale(.97, 1.04)`, transformOrigin: "50% 100%", offset: 0.7 },
-      { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
-    ], { duration, easing: "ease-out" });
+    const animation = surface.animate(keyframes, { duration, easing: "ease-out" });
     squash.current = animation;
-    setSquashing(true);
+    if (expandWindow) setSquashing(true);
     const release = () => {
       if (squash.current !== animation) return;
       squash.current = null;
-      setSquashing(false);
-      requestBoundsReport.current();
+      if (expandWindow) {
+        setSquashing(false);
+        requestBoundsReport.current();
+      }
     };
     void animation.finished?.then(release, release);
   }
 
-  function triggerCurrentSquash(minScaleY = 0.84, duration = 280) {
+  function triggerMediaSquash(media: PetMediaElement, facing: PetFacing, minScaleY = 0.84, duration = 280) {
+    if (motionReduced()) return;
+    const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
+    if (!(surface instanceof HTMLElement)) return;
+    const mirror = facing === "right" ? "scaleX(-1) " : "";
+    const stretchX = Number((1 + (1 - minScaleY) * 0.5).toFixed(3));
+    animateSurface(surface, [
+      { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
+      { transform: `${mirror}scale(${stretchX}, ${minScaleY})`, transformOrigin: "50% 100%", offset: 0.35 },
+      { transform: `${mirror}scale(.97, 1.04)`, transformOrigin: "50% 100%", offset: 0.7 },
+      { transform: `${mirror}scale(1, 1)`, transformOrigin: "50% 100%" },
+    ], duration, true);
+  }
+
+  function triggerMediaImpact(media: PetMediaElement, edge: ContactEdge, speed: number, kind: PetImpactKind, mirrored: boolean) {
+    if (motionReduced()) return;
+    const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
+    if (!(surface instanceof HTMLElement)) return;
+    const { keyframes, duration } = impactDeformation(edge, speed, kind, mirrored);
+    animateSurface(surface, keyframes, duration, true);
+  }
+
+  function triggerCurrentImpact(edge: ContactEdge, speed: number) {
+    if (motionReduced()) return;
+    if (!latestAsset.current) {
+      const actor = petRootRef.current?.querySelector<HTMLElement>(".pet-icon-actor");
+      if (!actor) return;
+      const { keyframes, duration } = impactDeformation(edge, speed, "app-icon", false);
+      animateSurface(actor, keyframes, duration, false);
+      return;
+    }
     const media = petRootRef.current?.querySelector<PetMediaElement>(".pet-current");
-    if (media) triggerMediaSquash(media, facingRef.current, minScaleY, duration);
+    if (!media) return;
+    const kind: PetImpactKind = behaviorRef.current ? "behavior" : "sprite";
+    const mirrored = behaviorRef.current ? facingRef.current === "right" : Boolean(displayedRef.current?.flip);
+    triggerMediaImpact(media, edge, speed, kind, mirrored);
   }
 
   function setPullTension(pullDist: number, refWidth: number) {
@@ -476,7 +510,7 @@ export function PetWindow() {
     surface.style.transform = `${mirror}scale(${sx}, ${sy})`;
   }
 
-  function playBehavior(entry: string, facing: WalkDirection, owner: PetPlaybackOwner, onReady?: (media: HTMLVideoElement) => void) {
+  function playBehavior(entry: string, facing: PetFacing, owner: PetPlaybackOwner, onReady?: (media: HTMLVideoElement) => void) {
     const asset = latestAsset.current;
     if (!behaviorRef.current || !asset?.animations.includes(entry)) return Promise.resolve("failed" as const);
     behaviorRevision.current += 1;
@@ -545,15 +579,38 @@ export function PetWindow() {
     });
   }
 
-  function playBehaviorInteraction(entry: string) {
+  function playBehaviorInteraction(entry: string, owner: "click" | "hit" = "click", onReady?: (media: HTMLVideoElement) => void) {
     setManualAction(true);
-    const completed = playBehavior(entry, facingRef.current, "click");
+    const completed = playBehavior(entry, facingRef.current, owner, onReady);
     const revision = behaviorRevision.current;
     void completed.then((outcome) => {
       if (outcome === "cancelled" || revision !== behaviorRevision.current) return;
       showManualEntry(restingRef.current);
       setManualAction(false);
     });
+  }
+
+  function triggerCharacterHitClip(edge: ContactEdge, speed: number) {
+    if (sleepRef.current || statusFlagsRef.current.recording || statusFlagsRef.current.shortcutsPaused) return;
+    const profile = behaviorRef.current;
+    if (profile) {
+      const entry = pickPetHitEntry(profile, edge, targetEntry.current);
+      if (!entry) return;
+      playBehaviorInteraction(entry, "hit", (media) => {
+        triggerMediaImpact(media, edge, speed, "behavior", facingRef.current === "right");
+      });
+      return;
+    }
+    const asset = latestAsset.current;
+    if (!asset) return;
+    const activeEvent = eventEntryRef.current;
+    const entry = pickHitAnimation(asset, activeEvent ? null : targetEntry.current);
+    if (!entry || activeEvent === entry) return;
+    window.clearTimeout(eventTimer.current);
+    void petActionDuration(asset.id, entry);
+    eventEntryRef.current = entry;
+    setEventEntry(entry);
+    bumpPulse();
   }
 
   function cancelBehaviorAuto() {
@@ -690,18 +747,21 @@ export function PetWindow() {
   // 算在渲染里：公式、百分比或当前动作一变，依赖就变，窗口跟着重设大小
   const currentEntry = shownEntry && cycle.includes(shownEntry) ? shownEntry : resting;
   const custom = appearanceId !== "app-icon";
+  const hasVerticalWalk = custom && !behavior && hasVerticalWalkEntries(regularAnimations);
   const walks = custom && !behavior
-    ? (["left", "right"] as const).map((direction) => ({ direction, choice: pickWalk(regularAnimations, direction, currentEntry) }))
+    ? (["left", "right", "up", "down"] as const).map((direction) => ({ direction, choice: pickWalk(regularAnimations, direction, currentEntry) }))
     : [];
   const stateEntry = (shortcutsPaused ? stateActions?.["shortcuts-paused"] : undefined) ??
     (recording ? stateActions?.recording : null);
 
   const autonomy = usePetAutonomy({
-    enabled: custom && !behavior && !motionReduced(),
+    enabled: !behavior && !motionReduced(),
     wander: petWander,
-    randomActions: petRandomActions,
-    canWalk: walks.some((walk) => Boolean(walk.choice)),
-    actions: cycle.filter((entry) => entry !== resting),
+    gravity: petGravity,
+    hasVerticalWalk: !custom || hasVerticalWalk,
+    randomActions: custom && petRandomActions,
+    canWalk: !custom || walks.some((walk) => Boolean(walk.choice)),
+    actions: custom ? cycle.filter((entry) => entry !== resting) : [],
     paused: dragging || falling || manualAction || recording || shortcutsPaused || Boolean(stateEntry) || Boolean(eventEntry),
     setWalking,
     onAction: showAutoEntry,
@@ -727,12 +787,14 @@ export function PetWindow() {
   const dragHeldFrame = custom && behavior && dragging && (sleepState?.entry ?? stateEntry ?? resting)
     ? [petImageFrame(appearanceId, sleepState?.entry ?? stateEntry ?? resting, false, behaviorFacing === "right", 0)]
     : [];
+  const spriteHitClip = custom && !behavior ? pickHitAnimation(latestAsset.current, resting) : null;
+  const hitFrames = spriteHitClip ? [petImageFrame(appearanceId, spriteHitClip, false, false)] : [];
   const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
   const dragFrames = behavior?.drag.map((entry) => petImageFrame(appearanceId, entry, false, behaviorFacing === "right")) ?? [];
   const targetFrame = shownWalk && shownChoice ? petImageFrame(appearanceId, shownChoice.entry, true, shownChoice.flip) : normalFrame;
   const { frames, displayed, leaving, onReady: onPetImageReady } = usePetImages(
     targetFrame,
-    [...(normalFrame ? [normalFrame] : []), ...dragHeldFrame, ...walkFrames, ...dragFrames],
+    [...(normalFrame ? [normalFrame] : []), ...dragHeldFrame, ...walkFrames, ...dragFrames, ...hitFrames],
   );
   const displayedRef = useRef<PetImageFrame | null>(null);
   displayedRef.current = displayed;
@@ -763,6 +825,7 @@ export function PetWindow() {
     enabled: custom && !motionReduced(),
     paused: pressed || dragging || falling || manualAction || Boolean(sleepState) || recording || shortcutsPaused || Boolean(stateEntry) || Boolean(eventEntry),
     wander: petWander,
+    gravity: petGravity,
     randomActions: petRandomActions,
     current: () => targetEntry.current,
     play: (entry, facing, onReady) => playBehavior(entry, facing, "auto", onReady),
@@ -848,6 +911,18 @@ export function PetWindow() {
     setFalling(false);
   }
 
+  function computeThrowBounds(originNormal: { x: number; y: number }, geometry: DragGeometry): ThrowBounds {
+    const scale = geometry.scale > 0 ? geometry.scale : 1;
+    const shift = frameShift.current;
+    const currentOuter = { x: originNormal.x + shift.x, y: originNormal.y + shift.y };
+    const hLimits = petHorizontalLimits(geometry.areas, currentOuter, geometry.size, visibleBounds.current, scale);
+    const minX = hLimits ? (hLimits.minX - shift.x) / scale : originNormal.x / scale - 2000;
+    const maxX = Math.max(minX, hLimits ? (hLimits.maxX - shift.x) / scale : originNormal.x / scale + 2000);
+    const minY = geometry.ceilingY !== null ? (geometry.ceilingY - shift.y) / scale : originNormal.y / scale - 2000;
+    const maxY = Math.max(minY, geometry.floorY !== null ? (geometry.floorY - shift.y) / scale : originNormal.y / scale + 2000);
+    return { minX, maxX, minY, maxY };
+  }
+
   function launchThrow(
     originNormal: { x: number; y: number },
     vx: number,
@@ -858,18 +933,11 @@ export function PetWindow() {
     const token = ++gravityToken.current;
     cancelAnimationFrame(gravityFrame.current);
     const scale = geometry.scale > 0 ? geometry.scale : 1;
-    const shift = { ...frameShift.current };
-    const currentOuter = { x: originNormal.x + shift.x, y: originNormal.y + shift.y };
-    const hLimits = petHorizontalLimits(geometry.areas, currentOuter, geometry.size, visibleBounds.current, scale);
-    const minX = hLimits ? (hLimits.minX - shift.x) / scale : originNormal.x / scale - 2000;
-    const maxX = Math.max(minX, hLimits ? (hLimits.maxX - shift.x) / scale : originNormal.x / scale + 2000);
-    const minY = geometry.ceilingY !== null ? (geometry.ceilingY - shift.y) / scale : originNormal.y / scale - 2000;
-    const maxY = Math.max(minY, geometry.floorY !== null ? (geometry.floorY - shift.y) / scale : originNormal.y / scale + 2000);
-    const bounds = { minX, maxX, minY, maxY };
+    const bounds = computeThrowBounds(originNormal, geometry);
 
     if (motionReduced()) {
-      const restY = gravityEnabled.current ? maxY : Math.min(maxY, Math.max(minY, originNormal.y / scale));
-      const restX = Math.min(maxX, Math.max(minX, originNormal.x / scale));
+      const restY = gravityEnabled.current ? bounds.maxY : Math.min(bounds.maxY, Math.max(bounds.minY, originNormal.y / scale));
+      const restX = Math.min(bounds.maxX, Math.max(bounds.minX, originNormal.x / scale));
       void petWindow.setPosition(new PhysicalPosition(
         Math.round(restX * scale + frameShift.current.x),
         Math.round(restY * scale + frameShift.current.y),
@@ -877,17 +945,23 @@ export function PetWindow() {
       return;
     }
 
-    if (Math.abs(vx) > 30 && !sleepRef.current) {
-      const nextFacing: WalkDirection = vx > 0 ? "right" : "left";
-      facingRef.current = nextFacing;
-      setBehaviorFacing(nextFacing);
-    }
+    const syncFacing = (nextVx: number) => {
+      if (Math.abs(nextVx) > 30 && !sleepRef.current) {
+        const nextFacing: PetFacing = nextVx > 0 ? "right" : "left";
+        if (facingRef.current !== nextFacing) {
+          facingRef.current = nextFacing;
+          setBehaviorFacing(nextFacing);
+        }
+      }
+    };
+    syncFacing(vx);
 
     flyingRef.current = true;
     setFalling(true);
     let state = { x: originNormal.x / scale, y: originNormal.y / scale, vx, vy };
     let previous = performance.now();
-    let lastSquashAt = 0;
+    let lastSquashAt = -Infinity;
+    let lastHitClipAt = -Infinity;
 
     const step = (now: number) => {
       if (token !== gravityToken.current || pointerHeld.current) {
@@ -901,13 +975,20 @@ export function PetWindow() {
       previous = now;
       const next = stepThrow(state, dt, bounds, gravityEnabled.current);
       state = { x: next.x, y: next.y, vx: next.vx, vy: next.vy };
+      if (next.bounced) syncFacing(state.vx);
       void petWindow.setPosition(new PhysicalPosition(
         Math.round(state.x * scale + frameShift.current.x),
         Math.round(state.y * scale + frameShift.current.y),
       )).catch(() => {});
-      if (next.hit && (next.hit.edge === "floor" || next.hit.speed >= 350) && now - lastSquashAt >= 120) {
-        lastSquashAt = now;
-        triggerCurrentSquash(landingSquash(next.hit.speed), SQ_DURATION_MS);
+      if (next.hit && (next.hit.edge === "floor" || next.hit.speed >= 260)) {
+        if (now - lastSquashAt >= 120) {
+          lastSquashAt = now;
+          triggerCurrentImpact(next.hit.edge, next.hit.speed);
+        }
+        if (next.hit.speed >= HIT_ACTION_MIN_SPEED && now - lastHitClipAt >= 650) {
+          lastHitClipAt = now;
+          triggerCharacterHitClip(next.hit.edge, next.hit.speed);
+        }
       }
       if (next.atRest) {
         flyingRef.current = false;
@@ -1183,7 +1264,8 @@ export function PetWindow() {
       if (finished || !geometry || !target) return;
       const previousX = moved.x;
       const previousY = moved.y;
-      const next = nextDragWalk(dragMotion.current, target.x - previousX, target.y - previousY);
+      const allowVerticalWalk = !custom || (hasVerticalWalk && !gravityEnabled.current);
+      const next = nextDragWalk(dragMotion.current, target.x - previousX, target.y - previousY, allowVerticalWalk);
       moved.x = target.x;
       moved.y = target.y;
       if (next && !behaviorRef.current) {
@@ -1322,8 +1404,9 @@ export function PetWindow() {
       if (behaviorRef.current && !sleepRef.current) showManualEntry(restingRef.current);
       dragMotion.current = STANDING;
 
-      if (!cancelled && geometry && target && behaviorRef.current) {
-        if (sling) {
+      const canThrow = behaviorRef.current ? behaviorRef.current.interactions.throw : true;
+      if (!cancelled && geometry && target && !sleepRef.current) {
+        if (sling && behaviorRef.current) {
           const launch = slingshotLaunchVelocity(
             lastScreenX - startScreenX,
             lastScreenY - startScreenY,
@@ -1333,11 +1416,20 @@ export function PetWindow() {
             launchThrow(target, launch.vx, launch.vy, geometry);
             return;
           }
-        } else if (behaviorRef.current.interactions.throw) {
-          const velocity = estimateThrowVelocity(trail, performance.now());
-          if (velocity) {
-            launchThrow(target, velocity.vx, velocity.vy, geometry);
-            return;
+        } else if (canThrow) {
+          const rawVelocity = estimateThrowVelocity(trail, performance.now());
+          if (rawVelocity) {
+            const scale = geometry.scale > 0 ? geometry.scale : 1;
+            const bounds = computeThrowBounds(target, geometry);
+            const clamped = clampLaunchAtBounds(
+              { x: target.x / scale, y: target.y / scale },
+              rawVelocity,
+              bounds,
+            );
+            if (clamped) {
+              launchThrow(target, clamped.vx, clamped.vy, geometry);
+              return;
+            }
           }
         }
       }
@@ -1652,12 +1744,17 @@ export function PetWindow() {
             {!displayed && <PawPrint size={petSize - 10} style={{ gridArea: "1 / 1" }} />}
           </>
         ) : (
-          <MediaImage
-            key={app.pid ?? "none"}
-            src={app.pid === null ? null : iconUrl(app.pid, petSize)}
-            alt={app.name}
-            fallback={<AppWindow size={petSize - 12} />}
-          />
+          <div className={[
+            "pet-icon-actor",
+            walking && !motionReduced() ? `is-walking is-${walking}` : "",
+          ].filter(Boolean).join(" ")}>
+            <MediaImage
+              key={app.pid ?? "none"}
+              src={app.pid === null ? null : iconUrl(app.pid, petSize)}
+              alt={app.name}
+              fallback={<AppWindow size={petSize - 12} />}
+            />
+          </div>
         )}
       </div>
     </div>

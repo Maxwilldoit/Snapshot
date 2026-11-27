@@ -8,7 +8,7 @@ export interface PointerSample {
   y: number;
 }
 
-interface ThrowBounds {
+export interface ThrowBounds {
   minX: number;
   maxX: number;
   minY: number;
@@ -22,7 +22,8 @@ interface ThrowState {
   vy: number;
 }
 
-type ContactEdge = "left" | "right" | "ceiling" | "floor";
+export type ContactEdge = "left" | "right" | "ceiling" | "floor";
+export type PetImpactKind = "app-icon" | "sprite" | "behavior";
 
 interface ThrowHit {
   edge: ContactEdge;
@@ -45,6 +46,8 @@ const MIN_SPAN_MS = 20;
 const SEG_MIN_DT_MS = 8;
 
 export const DEAD_ZONE_SPEED = 500;
+/** 触发角色专属受击动画片段的最小法向碰撞速度（轻擦微弹只做形变缓冲）。 */
+export const HIT_ACTION_MIN_SPEED = 420;
 const MAX_THROW_SPEED = 3600;
 const PEAK_WEIGHT = 0.5;
 const ACCEL_REF = 8000;
@@ -63,7 +66,7 @@ const THROW_SPEED_ANCHOR = 1200;
 const SUBSTEP_PX = 8;
 const SUBSTEP_MAX = 64;
 
-export const SQ_DURATION_MS = 220;
+const SQ_DURATION_MS = 220;
 const SQ_SOFT_SPEED = 300;
 const SQ_HARD_SPEED = 1500;
 export const SQ_MAX_SQUASH = 0.55;
@@ -123,18 +126,15 @@ export function estimateThrowVelocity(
       pt = sample.t;
     }
   }
-  const peakSpeed = segSpeeds.length
-    ? Math.max(...segSpeeds.map((item) => item.speed))
-    : baseSpeed;
+  if (segSpeeds.length < 2) return null;
+  const peakSpeed = Math.max(...segSpeeds.map((item) => item.speed));
 
   let accel = 0;
-  if (segSpeeds.length >= 2) {
-    const firstSeg = segSpeeds[0];
-    const lastSeg = segSpeeds[segSpeeds.length - 1];
-    accel =
-      (lastSeg.speed - firstSeg.speed) /
-      Math.max((lastSeg.tEnd - firstSeg.tEnd) / 1000, MIN_SPAN_MS / 1000);
-  }
+  const firstSeg = segSpeeds[0];
+  const lastSeg = segSpeeds[segSpeeds.length - 1];
+  accel =
+    (lastSeg.speed - firstSeg.speed) /
+    Math.max((lastSeg.tEnd - firstSeg.tEnd) / 1000, MIN_SPAN_MS / 1000);
   const rawSpeed =
     ((1 - PEAK_WEIGHT) * baseSpeed + PEAK_WEIGHT * peakSpeed) *
     (1 + Math.min(Math.max(accel, 0) / ACCEL_REF, 1) * ACCEL_GAIN_MAX);
@@ -291,4 +291,88 @@ export function landingSquash(impactSpeed: number): number {
     1,
   );
   return Math.min(0.8, 1 - t * (1 - SQ_MAX_SQUASH));
+}
+
+/** 已被拖到贴紧某侧屏幕边界时，剔除继续往墙里推的分量，避免贴边松手误触发反向弹射。 */
+export function clampLaunchAtBounds(
+  origin: { x: number; y: number },
+  velocity: { vx: number; vy: number },
+  bounds: ThrowBounds,
+): { vx: number; vy: number } | null {
+  let { vx, vy } = velocity;
+  if (origin.x <= bounds.minX + 0.5 && vx < 0) vx = 0;
+  if (origin.x >= bounds.maxX - 0.5 && vx > 0) vx = 0;
+  if (origin.y <= bounds.minY + 0.5 && vy < 0) vy = 0;
+  if (origin.y >= bounds.maxY - 0.5 && vy > 0) vy = 0;
+  if (Math.hypot(vx, vy) < DEAD_ZONE_SPEED) return null;
+  return { vx, vy };
+}
+
+/**
+ * 按碰撞法线方向与角色类型生成受击形变关键帧：
+ * - app-icon：果冻多段回弹 + 受击歪斜
+ * - sprite（GIF/普通素材）：法向受击挤压 + 眩晕微震颤
+ * - behavior（大肥鱼等）：顺滑 Q 弹法向压缩回弹
+ */
+export function impactDeformation(
+  edge: ContactEdge,
+  impactSpeed: number,
+  kind: PetImpactKind,
+  mirrored = false,
+): { keyframes: Keyframe[]; duration: number } {
+  const comp = landingSquash(impactSpeed);
+  const delta = 1 - comp;
+  const stretch = Number((1 + delta * 0.5).toFixed(3));
+  const mirror = mirrored ? "scaleX(-1) " : "";
+  const horizontal = edge === "left" || edge === "right";
+  const origin = edge === "floor" ? "50% 100%" : edge === "ceiling" ? "50% 0%" : "50% 50%";
+  const sx = horizontal ? comp : stretch;
+  const sy = horizontal ? stretch : comp;
+  // 横向贴墙压缩时以 50% 为缩放中心并在屏幕空间补偿位移，兼容 scaleX(-1) 镜像角色。
+  const wallShift = horizontal
+    ? `${edge === "left" ? "-" : ""}${Number((delta * 50).toFixed(2))}%`
+    : "0%";
+  const reboundX = horizontal ? Number((1 + delta * 0.16).toFixed(3)) : 0.97;
+  const reboundY = horizontal ? 0.97 : Number((1 + delta * 0.16).toFixed(3));
+
+  if (kind === "app-icon") {
+    const tilt = edge === "left" ? 8 : edge === "right" ? -8 : 6;
+    const rippleX = horizontal ? 0.97 : 1.03;
+    const rippleY = horizontal ? 1.03 : 0.97;
+    return {
+      duration: 340,
+      keyframes: [
+        { transform: "translateX(0%) rotate(0deg) scale(1, 1)", transformOrigin: origin },
+        { transform: `translateX(${wallShift}) rotate(${tilt}deg) scale(${sx}, ${sy})`, transformOrigin: origin, offset: 0.26 },
+        { transform: `translateX(0%) rotate(${-Math.round(tilt * 0.5)}deg) scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.56 },
+        { transform: `translateX(0%) rotate(${Math.round(tilt * 0.25)}deg) scale(${rippleX}, ${rippleY})`, transformOrigin: origin, offset: 0.8 },
+        { transform: "translateX(0%) rotate(0deg) scale(1, 1)", transformOrigin: origin },
+      ],
+    };
+  }
+
+  if (kind === "sprite") {
+    const shakeA = horizontal ? "translateY(-2px)" : "translateX(-3px)";
+    const shakeB = horizontal ? "translateY(2px)" : "translateX(3px)";
+    return {
+      duration: 280,
+      keyframes: [
+        { transform: `translateX(0%) ${mirror}scale(1, 1)`, transformOrigin: origin },
+        { transform: `translateX(${wallShift}) ${mirror}scale(${sx}, ${sy})`, transformOrigin: origin, offset: 0.28 },
+        { transform: `${shakeA} ${mirror}scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.55 },
+        { transform: `${shakeB} ${mirror}scale(1, 1)`, transformOrigin: origin, offset: 0.78 },
+        { transform: `translateX(0%) ${mirror}scale(1, 1)`, transformOrigin: origin },
+      ],
+    };
+  }
+
+  return {
+    duration: SQ_DURATION_MS,
+    keyframes: [
+      { transform: `translateX(0%) ${mirror}scale(1, 1)`, transformOrigin: origin },
+      { transform: `translateX(${wallShift}) ${mirror}scale(${sx}, ${sy})`, transformOrigin: origin, offset: 0.35 },
+      { transform: `translateX(0%) ${mirror}scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.72 },
+      { transform: `translateX(0%) ${mirror}scale(1, 1)`, transformOrigin: origin },
+    ],
+  };
 }
