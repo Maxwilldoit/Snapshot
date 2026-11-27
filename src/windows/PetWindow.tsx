@@ -227,6 +227,12 @@ type DragGeometry = {
   content: MediaBounds | null;
 };
 
+type ImpactBurst = {
+  id: number;
+  edge: ContactEdge;
+  kind: PetImpactKind;
+};
+
 type ActiveSleep = {
   phase: "start" | "loop" | "end";
   entry: string;
@@ -293,6 +299,9 @@ export function PetWindow() {
   const [falling, setFalling] = useState(false);
   const [manualAction, setManualAction] = useState(false);
   const [squashing, setSquashing] = useState(false);
+  const [impactBurst, setImpactBurst] = useState<ImpactBurst | null>(null);
+  const impactSeq = useRef(0);
+  const impactTimer = useRef<number | undefined>(undefined);
   const [sleepState, setSleepState] = useState<ActiveSleep | null>(null);
   const sleepRef = useRef<ActiveSleep | null>(null);
   const flyingRef = useRef(false);
@@ -477,18 +486,30 @@ export function PetWindow() {
     animateSurface(surface, keyframes, duration, expandWindow);
   }
 
+  function triggerImpactBurst(edge: ContactEdge, kind: PetImpactKind) {
+    if (motionReduced()) return;
+    window.clearTimeout(impactTimer.current);
+    const id = ++impactSeq.current;
+    setImpactBurst({ id, edge, kind });
+    impactTimer.current = window.setTimeout(() => {
+      setImpactBurst((current) => (current?.id === id ? null : current));
+    }, 700);
+  }
+
   function triggerCurrentImpact(edge: ContactEdge, speed: number) {
     if (motionReduced()) return;
     if (!latestAsset.current) {
+      triggerImpactBurst(edge, "app-icon");
       const actor = petRootRef.current?.querySelector<HTMLElement>(".pet-icon-actor");
       if (!actor) return;
       const { keyframes, duration } = impactDeformation(edge, speed, "app-icon", false);
       animateSurface(actor, keyframes, duration, false);
       return;
     }
+    const kind: PetImpactKind = behaviorRef.current ? "behavior" : "sprite";
+    triggerImpactBurst(edge, kind);
     const media = petRootRef.current?.querySelector<PetMediaElement>(".pet-current");
     if (!media) return;
-    const kind: PetImpactKind = behaviorRef.current ? "behavior" : "sprite";
     const mirrored = behaviorRef.current ? facingRef.current === "right" : Boolean(displayedRef.current?.flip);
     triggerMediaImpact(media, edge, speed, kind, mirrored, !pointerHeld.current);
   }
@@ -604,7 +625,15 @@ export function PetWindow() {
       const entry = pickPetHitEntry(profile, edge, targetEntry.current);
       if (!entry) return;
       playBehaviorInteraction(entry, "hit", (media) => {
-        triggerMediaImpact(media, edge, speed, "behavior", facingRef.current === "right");
+        // DSH 视频开头普遍有 1~1.5s 待机呼吸前摇；受击瞬间直接跳入惊跳/压缩高潮帧。
+        if (profile.id === "dsh-pet" && Number.isFinite(media.duration) && media.duration >= 2.4) {
+          try {
+            media.currentTime = Math.min(1.15, media.duration * 0.22);
+          } catch {
+            // 解码器尚未允许 seek 时保留原起点。
+          }
+        }
+        triggerMediaImpact(media, edge, speed, "behavior", facingRef.current === "right", !pointerHeld.current);
       });
       return;
     }
@@ -633,6 +662,7 @@ export function PetWindow() {
       window.clearTimeout(returnTimer.current);
       window.clearTimeout(clickTimer.current);
       window.clearTimeout(eventTimer.current);
+      window.clearTimeout(impactTimer.current);
       cancelPointerDrag.current?.();
       cancelBehaviorPlayback();
     },
@@ -1238,7 +1268,7 @@ export function PetWindow() {
     let geometry: DragGeometry | null = null;
     let target: { x: number; y: number } | null = null;
     let trail: PointerSample[] = [{ t: pressNow, x: startScreenX, y: startScreenY }];
-    let activeWallContact: ContactEdge | null = null;
+    const armedEdges: Record<ContactEdge, boolean> = { left: false, right: false, ceiling: false, floor: false };
     let lastDragHitAt = -Infinity;
     let dragHitTimer: number | undefined;
     let frame = 0;
@@ -1312,42 +1342,55 @@ export function PetWindow() {
       const rawY = geometry.position.y + (screenY - startScreenY) * geometry.scale;
       const clampedY = geometry.floorY === null ? rawY : Math.min(rawY, geometry.floorY);
       const hLimits = petHorizontalLimits(geometry.areas, { x: rawX, y: clampedY }, geometry.size, geometry.content, geometry.scale);
-      let hitEdge: ContactEdge | null = null;
-      if (hLimits && rawX < hLimits.minX - 2) hitEdge = "left";
-      else if (hLimits && rawX > hLimits.maxX + 2) hitEdge = "right";
-      else if (geometry.ceilingY !== null && rawY < geometry.ceilingY - 2) hitEdge = "ceiling";
-      else if (geometry.floorY !== null && rawY > geometry.floorY + 2) hitEdge = "floor";
-
-      if (!hitEdge) {
-        activeWallContact = null;
-        return;
+      if (hLimits) {
+        if (rawX > hLimits.minX + 10) armedEdges.left = true;
+        if (rawX < hLimits.maxX - 10) armedEdges.right = true;
       }
-      if (hitEdge === activeWallContact || now - lastDragHitAt < 260) return;
-      const recent = trail.filter((item) => now - item.t <= 140);
+      if (geometry.ceilingY !== null && rawY > geometry.ceilingY + 10) armedEdges.ceiling = true;
+      if (geometry.floorY !== null && rawY < geometry.floorY - 10) armedEdges.floor = true;
+
+      const recent = trail.filter((item) => now - item.t <= 160);
       if (recent.length < 3) return;
       const first = recent[0];
       const dtMs = now - first.t;
-      if (dtMs < 16) return;
-      const speed = (Math.hypot(screenX - first.x, screenY - first.y) / dtMs) * 1000;
-      if (speed < 320) return;
-      activeWallContact = hitEdge;
+      if (dtMs < 12) return;
+      const dx = screenX - first.x;
+      const dy = screenY - first.y;
+      const speed = (Math.hypot(dx, dy) / dtMs) * 1000;
+      if (speed < 120 || now - lastDragHitAt < 240) return;
+
+      let hitEdge: ContactEdge | null = null;
+      if (hLimits && armedEdges.left && dx < -4 && rawX <= hLimits.minX + 1) {
+        hitEdge = "left";
+        armedEdges.left = false;
+      } else if (hLimits && armedEdges.right && dx > 4 && rawX >= hLimits.maxX - 1) {
+        hitEdge = "right";
+        armedEdges.right = false;
+      } else if (geometry.ceilingY !== null && armedEdges.ceiling && dy < -4 && rawY <= geometry.ceilingY + 1) {
+        hitEdge = "ceiling";
+        armedEdges.ceiling = false;
+      } else if (geometry.floorY !== null && armedEdges.floor && dy > 4 && rawY >= geometry.floorY - 1) {
+        hitEdge = "floor";
+        armedEdges.floor = false;
+      }
+      if (!hitEdge) return;
+
       lastDragHitAt = now;
-      triggerCurrentImpact(hitEdge, speed);
-      if (speed >= HIT_ACTION_MIN_SPEED) {
-        if (behaviorRef.current) {
-          const hitClip = pickPetHitEntry(behaviorRef.current, hitEdge, targetEntry.current);
-          if (hitClip) {
-            window.clearTimeout(dragHitTimer);
-            setDragEntry(hitClip);
-            dragHitTimer = window.setTimeout(() => {
-              if (!finished && dragged.current && behaviorRef.current && !sleepRef.current) {
-                setDragEntry(pickPetEntry(behaviorRef.current.drag, hitClip));
-              }
-            }, 1800);
-          }
-        } else {
-          triggerCharacterHitClip(hitEdge, speed);
+      const effectiveSpeed = Math.max(speed * 1.6, 520);
+      triggerCurrentImpact(hitEdge, effectiveSpeed);
+      if (behaviorRef.current) {
+        const hitClip = pickPetHitEntry(behaviorRef.current, hitEdge, targetEntry.current);
+        if (hitClip) {
+          window.clearTimeout(dragHitTimer);
+          setDragEntry(hitClip);
+          dragHitTimer = window.setTimeout(() => {
+            if (!finished && dragged.current && behaviorRef.current && !sleepRef.current) {
+              setDragEntry(pickPetEntry(behaviorRef.current.drag, hitClip));
+            }
+          }, 2200);
         }
+      } else {
+        triggerCharacterHitClip(hitEdge, effectiveSpeed);
       }
     };
 
@@ -1528,6 +1571,15 @@ export function PetWindow() {
     void readDragGeometry(petWindow, visibleBounds.current, groundOffset.current).then((result) => {
       if (finished) return;
       geometry = result;
+      if (geometry) {
+        const hLimits = petHorizontalLimits(geometry.areas, geometry.position, geometry.size, geometry.content, geometry.scale);
+        if (hLimits) {
+          armedEdges.left = geometry.position.x > hLimits.minX + 6;
+          armedEdges.right = geometry.position.x < hLimits.maxX - 6;
+        }
+        if (geometry.ceilingY !== null) armedEdges.ceiling = geometry.position.y > geometry.ceilingY + 6;
+        if (geometry.floorY !== null) armedEdges.floor = geometry.position.y < geometry.floorY - 6;
+      }
       if (dragged.current && geometry) {
         moved.x = geometry.position.x - dragShift.x;
         moved.y = geometry.position.y - dragShift.y;
@@ -1796,6 +1848,22 @@ export function PetWindow() {
                   playing={frame.key !== leaving?.key}
                   loop={frame.loop}
                   onReady={(element) => {
+                    if (
+                      element instanceof HTMLVideoElement &&
+                      behaviorRef.current?.id === "dsh-pet" &&
+                      pointerHeld.current &&
+                      frame.entry &&
+                      behaviorRef.current.hit.includes(frame.entry) &&
+                      Number.isFinite(element.duration) &&
+                      element.duration >= 2.4 &&
+                      element.currentTime < 0.2
+                    ) {
+                      try {
+                        element.currentTime = Math.min(1.15, element.duration * 0.22);
+                      } catch {
+                        // 解码器尚未允许 seek 时保留原起点。
+                      }
+                    }
                     readyMedia.current.set(frame.key, element);
                     rememberMediaDimensions(frame, element);
                     void onPetImageReady(frame, element);
@@ -1824,6 +1892,43 @@ export function PetWindow() {
           </div>
         )}
       </div>
+      {impactBurst && (
+        <div
+          key={impactBurst.id}
+          className={`pet-impact-fx edge-${impactBurst.edge} kind-${impactBurst.kind}`}
+          aria-hidden="true"
+        >
+          <div className="pet-impact-contact">
+            <span className="pet-impact-ring" />
+            {impactBurst.kind === "behavior" ? (
+              <svg className="pet-impact-bubbles" viewBox="0 0 48 48">
+                <circle cx="14" cy="14" r="4.5" fill="rgba(135, 222, 255, 0.92)" />
+                <circle cx="35" cy="12" r="3.5" fill="rgba(255, 255, 255, 0.95)" />
+                <circle cx="10" cy="33" r="3" fill="rgba(135, 222, 255, 0.88)" />
+                <circle cx="36" cy="34" r="4" fill="rgba(180, 236, 255, 0.9)" />
+                <circle cx="24" cy="7" r="2.5" fill="rgba(255, 255, 255, 0.9)" />
+              </svg>
+            ) : (
+              <svg className="pet-impact-burst" viewBox="0 0 48 48">
+                <path
+                  d="M24 2 L28 17 L43 13 L31 24 L43 35 L28 31 L24 46 L20 31 L5 35 L17 24 L5 13 L20 17 Z"
+                  fill={impactBurst.kind === "app-icon" ? "rgba(255, 204, 77, 0.95)" : "rgba(255, 118, 92, 0.95)"}
+                  stroke="rgba(255, 255, 255, 0.92)"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </div>
+          {impactBurst.kind === "sprite" && (
+            <svg className="pet-impact-dizzy" viewBox="0 0 64 28">
+              <ellipse cx="32" cy="16" rx="22" ry="6" fill="none" stroke="rgba(255, 214, 70, 0.85)" strokeWidth="1.6" strokeDasharray="4 3" />
+              <path d="M12 14 L14 9 L16 14 L21 16 L16 18 L14 23 L12 18 L7 16 Z" fill="#FFD43B" stroke="#FFF" strokeWidth="1" />
+              <path d="M48 11 L50 6 L52 11 L57 13 L52 15 L50 20 L48 15 L43 13 Z" fill="#FFA94D" stroke="#FFF" strokeWidth="1" />
+            </svg>
+          )}
+        </div>
+      )}
     </div>
   );
 }

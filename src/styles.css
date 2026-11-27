@@ -278,6 +278,81 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 }
 @keyframes pet-crossfade-out { to { opacity: 0; } }
 
+.pet-impact-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  overflow: visible;
+}
+.pet-impact-contact {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+.pet-impact-fx.edge-left .pet-impact-contact { left: 10%; top: 52%; }
+.pet-impact-fx.edge-right .pet-impact-contact { left: 90%; top: 52%; }
+.pet-impact-fx.edge-ceiling .pet-impact-contact { left: 50%; top: 12%; }
+.pet-impact-fx.edge-floor .pet-impact-contact { left: 50%; top: 88%; }
+
+.pet-impact-ring {
+  position: absolute;
+  inset: 6px;
+  border-radius: 999px;
+  border: 2.5px solid rgba(255, 196, 72, 0.95);
+  box-shadow: 0 0 8px rgba(255, 148, 46, 0.55);
+  animation: pet-impact-ring 460ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.pet-impact-fx.kind-behavior .pet-impact-ring {
+  border-color: rgba(110, 212, 255, 0.95);
+  box-shadow: 0 0 10px rgba(72, 180, 255, 0.55);
+}
+.pet-impact-burst {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  animation: pet-impact-burst 480ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.pet-impact-dizzy {
+  position: absolute;
+  left: 50%;
+  top: 14%;
+  width: 56px;
+  height: 24px;
+  transform: translateX(-50%);
+  animation: pet-impact-dizzy 680ms ease-out forwards;
+}
+.pet-impact-bubbles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  animation: pet-impact-bubbles 640ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes pet-impact-ring {
+  0% { transform: scale(0.25); opacity: 1; }
+  100% { transform: scale(1.65); opacity: 0; }
+}
+@keyframes pet-impact-burst {
+  0% { transform: scale(0.3) rotate(-18deg); opacity: 1; }
+  45% { transform: scale(1.18) rotate(8deg); opacity: 1; }
+  100% { transform: scale(1.45) rotate(20deg); opacity: 0; }
+}
+@keyframes pet-impact-dizzy {
+  0% { transform: translateX(-50%) translateY(6px) scale(0.5); opacity: 0; }
+  20% { transform: translateX(-50%) translateY(0) scale(1.08); opacity: 1; }
+  55% { transform: translateX(-50%) translateY(-3px) rotate(10deg) scale(1); opacity: 1; }
+  80% { transform: translateX(-50%) translateY(-5px) rotate(-10deg) scale(0.96); opacity: 0.9; }
+  100% { transform: translateX(-50%) translateY(-8px) scale(0.75); opacity: 0; }
+}
+@keyframes pet-impact-bubbles {
+  0% { transform: scale(0.35); opacity: 1; }
+  65% { transform: scale(1.2); opacity: 0.92; }
+  100% { transform: scale(1.55) translateY(-8px); opacity: 0; }
+}
+
 /* ---------- 截后标注窗口 ---------- */
 /* 和 v12 主窗口同一套颜色（main-window.css 里 html[data-window="annotate"] 的变量）：
    上面一条 52px 的统一工具栏（macOS 红黄绿叠在左边），下面是「预览」式的灰底画布。 */

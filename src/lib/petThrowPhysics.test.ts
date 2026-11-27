@@ -120,8 +120,8 @@ describe("petThrowPhysics", () => {
     const iconLeft = impactDeformation("left", 1000, "app-icon", false);
     const spriteCeiling = impactDeformation("ceiling", 1000, "sprite", true);
     const whaleRight = impactDeformation("right", 1000, "behavior", true);
-    expect(iconLeft.keyframes).toHaveLength(5);
-    expect(String(iconLeft.keyframes[1].transform)).toContain("rotate(15deg)");
+    expect(iconLeft.keyframes).toHaveLength(6);
+    expect(String(iconLeft.keyframes[1].transform)).toContain("rotate(18deg)");
     expect(spriteCeiling.keyframes[1].transformOrigin).toBe("50% 0%");
     expect(String(spriteCeiling.keyframes[1].transform)).toContain("scaleX(-1)");
     expect(String(whaleRight.keyframes[1].transform)).toMatch(/^translateX\(\d/);

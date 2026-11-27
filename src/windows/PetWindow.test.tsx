@@ -2063,6 +2063,7 @@ describe("桌宠：DSH 动作交互", () => {
     });
     await elapse(32);
     expect(shown(container).file).toBe("feedback_failure.gif");
+    expect(container.querySelector(".pet-impact-fx.edge-left.kind-sprite")).not.toBeNull();
     await act(async () => {
       fireEvent.pointerUp(window, { pointerId: 9 });
     });
