@@ -47,7 +47,7 @@ const SEG_MIN_DT_MS = 8;
 
 export const DEAD_ZONE_SPEED = 500;
 /** 触发角色专属受击动画片段的最小法向碰撞速度（轻擦微弹只做形变缓冲）。 */
-export const HIT_ACTION_MIN_SPEED = 420;
+export const HIT_ACTION_MIN_SPEED = 360;
 const MAX_THROW_SPEED = 3600;
 const PEAK_WEIGHT = 0.5;
 const ACCEL_REF = 8000;
@@ -293,25 +293,43 @@ export function landingSquash(impactSpeed: number): number {
   return Math.min(0.8, 1 - t * (1 - SQ_MAX_SQUASH));
 }
 
-/** 已被拖到贴紧某侧屏幕边界时，剔除继续往墙里推的分量，避免贴边松手误触发反向弹射。 */
+/** 已被拖到贴紧某侧屏幕边界时，剔除继续往墙里推的分量，同时返回贴边猛撞的受击边与速度。 */
 export function clampLaunchAtBounds(
   origin: { x: number; y: number },
   velocity: { vx: number; vy: number },
   bounds: ThrowBounds,
-): { vx: number; vy: number } | null {
+): { velocity: { vx: number; vy: number } | null; blockedHit: { edge: ContactEdge; speed: number } | null } {
   let { vx, vy } = velocity;
-  if (origin.x <= bounds.minX + 0.5 && vx < 0) vx = 0;
-  if (origin.x >= bounds.maxX - 0.5 && vx > 0) vx = 0;
-  if (origin.y <= bounds.minY + 0.5 && vy < 0) vy = 0;
-  if (origin.y >= bounds.maxY - 0.5 && vy > 0) vy = 0;
-  if (Math.hypot(vx, vy) < DEAD_ZONE_SPEED) return null;
-  return { vx, vy };
+  let blockedHit: { edge: ContactEdge; speed: number } | null = null;
+  const recordBlocked = (edge: ContactEdge, speed: number) => {
+    if (!blockedHit || speed > blockedHit.speed) blockedHit = { edge, speed };
+  };
+  if (origin.x <= bounds.minX + 0.5 && vx < 0) {
+    recordBlocked("left", Math.abs(vx));
+    vx = 0;
+  }
+  if (origin.x >= bounds.maxX - 0.5 && vx > 0) {
+    recordBlocked("right", Math.abs(vx));
+    vx = 0;
+  }
+  if (origin.y <= bounds.minY + 0.5 && vy < 0) {
+    recordBlocked("ceiling", Math.abs(vy));
+    vy = 0;
+  }
+  if (origin.y >= bounds.maxY - 0.5 && vy > 0) {
+    recordBlocked("floor", Math.abs(vy));
+    vy = 0;
+  }
+  return {
+    velocity: Math.hypot(vx, vy) < DEAD_ZONE_SPEED ? null : { vx, vy },
+    blockedHit,
+  };
 }
 
 /**
  * 按碰撞法线方向与角色类型生成受击形变关键帧：
- * - app-icon：果冻多段回弹 + 受击歪斜
- * - sprite（GIF/普通素材）：法向受击挤压 + 眩晕微震颤
+ * - app-icon：果冻多段挤压回弹 + 受击歪斜晃动
+ * - sprite（GIF/普通素材）：明显法向压扁 + 眩晕左右抖动
  * - behavior（大肥鱼等）：顺滑 Q 弹法向压缩回弹
  */
 export function impactDeformation(
@@ -322,7 +340,7 @@ export function impactDeformation(
 ): { keyframes: Keyframe[]; duration: number } {
   const comp = landingSquash(impactSpeed);
   const delta = 1 - comp;
-  const stretch = Number((1 + delta * 0.5).toFixed(3));
+  const stretch = Number(Math.min(1.22, 1 + delta * 0.55).toFixed(3));
   const mirror = mirrored ? "scaleX(-1) " : "";
   const horizontal = edge === "left" || edge === "right";
   const origin = edge === "floor" ? "50% 100%" : edge === "ceiling" ? "50% 0%" : "50% 50%";
@@ -332,46 +350,54 @@ export function impactDeformation(
   const wallShift = horizontal
     ? `${edge === "left" ? "-" : ""}${Number((delta * 50).toFixed(2))}%`
     : "0%";
-  const reboundX = horizontal ? Number((1 + delta * 0.16).toFixed(3)) : 0.97;
-  const reboundY = horizontal ? 0.97 : Number((1 + delta * 0.16).toFixed(3));
+  const reboundX = horizontal ? Number((1 + delta * 0.24).toFixed(3)) : 0.94;
+  const reboundY = horizontal ? 0.94 : Number((1 + delta * 0.24).toFixed(3));
 
   if (kind === "app-icon") {
-    const tilt = edge === "left" ? 8 : edge === "right" ? -8 : 6;
-    const rippleX = horizontal ? 0.97 : 1.03;
-    const rippleY = horizontal ? 1.03 : 0.97;
+    const iconComp = Number(Math.max(0.52, comp - 0.08).toFixed(3));
+    const iconDelta = 1 - iconComp;
+    const iconStretch = Number(Math.min(1.18, 1 + iconDelta * 0.45).toFixed(3));
+    const iconSx = horizontal ? iconComp : iconStretch;
+    const iconSy = horizontal ? iconStretch : iconComp;
+    const iconWallShift = horizontal
+      ? `${edge === "left" ? "-" : ""}${Number((iconDelta * 50).toFixed(2))}%`
+      : "0%";
+    const tilt = edge === "left" ? 15 : edge === "right" ? -15 : 12;
+    const rippleX = horizontal ? 0.94 : 1.06;
+    const rippleY = horizontal ? 1.06 : 0.94;
     return {
-      duration: 340,
+      duration: 460,
       keyframes: [
         { transform: "translateX(0%) rotate(0deg) scale(1, 1)", transformOrigin: origin },
-        { transform: `translateX(${wallShift}) rotate(${tilt}deg) scale(${sx}, ${sy})`, transformOrigin: origin, offset: 0.26 },
-        { transform: `translateX(0%) rotate(${-Math.round(tilt * 0.5)}deg) scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.56 },
-        { transform: `translateX(0%) rotate(${Math.round(tilt * 0.25)}deg) scale(${rippleX}, ${rippleY})`, transformOrigin: origin, offset: 0.8 },
+        { transform: `translateX(${iconWallShift}) rotate(${tilt}deg) scale(${iconSx}, ${iconSy})`, transformOrigin: origin, offset: 0.22 },
+        { transform: `translateX(0%) rotate(${-Math.round(tilt * 0.65)}deg) scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.5 },
+        { transform: `translateX(0%) rotate(${Math.round(tilt * 0.35)}deg) scale(${rippleX}, ${rippleY})`, transformOrigin: origin, offset: 0.76 },
         { transform: "translateX(0%) rotate(0deg) scale(1, 1)", transformOrigin: origin },
       ],
     };
   }
 
   if (kind === "sprite") {
-    const shakeA = horizontal ? "translateY(-2px)" : "translateX(-3px)";
-    const shakeB = horizontal ? "translateY(2px)" : "translateX(3px)";
+    const shakeA = horizontal ? "translateY(-4px) rotate(-6deg)" : "translateX(-5px) rotate(-6deg)";
+    const shakeB = horizontal ? "translateY(4px) rotate(6deg)" : "translateX(5px) rotate(6deg)";
     return {
-      duration: 280,
+      duration: 380,
       keyframes: [
         { transform: `translateX(0%) ${mirror}scale(1, 1)`, transformOrigin: origin },
-        { transform: `translateX(${wallShift}) ${mirror}scale(${sx}, ${sy})`, transformOrigin: origin, offset: 0.28 },
-        { transform: `${shakeA} ${mirror}scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.55 },
-        { transform: `${shakeB} ${mirror}scale(1, 1)`, transformOrigin: origin, offset: 0.78 },
+        { transform: `translateX(${wallShift}) ${mirror}scale(${sx}, ${sy})`, transformOrigin: origin, offset: 0.24 },
+        { transform: `${shakeA} ${mirror}scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.5 },
+        { transform: `${shakeB} ${mirror}scale(1.02, 0.98)`, transformOrigin: origin, offset: 0.75 },
         { transform: `translateX(0%) ${mirror}scale(1, 1)`, transformOrigin: origin },
       ],
     };
   }
 
   return {
-    duration: SQ_DURATION_MS,
+    duration: 280,
     keyframes: [
       { transform: `translateX(0%) ${mirror}scale(1, 1)`, transformOrigin: origin },
-      { transform: `translateX(${wallShift}) ${mirror}scale(${sx}, ${sy})`, transformOrigin: origin, offset: 0.35 },
-      { transform: `translateX(0%) ${mirror}scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.72 },
+      { transform: `translateX(${wallShift}) ${mirror}scale(${sx}, ${sy})`, transformOrigin: origin, offset: 0.32 },
+      { transform: `translateX(0%) ${mirror}scale(${reboundX}, ${reboundY})`, transformOrigin: origin, offset: 0.7 },
       { transform: `translateX(0%) ${mirror}scale(1, 1)`, transformOrigin: origin },
     ],
   };

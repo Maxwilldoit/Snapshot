@@ -14,7 +14,7 @@ function isHitEntry(entry: string): boolean {
   return stem.split(/[^a-z0-9]+/).some((word) => HIT_WORDS.has(word));
 }
 
-/** 优先使用 pet.json 显式绑定的 pet.hit，其次从素材列表匹配受击命名动作。 */
+/** 优先使用 pet.json 显式绑定的 pet.hit，其次匹配受击命名动作，最后回退到包内的失败受挫反馈动画。 */
 export function pickHitAnimation(
   asset: Pick<PetAsset, "animations" | "eventActions"> | null | undefined,
   current?: string | null,
@@ -24,10 +24,14 @@ export function pickHitAnimation(
   const mapped = asset.eventActions?.["pet.hit"];
   if (mapped && asset.animations.includes(mapped)) return mapped;
   const pool = asset.animations.filter(isHitEntry);
-  if (!pool.length) return null;
-  const alternatives = pool.filter((entry) => entry !== current);
-  const candidates = alternatives.length ? alternatives : pool;
-  return candidates[Math.floor(random() * candidates.length)] ?? null;
+  if (pool.length) {
+    const alternatives = pool.filter((entry) => entry !== current);
+    const candidates = alternatives.length ? alternatives : pool;
+    return candidates[Math.floor(random() * candidates.length)] ?? null;
+  }
+  const failure = asset.eventActions?.["capture.failure"];
+  if (failure && asset.animations.includes(failure)) return failure;
+  return null;
 }
 
 /** Animation clips that can be displayed normally; event-only and state clips stay reserved. */

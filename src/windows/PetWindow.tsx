@@ -462,12 +462,19 @@ export function PetWindow() {
     ], duration, true);
   }
 
-  function triggerMediaImpact(media: PetMediaElement, edge: ContactEdge, speed: number, kind: PetImpactKind, mirrored: boolean) {
+  function triggerMediaImpact(
+    media: PetMediaElement,
+    edge: ContactEdge,
+    speed: number,
+    kind: PetImpactKind,
+    mirrored: boolean,
+    expandWindow = true,
+  ) {
     if (motionReduced()) return;
     const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
     if (!(surface instanceof HTMLElement)) return;
     const { keyframes, duration } = impactDeformation(edge, speed, kind, mirrored);
-    animateSurface(surface, keyframes, duration, true);
+    animateSurface(surface, keyframes, duration, expandWindow);
   }
 
   function triggerCurrentImpact(edge: ContactEdge, speed: number) {
@@ -483,7 +490,7 @@ export function PetWindow() {
     if (!media) return;
     const kind: PetImpactKind = behaviorRef.current ? "behavior" : "sprite";
     const mirrored = behaviorRef.current ? facingRef.current === "right" : Boolean(displayedRef.current?.flip);
-    triggerMediaImpact(media, edge, speed, kind, mirrored);
+    triggerMediaImpact(media, edge, speed, kind, mirrored, !pointerHeld.current);
   }
 
   function setPullTension(pullDist: number, refWidth: number) {
@@ -946,7 +953,7 @@ export function PetWindow() {
     }
 
     const syncFacing = (nextVx: number) => {
-      if (Math.abs(nextVx) > 30 && !sleepRef.current) {
+      if (Math.abs(nextVx) > 30 && !sleepRef.current && !playback.active()) {
         const nextFacing: PetFacing = nextVx > 0 ? "right" : "left";
         if (facingRef.current !== nextFacing) {
           facingRef.current = nextFacing;
@@ -1044,8 +1051,14 @@ export function PetWindow() {
         void petWindow.setPosition(new PhysicalPosition(
           Math.round(x + frameShift.current.x - shift.x), Math.round(y + frameShift.current.y - shift.y),
         )).catch(() => {});
-        if (landed) resolve();
-        else gravityFrame.current = requestAnimationFrame(step);
+        if (landed) {
+          const impactSpeed = velocity / scale;
+          if (impactSpeed >= 240) triggerCurrentImpact("floor", impactSpeed);
+          if (impactSpeed >= 700) triggerCharacterHitClip("floor", impactSpeed);
+          resolve();
+        } else {
+          gravityFrame.current = requestAnimationFrame(step);
+        }
       };
       gravityFrame.current = requestAnimationFrame(step);
     });
@@ -1225,6 +1238,9 @@ export function PetWindow() {
     let geometry: DragGeometry | null = null;
     let target: { x: number; y: number } | null = null;
     let trail: PointerSample[] = [{ t: pressNow, x: startScreenX, y: startScreenY }];
+    let activeWallContact: ContactEdge | null = null;
+    let lastDragHitAt = -Infinity;
+    let dragHitTimer: number | undefined;
     let frame = 0;
     let finished = false;
     const moved = { x: startScreenX, y: startScreenY };
@@ -1243,6 +1259,7 @@ export function PetWindow() {
       window.removeEventListener("pointerup", finishPress);
       window.removeEventListener("pointercancel", cancelPress);
       element.removeEventListener("lostpointercapture", loseCapture);
+      window.clearTimeout(dragHitTimer);
       if (frame) window.cancelAnimationFrame(frame);
       frame = 0;
       setPullTension(0, fittedSize ?? petSize);
@@ -1287,6 +1304,51 @@ export function PetWindow() {
         frame = 0;
         placeTarget();
       });
+    };
+
+    const detectHeldWallHit = (screenX: number, screenY: number, now: number) => {
+      if (!geometry || sling || sleepRef.current) return;
+      const rawX = geometry.position.x + (screenX - startScreenX) * geometry.scale;
+      const rawY = geometry.position.y + (screenY - startScreenY) * geometry.scale;
+      const clampedY = geometry.floorY === null ? rawY : Math.min(rawY, geometry.floorY);
+      const hLimits = petHorizontalLimits(geometry.areas, { x: rawX, y: clampedY }, geometry.size, geometry.content, geometry.scale);
+      let hitEdge: ContactEdge | null = null;
+      if (hLimits && rawX < hLimits.minX - 2) hitEdge = "left";
+      else if (hLimits && rawX > hLimits.maxX + 2) hitEdge = "right";
+      else if (geometry.ceilingY !== null && rawY < geometry.ceilingY - 2) hitEdge = "ceiling";
+      else if (geometry.floorY !== null && rawY > geometry.floorY + 2) hitEdge = "floor";
+
+      if (!hitEdge) {
+        activeWallContact = null;
+        return;
+      }
+      if (hitEdge === activeWallContact || now - lastDragHitAt < 260) return;
+      const recent = trail.filter((item) => now - item.t <= 140);
+      if (recent.length < 3) return;
+      const first = recent[0];
+      const dtMs = now - first.t;
+      if (dtMs < 16) return;
+      const speed = (Math.hypot(screenX - first.x, screenY - first.y) / dtMs) * 1000;
+      if (speed < 320) return;
+      activeWallContact = hitEdge;
+      lastDragHitAt = now;
+      triggerCurrentImpact(hitEdge, speed);
+      if (speed >= HIT_ACTION_MIN_SPEED) {
+        if (behaviorRef.current) {
+          const hitClip = pickPetHitEntry(behaviorRef.current, hitEdge, targetEntry.current);
+          if (hitClip) {
+            window.clearTimeout(dragHitTimer);
+            setDragEntry(hitClip);
+            dragHitTimer = window.setTimeout(() => {
+              if (!finished && dragged.current && behaviorRef.current && !sleepRef.current) {
+                setDragEntry(pickPetEntry(behaviorRef.current.drag, hitClip));
+              }
+            }, 1800);
+          }
+        } else {
+          triggerCharacterHitClip(hitEdge, speed);
+        }
+      }
     };
 
     const clampTarget = (screenX: number, screenY: number) => {
@@ -1341,6 +1403,7 @@ export function PetWindow() {
         setPullTension(Math.hypot(move.screenX - startScreenX, move.screenY - startScreenY), fittedSize ?? petSize);
       }
       if (!geometry) return;
+      detectHeldWallHit(lastScreenX, lastScreenY, now);
       target = clampTarget(lastScreenX, lastScreenY);
       schedulePlace();
     };
@@ -1421,7 +1484,7 @@ export function PetWindow() {
           if (rawVelocity) {
             const scale = geometry.scale > 0 ? geometry.scale : 1;
             const bounds = computeThrowBounds(target, geometry);
-            const clamped = clampLaunchAtBounds(
+            const { velocity: clamped, blockedHit } = clampLaunchAtBounds(
               { x: target.x / scale, y: target.y / scale },
               rawVelocity,
               bounds,
@@ -1429,6 +1492,10 @@ export function PetWindow() {
             if (clamped) {
               launchThrow(target, clamped.vx, clamped.vy, geometry);
               return;
+            }
+            if (blockedHit && blockedHit.speed >= HIT_ACTION_MIN_SPEED) {
+              triggerCurrentImpact(blockedHit.edge, blockedHit.speed);
+              triggerCharacterHitClip(blockedHit.edge, blockedHit.speed);
             }
           }
         }

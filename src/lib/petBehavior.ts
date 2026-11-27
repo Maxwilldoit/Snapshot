@@ -49,7 +49,7 @@ export interface PetBehavior {
 // See THIRD_PARTY_NOTICES.md for source and license.
 const DSH_IDLE = ["待机呼吸休闲"];
 const DSH_DRAG = ["被鼠标拖拽悬空反馈"];
-const DSH_HIT = ["被吓一跳", "原地重力下蹲压缩", "打瞌睡被惊醒"];
+const DSH_HIT = ["被吓一跳", "原地重力下蹲压缩", "打瞌睡被惊醒", "玩游戏气急败坏"];
 const DSH_TURN = ["东张西望"];
 const DSH_PRIMARY_CLICKS = [
   "点击回应-开心跃动",
@@ -188,12 +188,25 @@ function resolveManifestBehavior(
     if (resolved) stateActions[key] = resolved;
   }
 
+  const knownByWebm = new Map<string, string>();
+  for (const entry of [asset.entry, ...asset.animations]) {
+    const name = webmName(entry);
+    if (name !== null && !knownByWebm.has(name)) knownByWebm.set(name, entry);
+  }
+  const explicitHit = filterPool(manifest.hit);
+  const hit = explicitHit.length
+    ? explicitHit
+    : DSH_HIT.flatMap((name) => {
+        const entry = knownByWebm.get(name);
+        return entry === undefined ? [] : [entry];
+      });
+
   return {
     id: manifest.id || "custom-behavior",
     idle,
     clicks,
     drag,
-    hit: filterPool(manifest.hit),
+    hit,
     turn: filterPool(manifest.turn),
     sleep,
     moves: (manifest.moves ?? []).flatMap((move) => {

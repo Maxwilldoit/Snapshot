@@ -444,12 +444,24 @@ describe("pickPetBehaviorAction", () => {
     expect(pickPetBehaviorAction(behavior, "left", null, () => 0.999999)).toBe("valid");
   });
 
-  it("大肥鱼解析专属碰撞受击动作池，并按落地/侧墙碰撞偏好挑选动作", () => {
+  it("大肥鱼解析专属碰撞受击动作池（含旧版 pet.json 自动回填），并按落地/侧墙碰撞偏好挑选动作", () => {
     const behavior = resolved();
-    expect(behavior.hit).toEqual(["被吓一跳.webm", "原地重力下蹲压缩.webm", "打瞌睡被惊醒.webm"]);
+    expect(behavior.hit).toEqual(["被吓一跳.webm", "原地重力下蹲压缩.webm", "打瞌睡被惊醒.webm", "玩游戏气急败坏.webm"]);
     expect(pickPetHitEntry(behavior, "floor", null, () => 0)).toBe("原地重力下蹲压缩.webm");
     expect(pickPetHitEntry(behavior, "ceiling", null, () => 0)).toBe("原地重力下蹲压缩.webm");
     expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("被吓一跳.webm");
     expect(pickPetHitEntry(behavior, "right", "被吓一跳.webm", () => 0)).toBe("打瞌睡被惊醒.webm");
+
+    // 随包 pet.json 未写 hit 时，仍自动回填已知 DSH 受击视频
+    const manifestAsset: PetAsset = {
+      id: "catalog-whale", name: "大肥鱼", path: "dsh-pet-whale.zip",
+      entry: imported.entry, animations: imported.animations,
+      behavior: {
+        id: "dsh-pet", referenceWidth: 462,
+        weights: { idle: 60, turn: 5, move: 5, action: 30 },
+        idle: [webm(IDLE)], clicks: [webm(CLICKS[0])], drag: [webm(DRAG)],
+      },
+    };
+    expect(resolved(manifestAsset).hit).toEqual(["被吓一跳.webm", "原地重力下蹲压缩.webm", "打瞌睡被惊醒.webm", "玩游戏气急败坏.webm"]);
   });
 });

@@ -2029,4 +2029,42 @@ describe("桌宠：DSH 动作交互", () => {
     await loadPetVideos();
     expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
   });
+
+  it("高处重力砸地与按住猛撞边缘均可触发素材库 capture.failure 兜底与大肥鱼旧版 pet.json 受击反馈", async () => {
+    const monitor = {
+      name: "test", scaleFactor: 1,
+      position: { x: 0, y: 0 }, size: { width: 1000, height: 800 },
+      workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 740 } },
+    };
+    const makimaLike: PetAsset = {
+      ...grok,
+      animations: [...grok.animations, "gifs/feedback_failure.gif"],
+      eventActions: { "capture.failure": "gifs/feedback_failure.gif" },
+    };
+    // 初始在高处 (y=40)，开启重力自由落体砸向地面 (y=580) 触发受击反馈
+    const { container } = await renderPet(makimaLike, { petGravity: true }, { x: 300, y: 40 }, monitor, { "gifs/feedback_failure.gif": 900 });
+    await elapse(700);
+    expect(shown(container).file).toBe("feedback_failure.gif");
+    await elapse(1000);
+    expect(shown(container).file).toBe("grok_idle.gif");
+
+    // 按住鼠标直接猛撞左墙也触发受击反馈
+    const pet = container.querySelector(".pet-window")!;
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 300, screenY: 580, pointerId: 9 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 20, screenX: 150, screenY: 580, pointerId: 9 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 20, screenX: -80, screenY: 580, pointerId: 9 });
+    });
+    await elapse(32);
+    expect(shown(container).file).toBe("feedback_failure.gif");
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 9 });
+    });
+  });
 });

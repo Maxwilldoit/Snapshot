@@ -34,6 +34,9 @@ export function createPetPlayback() {
     matches(key: string) {
       return pending?.key === key;
     },
+    active() {
+      return pending !== null;
+    },
     ready(key: string, media: HTMLVideoElement) {
       const request = pending;
       if (!request || request.key !== key || request.ready) return;
