@@ -2069,70 +2069,48 @@ describe("桌宠：DSH 动作交互", () => {
     });
   });
 
-  it("素材库宠物碰撞后呈现专属受击/眩晕表情，停留恢复期后自动消退，点击可立即中断恢复", async () => {
+  it("常驻底部或侧边时微移、贴底横拖或尺寸校准绝不误触发受击动作，应用图标真实猛撞仍展示受击表情", async () => {
     const monitor = {
       name: "test", scaleFactor: 1,
       position: { x: 0, y: 0 }, size: { width: 1000, height: 800 },
       workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 740 } },
     };
-    const makimaCatalog: PetAsset = {
-      id: "pet-makima",
-      name: "玛奇玛 · 像素",
-      path: "makima-pixel-1.0.0.zip",
-      source: "https://github.com/Maxwilldoit/Pets#makima-pixel",
-      entry: "makima_pixel/gifs/makima_idle.gif",
-      animations: [
-        "makima_pixel/gifs/makima_idle.gif",
-        "makima_pixel/gifs/makima_wave.gif",
-        "feedback/failure.gif",
-      ],
-      eventActions: { "capture.failure": "feedback/failure.gif" },
-    };
-
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
-    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(232);
-    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(292);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(360);
 
-    const { container } = await renderPet(makimaCatalog, { petGravity: true }, { x: 300, y: 580 }, monitor);
+    // 大肥鱼初始即常驻在底部 (y=580)，开启重力也不应触发坠地受击，贴底横向快拖也不应触发地板碰撞
+    const { container } = await renderPet(whale, { petGravity: true }, { x: 300, y: 580 }, monitor);
     await loadPetVideos();
     const pet = container.querySelector(".pet-window")!;
+    await elapse(400);
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
 
-    // 按住猛撞左墙：立即播放玛奇玛专属透明受击视频，且不误播平静的 feedback/failure.gif
     await act(async () => {
       fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 300, screenY: 580, pointerId: 11 });
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(16); });
     await act(async () => {
-      fireEvent.pointerMove(window, { clientX: 10, clientY: 20, screenX: 140, screenY: 580, pointerId: 11 });
+      fireEvent.pointerMove(window, { clientX: 40, clientY: 16, screenX: 420, screenY: 572, pointerId: 11 });
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(16); });
     await act(async () => {
-      fireEvent.pointerMove(window, { clientX: 0, clientY: 20, screenX: -90, screenY: 580, pointerId: 11 });
+      fireEvent.pointerMove(window, { clientX: 60, clientY: 22, screenX: 430, screenY: 586, pointerId: 11 });
     });
-    await elapse(20);
-    await loadPetVideos();
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
     await act(async () => {
       fireEvent.pointerUp(window, { pointerId: 11 });
     });
+    await elapse(240);
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
 
-    expect(pet.getAttribute("data-hurt-character")).toBe("makima-pixel");
-    expect(["wince", "dizzy"]).toContain(pet.getAttribute("data-hurt-expression"));
-    expect(shownVideo(container).media.classList.contains("pet-builtin-hit")).toBe(true);
-
-    // 碰撞后内置受击视频持续播放，播完完整恢复弧线（ended）后平滑回到待机静帧
-    await elapse(2500);
-    expect(shownVideo(container).media.classList.contains("pet-builtin-hit")).toBe(true);
-    await act(async () => { fireEvent.ended(shownVideo(container).media); });
-    await elapse(20);
-    expect(shown(container).file).toBe("makima_idle.gif");
-    expect(pet.getAttribute("data-hurt-expression")).toBeNull();
-
-    // 应用图标模式碰撞后同样展示面部受击表情并在恢复期后退去
+    // 应用图标模式从屏幕中部真实猛撞右墙时展示面部受击表情并在恢复期后退去
     await act(async () => {
-      await emit("settings-changed", { ...settingsWith(makimaCatalog), selectedAppearanceId: "app-icon", petGravity: true });
+      await emit("settings-changed", { ...settingsWith(whale), selectedAppearanceId: "app-icon", petGravity: true });
     });
     await elapse(20);
     await act(async () => {

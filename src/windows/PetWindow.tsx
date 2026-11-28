@@ -1103,6 +1103,7 @@ export function PetWindow() {
     vx: number,
     vy: number,
     geometry: DragGeometry,
+    initialAway?: Partial<Record<ContactEdge, boolean>>,
   ) {
     const petWindow = getCurrentWindow();
     const token = ++gravityToken.current;
@@ -1136,7 +1137,14 @@ export function PetWindow() {
     let state = { x: originNormal.x / scale, y: originNormal.y / scale, vx, vy };
     let previous = performance.now();
     let lastSquashAt = -Infinity;
-    let lastHitClipAt = -Infinity;
+    let hitClipTriggered = false;
+    const awayMargin = 36;
+    const approachedFromAway: Record<ContactEdge, boolean> = {
+      left: Boolean(initialAway?.left) || state.x > bounds.minX + awayMargin,
+      right: Boolean(initialAway?.right) || state.x < bounds.maxX - awayMargin,
+      ceiling: Boolean(initialAway?.ceiling) || state.y > bounds.minY + awayMargin,
+      floor: Boolean(initialAway?.floor) || state.y < bounds.maxY - awayMargin,
+    };
     let writing = false;
 
     const step = (now: number) => {
@@ -1151,6 +1159,10 @@ export function PetWindow() {
       previous = now;
       const next = stepThrow(state, dt, bounds, gravityEnabled.current);
       state = { x: next.x, y: next.y, vx: next.vx, vy: next.vy };
+      if (state.x > bounds.minX + awayMargin) approachedFromAway.left = true;
+      if (state.x < bounds.maxX - awayMargin) approachedFromAway.right = true;
+      if (state.y > bounds.minY + awayMargin) approachedFromAway.ceiling = true;
+      if (state.y < bounds.maxY - awayMargin) approachedFromAway.floor = true;
       if (next.bounced) syncFacing(state.vx);
       if (!writing || next.atRest) {
         writing = true;
@@ -1159,13 +1171,14 @@ export function PetWindow() {
           Math.round(state.y * scale + frameShift.current.y),
         )).catch(() => {}).finally(() => { writing = false; });
       }
-      if (next.hit && (next.hit.edge === "floor" ? next.hit.speed >= 180 : next.hit.speed >= 260)) {
+      if (next.hit && approachedFromAway[next.hit.edge] && (next.hit.edge === "floor" ? next.hit.speed >= 260 : next.hit.speed >= 300)) {
+        approachedFromAway[next.hit.edge] = false;
         if (now - lastSquashAt >= 120) {
           lastSquashAt = now;
           triggerCurrentImpact(next.hit.edge, next.hit.speed);
         }
-        if (next.hit.speed >= HIT_ACTION_MIN_SPEED && now - lastHitClipAt >= 650) {
-          lastHitClipAt = now;
+        if (!hitClipTriggered && next.hit.speed >= HIT_ACTION_MIN_SPEED) {
+          hitClipTriggered = true;
           triggerCharacterHitClip(next.hit.edge, next.hit.speed);
         }
       }
@@ -1179,7 +1192,7 @@ export function PetWindow() {
     gravityFrame.current = requestAnimationFrame(step);
   }
 
-  async function dropToFloor(canMove = () => true) {
+  async function dropToFloor(canMove = () => true, allowImpact = true) {
     const petWindow = getCurrentWindow();
     const token = ++gravityToken.current;
     const shift = { ...frameShift.current };
@@ -1205,6 +1218,7 @@ export function PetWindow() {
       return;
     }
 
+    const dropDistance = (floor - y) / (scale > 0 ? scale : 1);
     setFalling(true);
     let velocity = 0;
     let previous = performance.now();
@@ -1224,9 +1238,11 @@ export function PetWindow() {
           Math.round(x + frameShift.current.x - shift.x), Math.round(y + frameShift.current.y - shift.y),
         )).catch(() => {});
         if (landed) {
-          const impactSpeed = velocity / scale;
-          if (impactSpeed >= 240) triggerCurrentImpact("floor", impactSpeed);
-          if (impactSpeed >= 380) triggerCharacterHitClip("floor", impactSpeed);
+          if (allowImpact && dropDistance >= 120) {
+            const impactSpeed = velocity / scale;
+            if (impactSpeed >= 420) triggerCurrentImpact("floor", impactSpeed);
+            if (impactSpeed >= 520) triggerCharacterHitClip("floor", impactSpeed);
+          }
           resolve();
         } else {
           gravityFrame.current = requestAnimationFrame(step);
@@ -1240,9 +1256,9 @@ export function PetWindow() {
   async function fitOnScreen(content: MediaBounds | null, canMove: () => boolean) {
     await keepOnScreen(getCurrentWindow(), content, true, canMove, groundOffset.current);
     if (canMove() && gravityEnabled.current) {
-      // 校准改变了 x 或窗口尺寸时，正在进行的下落不能继续写入旧坐标。
+      // 校准改变了 x 或窗口尺寸时，正在进行的下落不能继续写入旧坐标；尺寸微调绝不触发受击动作。
       cancelGravity();
-      void dropToFloor(canMove).catch(() => {});
+      void dropToFloor(canMove, false).catch(() => {});
     }
   }
 
@@ -1411,6 +1427,7 @@ export function PetWindow() {
     let target: { x: number; y: number } | null = null;
     let trail: PointerSample[] = [{ t: pressNow, x: startScreenX, y: startScreenY }];
     const armedEdges: Record<ContactEdge, boolean> = { left: false, right: false, ceiling: false, floor: false };
+    const visitedAway: Record<ContactEdge, boolean> = { left: false, right: false, ceiling: false, floor: false };
     let lastDragHitAt = -Infinity;
     let dragHitTimer: number | undefined;
     let heldWallHit: { edge: ContactEdge; speed: number; clip: string | null; at: number } | null = null;
@@ -1481,45 +1498,51 @@ export function PetWindow() {
 
     const detectHeldWallHit = (screenX: number, screenY: number, now: number) => {
       if (!geometry || sling || sleepRef.current) return;
+      const armMargin = 48 * geometry.scale;
       const rawX = geometry.position.x + (screenX - startScreenX) * geometry.scale;
       const rawY = geometry.position.y + (screenY - startScreenY) * geometry.scale;
       const clampedY = geometry.floorY === null ? rawY : Math.min(rawY, geometry.floorY);
       const hLimits = petHorizontalLimits(geometry.areas, { x: rawX, y: clampedY }, geometry.size, geometry.content, geometry.scale);
       if (hLimits) {
-        if (rawX > hLimits.minX + 5) armedEdges.left = true;
-        if (rawX < hLimits.maxX - 5) armedEdges.right = true;
+        if (rawX > hLimits.minX + armMargin) { armedEdges.left = true; visitedAway.left = true; }
+        if (rawX < hLimits.maxX - armMargin) { armedEdges.right = true; visitedAway.right = true; }
       }
-      if (geometry.ceilingY !== null && rawY > geometry.ceilingY + 5) armedEdges.ceiling = true;
-      if (geometry.floorY !== null && rawY < geometry.floorY - 5) armedEdges.floor = true;
+      if (geometry.ceilingY !== null && rawY > geometry.ceilingY + armMargin) { armedEdges.ceiling = true; visitedAway.ceiling = true; }
+      if (geometry.floorY !== null && rawY < geometry.floorY - armMargin) { armedEdges.floor = true; visitedAway.floor = true; }
 
       const recent = trail.filter((item) => now - item.t <= 110);
       if (recent.length < 2) return;
       const first = recent[0];
       const dtMs = now - first.t;
-      if (dtMs < 10) return;
+      if (dtMs < 10 || now - lastDragHitAt < 450) return;
       const dx = screenX - first.x;
       const dy = screenY - first.y;
-      const speed = (Math.hypot(dx, dy) / dtMs) * 1000;
-      if (speed < 85 || now - lastDragHitAt < 220) return;
+      const vxPerp = (Math.abs(dx) / dtMs) * 1000;
+      const vyPerp = (Math.abs(dy) / dtMs) * 1000;
 
       let hitEdge: ContactEdge | null = null;
-      if (hLimits && armedEdges.left && dx < -3 && rawX <= hLimits.minX + 1.5) {
+      let perpSpeed = 0;
+      if (hLimits && armedEdges.left && dx < -18 && vxPerp >= 420 && rawX <= hLimits.minX + 1.5) {
         hitEdge = "left";
+        perpSpeed = vxPerp;
         armedEdges.left = false;
-      } else if (hLimits && armedEdges.right && dx > 3 && rawX >= hLimits.maxX - 1.5) {
+      } else if (hLimits && armedEdges.right && dx > 18 && vxPerp >= 420 && rawX >= hLimits.maxX - 1.5) {
         hitEdge = "right";
+        perpSpeed = vxPerp;
         armedEdges.right = false;
-      } else if (geometry.ceilingY !== null && armedEdges.ceiling && dy < -3 && rawY <= geometry.ceilingY + 1.5) {
+      } else if (geometry.ceilingY !== null && armedEdges.ceiling && dy < -18 && vyPerp >= 420 && rawY <= geometry.ceilingY + 1.5) {
         hitEdge = "ceiling";
+        perpSpeed = vyPerp;
         armedEdges.ceiling = false;
-      } else if (geometry.floorY !== null && armedEdges.floor && dy > 3 && rawY >= geometry.floorY - 1.5) {
+      } else if (geometry.floorY !== null && armedEdges.floor && dy > 18 && vyPerp >= 420 && rawY >= geometry.floorY - 1.5) {
         hitEdge = "floor";
+        perpSpeed = vyPerp;
         armedEdges.floor = false;
       }
       if (!hitEdge) return;
 
       lastDragHitAt = now;
-      const effectiveSpeed = Math.max(speed * 1.6, 540);
+      const effectiveSpeed = Math.max(perpSpeed * 1.35, 540);
       triggerCurrentImpact(hitEdge, effectiveSpeed);
       if (behaviorRef.current) {
         const roll = hitRoll(hitPulseRef.current);
@@ -1624,7 +1647,7 @@ export function PetWindow() {
           if (behaviorRef.current && !sleepRef.current) showManualEntry(restingRef.current);
           const revision = positionRevision.current;
           if (gravityEnabled.current) {
-            void dropToFloor(() => revision === positionRevision.current && !pointerHeld.current).catch(() => {});
+            void dropToFloor(() => revision === positionRevision.current && !pointerHeld.current, false).catch(() => {});
           }
           return;
         }
@@ -1681,7 +1704,7 @@ export function PetWindow() {
           );
           if (launch) {
             if (behaviorRef.current) showManualEntry(restingRef.current);
-            launchThrow(target, launch.vx, launch.vy, geometry);
+            launchThrow(target, launch.vx, launch.vy, geometry, visitedAway);
             return;
           }
         } else if (canThrow) {
@@ -1696,10 +1719,10 @@ export function PetWindow() {
             );
             if (clamped) {
               if (behaviorRef.current) showManualEntry(restingRef.current);
-              launchThrow(target, clamped.vx, clamped.vy, geometry);
+              launchThrow(target, clamped.vx, clamped.vy, geometry, visitedAway);
               return;
             }
-            if (blockedHit && blockedHit.speed >= HIT_ACTION_MIN_SPEED) {
+            if (blockedHit && !pendingWallHit && visitedAway[blockedHit.edge] && blockedHit.speed >= 420) {
               triggerCurrentImpact(blockedHit.edge, blockedHit.speed);
               triggerCharacterHitClip(blockedHit.edge, blockedHit.speed);
               const revision = positionRevision.current;
@@ -1749,13 +1772,14 @@ export function PetWindow() {
       if (finished) return;
       geometry = result;
       if (geometry) {
+        const armMargin = 48 * geometry.scale;
         const hLimits = petHorizontalLimits(geometry.areas, geometry.position, geometry.size, geometry.content, geometry.scale);
         if (hLimits) {
-          armedEdges.left = geometry.position.x > hLimits.minX + 6;
-          armedEdges.right = geometry.position.x < hLimits.maxX - 6;
+          armedEdges.left = visitedAway.left = geometry.position.x > hLimits.minX + armMargin;
+          armedEdges.right = visitedAway.right = geometry.position.x < hLimits.maxX - armMargin;
         }
-        if (geometry.ceilingY !== null) armedEdges.ceiling = geometry.position.y > geometry.ceilingY + 6;
-        if (geometry.floorY !== null) armedEdges.floor = geometry.position.y < geometry.floorY - 6;
+        if (geometry.ceilingY !== null) armedEdges.ceiling = visitedAway.ceiling = geometry.position.y > geometry.ceilingY + armMargin;
+        if (geometry.floorY !== null) armedEdges.floor = visitedAway.floor = geometry.position.y < geometry.floorY - armMargin;
       }
       if (dragged.current && geometry) {
         moved.x = geometry.position.x - dragShift.x;

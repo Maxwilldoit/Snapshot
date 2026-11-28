@@ -47,7 +47,7 @@ const SEG_MIN_DT_MS = 8;
 
 export const DEAD_ZONE_SPEED = 360;
 /** 触发角色专属受击动画片段的最小法向碰撞速度（轻擦微弹只做形变缓冲）。 */
-export const HIT_ACTION_MIN_SPEED = 260;
+export const HIT_ACTION_MIN_SPEED = 380;
 const MAX_THROW_SPEED = 3600;
 const PEAK_WEIGHT = 0.5;
 const ACCEL_REF = 8000;
