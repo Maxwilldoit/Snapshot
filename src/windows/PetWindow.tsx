@@ -36,6 +36,7 @@ import { petActionDuration } from "../lib/petAnimation";
 import { pickPetEntry, pickPetHitEntry, resolvePetBehavior, type PetBehavior } from "../lib/petBehavior";
 import {
   augmentAssetWithBuiltinHurt,
+  builtinHurtDurationMs,
   HURT_EXPRESSION_MS,
   HURT_FRAME_INTERVAL_MS,
   identifyCatalogSprite,
@@ -400,7 +401,9 @@ export function PetWindow() {
         }, HURT_FRAME_INTERVAL_MS);
       }
     }
-    hurtTimerRef.current = window.setTimeout(clearHurtExpression, HURT_EXPRESSION_MS);
+    const spriteHitEntry = spriteId ? `__builtin_hit__:${spriteId}` : null;
+    const holdMs = (spriteHitEntry ? builtinHurtDurationMs(spriteHitEntry) : null) ?? HURT_EXPRESSION_MS;
+    hurtTimerRef.current = window.setTimeout(clearHurtExpression, holdMs);
   }
 
   function rememberMediaDimensions(frame: PetImageFrame, media: PetMediaElement) {
@@ -753,7 +756,7 @@ export function PetWindow() {
         eventActions: { ...profile?.eventActions, ...original.eventActions },
         stateActions: { ...profile?.stateActions, ...original.stateActions },
       } : undefined;
-      const asset = profile ? merged : augmentAssetWithBuiltinHurt(merged);
+      const asset = augmentAssetWithBuiltinHurt(merged, profile?.id);
       latestAsset.current = asset ?? null;
       const key = JSON.stringify([id, asset?.path, asset?.entry, asset?.animations, asset?.layout,
         asset?.actionBounds, asset?.eventActions, asset?.stateActions, asset?.behavior]);

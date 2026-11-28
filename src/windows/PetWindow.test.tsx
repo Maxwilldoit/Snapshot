@@ -2024,7 +2024,7 @@ describe("桌宠：DSH 动作交互", () => {
     });
     await elapse(240);
     await loadPetVideos();
-    expect(shownVideo(container).file).toBe("被吓一跳.webm");
+    expect(shownVideo(container).file).toMatch(/^dsh-wall\b.*\.webm$/);
     await act(async () => { fireEvent.ended(shownVideo(container).media); });
     await loadPetVideos();
     expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
@@ -2113,10 +2113,10 @@ describe("桌宠：DSH 动作交互", () => {
     expect(["wince", "dizzy"]).toContain(pet.getAttribute("data-hurt-expression"));
     expect(shown(container).img.classList.contains("pet-builtin-hit")).toBe(true);
 
-    // 碰撞后 900ms 内置受击立绘仍在保持，反弹落地并超过恢复期后自动回到待机静帧
+    // 碰撞后内置受击动画持续播放，超过完整受击恢复期后自动回到待机静帧
     await elapse(900);
     expect(shown(container).img.classList.contains("pet-builtin-hit")).toBe(true);
-    await elapse(1800);
+    await elapse(4200);
     expect(shown(container).file).toBe("makima_idle.gif");
     expect(pet.getAttribute("data-hurt-expression")).toBeNull();
 

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { petUrl, petWalkUrl } from "../lib/media";
-import { builtinHurtUrl } from "../lib/petHurtExpression";
+import { isWebmEntry, petUrl, petWalkUrl } from "../lib/media";
+import { builtinHurtUrl, isBuiltinHurtEntry } from "../lib/petHurtExpression";
 import type { PetMediaElement } from "../components/PetMedia";
 
 /** 新画面准备好后，旧画面在上层短暂淡出，避免 GIF 从半途硬切回首帧。 */
@@ -72,6 +72,11 @@ export function usePetImages(target: PetImageFrame | null, preload: PetImageFram
       fadeTimer.current = window.setTimeout(() => setPrevious(null), PET_IMAGE_FADE_MS);
     } else {
       setPrevious(null);
+    }
+    const element = ready.current.get(frame.key);
+    if (element instanceof HTMLImageElement && element.naturalWidth > 0 && isBuiltinHurtEntry(frame.entry) && !isWebmEntry(frame.entry)) {
+      const base = element.src.split("?")[0];
+      element.src = `${base}?hit=${Date.now()}`;
     }
     activeRef.current = frame;
     setActive(frame);

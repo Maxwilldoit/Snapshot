@@ -5,6 +5,7 @@ import type {
   PetEvent,
   PetPersistentState,
 } from "../types";
+import { DSH_FLOOR_HIT_ENTRY, DSH_WALL_HIT_ENTRY, isBuiltinHurtEntry } from "./petHurtExpression";
 
 export interface PetBehaviorMove {
   entry: string;
@@ -49,6 +50,7 @@ export interface PetBehavior {
 // See THIRD_PARTY_NOTICES.md for source and license.
 const DSH_IDLE = ["待机呼吸休闲"];
 const DSH_DRAG = ["被鼠标拖拽悬空反馈"];
+const DSH_BUILTIN_HITS = [DSH_WALL_HIT_ENTRY, DSH_FLOOR_HIT_ENTRY] as const;
 const DSH_HIT = ["被吓一跳", "原地重力下蹲压缩", "玩游戏气急败坏", "偷吃零食被抓住"];
 const DSH_TURN = ["东张西望"];
 const DSH_PRIMARY_CLICKS = [
@@ -194,12 +196,15 @@ function resolveManifestBehavior(
     if (name !== null && !knownByWebm.has(name)) knownByWebm.set(name, entry);
   }
   const explicitHit = filterPool(manifest.hit);
+  const fallbackDshHits = DSH_HIT.flatMap((name) => {
+    const entry = knownByWebm.get(name);
+    return entry === undefined ? [] : [entry];
+  });
   const hit = explicitHit.length
     ? explicitHit
-    : DSH_HIT.flatMap((name) => {
-        const entry = knownByWebm.get(name);
-        return entry === undefined ? [] : [entry];
-      });
+    : manifest.id === "dsh-pet"
+      ? [...DSH_BUILTIN_HITS, ...fallbackDshHits]
+      : fallbackDshHits;
 
   return {
     id: manifest.id || "custom-behavior",
@@ -283,7 +288,7 @@ export function resolvePetBehavior(
     idle,
     clicks,
     drag,
-    hit: available(DSH_HIT),
+    hit: [...DSH_BUILTIN_HITS, ...available(DSH_HIT)],
     turn: available(DSH_TURN),
     sleep,
     moves: DSH_MOVES.flatMap((move) => {
@@ -305,7 +310,7 @@ export function resolvePetBehavior(
   };
 }
 
-/** 按碰撞边缘挑选受击回应：落地/撞顶优先挑重力压缩动作，撞左右侧墙优先挑受惊反馈。 */
+/** 按碰撞边缘挑选受击回应：优先使用零前摇专属受击视频，落地/撞顶挑重力压缩，撞左右侧墙挑撞墙眩晕。 */
 export function pickPetHitEntry(
   behavior: PetBehavior,
   edge: "left" | "right" | "ceiling" | "floor",
@@ -313,11 +318,13 @@ export function pickPetHitEntry(
   random: () => number = Math.random,
 ): string | null {
   if (!behavior.hit.length) return null;
+  const builtinHits = behavior.hit.filter(isBuiltinHurtEntry);
+  const source = builtinHits.length ? builtinHits : behavior.hit;
   const vertical = edge === "floor" || edge === "ceiling";
-  const preferred = behavior.hit.filter((entry) =>
-    vertical ? /重力|下蹲|压缩|squash|land/i.test(entry) : !/下蹲|squash/i.test(entry),
+  const preferred = source.filter((entry) =>
+    vertical ? /floor|重力|下蹲|压缩|squash|land/i.test(entry) : !/floor|下蹲|squash/i.test(entry),
   );
-  return pickPetEntry(preferred.length ? preferred : behavior.hit, current, random);
+  return pickPetEntry(preferred.length ? preferred : source, current, random);
 }
 /** 等概率抽取；有其它候选时避开当前动作，单候选仍可重播，空池返回 null。 */
 export function pickPetEntry(

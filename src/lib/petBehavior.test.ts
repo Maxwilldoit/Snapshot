@@ -447,16 +447,18 @@ describe("pickPetBehaviorAction", () => {
   it("大肥鱼解析专属碰撞受击动作池（含旧版 pet.json 自动回填），并按落地/侧墙碰撞偏好挑选零前摇表情动作", () => {
     const behavior = resolved();
     const expectedHits = [
+      "__builtin_hit__:dsh-wall.webm",
+      "__builtin_hit__:dsh-floor.webm",
       "被吓一跳.webm",
       "原地重力下蹲压缩.webm",
       "玩游戏气急败坏.webm",
       "偷吃零食被抓住.webm",
     ];
     expect(behavior.hit).toEqual(expectedHits);
-    expect(pickPetHitEntry(behavior, "floor", null, () => 0)).toBe("原地重力下蹲压缩.webm");
-    expect(pickPetHitEntry(behavior, "ceiling", null, () => 0)).toBe("原地重力下蹲压缩.webm");
-    expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("被吓一跳.webm");
-    expect(pickPetHitEntry(behavior, "right", "被吓一跳.webm", () => 0)).toBe("玩游戏气急败坏.webm");
+    expect(pickPetHitEntry(behavior, "floor", null, () => 0)).toBe("__builtin_hit__:dsh-floor.webm");
+    expect(pickPetHitEntry(behavior, "ceiling", null, () => 0)).toBe("__builtin_hit__:dsh-floor.webm");
+    expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("__builtin_hit__:dsh-wall.webm");
+    expect(pickPetHitEntry(behavior, "right", "__builtin_hit__:dsh-wall.webm", () => 0)).toBe("__builtin_hit__:dsh-wall.webm");
 
     // 随包 pet.json 未写 hit 时，仍自动回填已知 DSH 受击表情视频
     const manifestAsset: PetAsset = {
