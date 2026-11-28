@@ -2134,4 +2134,55 @@ describe("桌宠：DSH 动作交互", () => {
     await elapse(2700);
     expect(iconFace?.hidden).toBe(true);
   });
+
+  it("处于画面边界没被反弹（拖撞边界后原地停留松手）时，碰撞动作 loop 为 false，播完一轮即回待机绝不重复循环", async () => {
+    const monitor = {
+      name: "test", scaleFactor: 1,
+      position: { x: 0, y: 0 }, size: { width: 1000, height: 800 },
+      workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 740 } },
+    };
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(360);
+
+    const { container } = await renderPet(whale, { petGravity: true }, { x: 300, y: 300 }, monitor);
+    await loadPetVideos();
+    const pet = container.querySelector(".pet-window")!;
+
+    // 拖向左侧画面边界猛撞触发碰撞动作，随后在边界原地停留并松手（不产生反弹抛射）
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 300, screenY: 300, pointerId: 21 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 20, screenX: 140, screenY: 300, pointerId: 21 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 20, screenX: -40, screenY: 300, pointerId: 21 });
+    });
+    await loadPetVideos();
+    // 按住贴紧边界期间，碰撞视频也绝不能开启 loop
+    expect(shownVideo(container).file).toMatch(/^(?:碰撞回应-吃痛抚头|dsh-(?:ouch|forehead|cheek|headtop))\b.*\.webm$/);
+    expect(shownVideo(container).media.loop).toBe(false);
+
+    // 在边界停稳 250ms 后松手（无反弹速度，且重力下落滑到底角也不应二次重播受击动作）
+    await elapse(250);
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 21 });
+    });
+    await elapse(600);
+    await loadPetVideos();
+    const activeHit = shownVideo(container);
+    expect(activeHit.file).toMatch(/^(?:碰撞回应-吃痛抚头|dsh-(?:ouch|forehead|cheek|headtop))\b.*\.webm$/);
+    expect(activeHit.media.loop).toBe(false);
+
+    // 播放完这一轮立即回到待机呼吸，不再重复播放第二轮
+    await act(async () => { fireEvent.ended(activeHit.media); });
+    await loadPetVideos();
+    expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
+  });
 });

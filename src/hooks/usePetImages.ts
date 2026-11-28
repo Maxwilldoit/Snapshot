@@ -57,7 +57,7 @@ export function usePetImages(target: PetImageFrame | null, preload: PetImageFram
   // 顺序不能随 displayed / leaving / preload 的角色变化：重插现有 img 会重启动画，
   // 甚至让仍在等待下一张解码的旧图从透明首帧重新开始。用稳定的 key 顺序保留原节点。
   const frames = [...new Map(
-    [...(leaving ? [leaving] : []), ...preload, ...(target ? [target] : []), ...(displayed ? [displayed] : [])]
+    [...(leaving ? [leaving] : []), ...preload, ...(displayed ? [displayed] : []), ...(target ? [target] : [])]
       .map((frame) => [frame.key, frame] as const),
   ).values()].sort((a, b) => a.key.localeCompare(b.key));
 
@@ -65,7 +65,13 @@ export function usePetImages(target: PetImageFrame | null, preload: PetImageFram
 
   function show(frame: PetImageFrame) {
     const current = activeRef.current;
-    if (current?.key === frame.key) return;
+    if (current?.key === frame.key) {
+      if (current.loop !== frame.loop || current.instant !== frame.instant) {
+        activeRef.current = frame;
+        setActive(frame);
+      }
+      return;
+    }
     window.clearTimeout(fadeTimer.current);
     if (current && current.assetId === frame.assetId && !frame.instant) {
       setPrevious(current);

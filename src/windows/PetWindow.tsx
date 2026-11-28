@@ -329,7 +329,7 @@ export function PetWindow() {
   const gravityEnabled = useRef(true);
   gravityEnabled.current = petGravity;
   const dragMotion = useRef<DragWalk>(STANDING);
-  const finishDrag = useRef<() => void>(() => {});
+  const finishDrag = useRef<(allowFloorImpact?: boolean) => void>(() => {});
   const gravityToken = useRef(0);
   const gravityFrame = useRef(0);
   const petRootRef = useRef<HTMLDivElement>(null);
@@ -450,7 +450,7 @@ export function PetWindow() {
     ...(behavior.sleep ? [...behavior.sleep.start, ...behavior.sleep.loop, ...behavior.sleep.end] : []),
     ...behavior.categories.flatMap((category) => category.entries),
   ]) : null;
-  const cycle = behaviorEntries ? regularAnimations.filter((entry) => behaviorEntries.has(entry))
+  const cycle = behaviorEntries ? animations.filter((entry) => behaviorEntries.has(entry))
     : clickableAnimations({ animations, eventActions, stateActions });
   const resting = restingEntry && cycle.includes(restingEntry) ? restingEntry : (cycle[0] ?? null);
   restingRef.current = resting;
@@ -911,12 +911,14 @@ export function PetWindow() {
         isInstantHit || Boolean(behavior && dragging && dragEntry && behavior.hit.includes(dragEntry)),
       )
     : null;
+  const isHitEntry = Boolean(
+    normalEntry && (isBuiltinHurtEntry(normalEntry) || behavior?.hit.includes(normalEntry)),
+  );
   if (normalFrame && behavior) {
     // usePetImages retains the displayed/leaving frame object. Keep its original
-    // playback mode after the request settles; deriving loop from the current
-    // request during the hand-off would restart a completed clip at frame zero.
-    normalFrame.loop = !playback.matches(normalFrame.key) && normalEntry !== eventEntry;
-  } else if (normalFrame && normalEntry === eventEntry && isWebmEntry(normalEntry)) {
+    // playback mode after the request settles; hit clips never loop even while held at a boundary.
+    normalFrame.loop = !isHitEntry && !playback.matches(normalFrame.key) && normalEntry !== eventEntry;
+  } else if (normalFrame && (isHitEntry || (normalEntry === eventEntry && isWebmEntry(normalEntry)))) {
     normalFrame.loop = false;
   }
   const dragHeldFrame = custom && behavior && dragging && (sleepState?.entry ?? stateEntry ?? resting)
@@ -996,7 +998,10 @@ export function PetWindow() {
     const frame = displayedRef.current;
     if (!behaviorRef.current || !windowFrameReady.current || !frame || frame.assetId !== latestAsset.current?.id) return;
     const media = readyMedia.current.get(frame.key);
-    if (media instanceof HTMLVideoElement) playback.ready(frame.key, media);
+    if (media instanceof HTMLVideoElement) {
+      playback.ready(frame.key, media);
+      if (media.ended) playback.ended(frame.key);
+    }
   }
 
   useLayoutEffect(() => {
@@ -1025,6 +1030,13 @@ export function PetWindow() {
         clearHurtExpression();
         setEventEntry(null);
       }
+      return;
+    }
+    if (dragging && dragEntry && frame.entry === dragEntry && behavior.hit.includes(dragEntry)) {
+      activeHitPulse.current = null;
+      hitPulseRef.current += 1;
+      setHitPulse(hitPulseRef.current);
+      setDragEntry(pickPetEntry(behavior.drag, dragEntry));
       return;
     }
     playback.ended(frame.key);
@@ -1264,12 +1276,12 @@ export function PetWindow() {
     }
   }
 
-  finishDrag.current = () => {
-    const revision = positionRevision.current;
-    const canMove = () => revision === positionRevision.current && !pointerHeld.current;
-    if (gravityEnabled.current) void dropToFloor(canMove).catch(() => {});
-    else void keepOnScreen(getCurrentWindow(), visibleBounds.current, false, canMove, groundOffset.current).catch(() => {});
-  };
+    finishDrag.current = (allowFloorImpact = true) => {
+      const revision = positionRevision.current;
+      const canMove = () => revision === positionRevision.current && !pointerHeld.current;
+      if (gravityEnabled.current) void dropToFloor(canMove, allowFloorImpact).catch(() => {});
+      else void keepOnScreen(getCurrentWindow(), visibleBounds.current, false, canMove, groundOffset.current).catch(() => {});
+    };
 
   useEffect(() => {
     if (petScale === null) return;
@@ -1559,15 +1571,18 @@ export function PetWindow() {
           heldWallHit = { edge: hitEdge, speed: effectiveSpeed, clip: hitClip, at: now };
           activeHitPulse.current = hitPulseRef.current;
           setDragEntry(hitClip);
+          const holdDuration = builtinHurtDurationMs(hitClip) ?? 8000;
           dragHitTimer = window.setTimeout(() => {
             heldWallHit = null;
-            activeHitPulse.current = null;
-            hitPulseRef.current += 1;
-            setHitPulse(hitPulseRef.current);
+            if (activeHitPulse.current !== null) {
+              activeHitPulse.current = null;
+              hitPulseRef.current += 1;
+              setHitPulse(hitPulseRef.current);
+            }
             if (!finished && dragged.current && behaviorRef.current && !sleepRef.current) {
               setDragEntry(pickPetEntry(behaviorRef.current.drag, hitClip));
             }
-          }, 2200);
+          }, holdDuration + 200);
         }
       } else {
         triggerCharacterHitClip(hitEdge, effectiveSpeed);
@@ -1696,7 +1711,7 @@ export function PetWindow() {
       setDragEntry(null);
       dragMotion.current = STANDING;
       const releaseNow = performance.now();
-      const pendingWallHit = !cancelled && heldWallHit && releaseNow - heldWallHit.at <= 1800 ? heldWallHit : null;
+      const pendingWallHit = !cancelled && heldWallHit ? heldWallHit : null;
 
       const canThrow = behaviorRef.current ? behaviorRef.current.interactions.throw : true;
       if (!cancelled && geometry && target && !sleepRef.current) {
@@ -1732,7 +1747,7 @@ export function PetWindow() {
               const revision = positionRevision.current;
               const landing = petWindow.setPosition(new PhysicalPosition(Math.round(target.x + frameShift.current.x), Math.round(target.y + frameShift.current.y))).catch(() => {});
               void landing.then(() => {
-                if (revision === positionRevision.current && !pointerHeld.current) finishDrag.current();
+                if (revision === positionRevision.current && !pointerHeld.current) finishDrag.current(false);
               });
               return;
             }
@@ -1749,11 +1764,12 @@ export function PetWindow() {
       }
 
       const revision = positionRevision.current;
+      const hadWallHit = Boolean(pendingWallHit?.clip);
       const landing = target && geometry
         ? petWindow.setPosition(new PhysicalPosition(Math.round(target.x + frameShift.current.x), Math.round(target.y + frameShift.current.y))).catch(() => {})
         : Promise.resolve();
       void landing.then(() => {
-        if (revision === positionRevision.current && !pointerHeld.current) finishDrag.current();
+        if (revision === positionRevision.current && !pointerHeld.current) finishDrag.current(!hadWallHit);
       });
     };
 
