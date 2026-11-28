@@ -55,8 +55,8 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
     anchorY: 329,
     baseWidth: 640,
     baseHeight: 360,
-    durationMs: 7875,
-    bounds: { left: 0.315625, top: 0.169444, width: 0.382812, height: 0.747222 },
+    durationMs: 7833,
+    bounds: { left: 0.307812, top: 0.163889, width: 0.390625, height: 0.755556 },
   },
   "dsh-forehead": {
     id: "dsh-forehead",
@@ -69,8 +69,8 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
     anchorY: 329,
     baseWidth: 640,
     baseHeight: 360,
-    durationMs: 7958,
-    bounds: { left: 0.315625, top: 0.169444, width: 0.360938, height: 0.747222 },
+    durationMs: 7708,
+    bounds: { left: 0.321875, top: 0.155556, width: 0.365625, height: 0.761111 },
   },
   "dsh-cheek": {
     id: "dsh-cheek",
@@ -98,7 +98,7 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
     baseWidth: 640,
     baseHeight: 360,
     durationMs: 7833,
-    bounds: { left: 0.325, top: 0.172222, width: 0.354687, height: 0.744444 },
+    bounds: { left: 0.3, top: 0.133333, width: 0.376563, height: 0.783333 },
   },
 };
 
