@@ -280,21 +280,47 @@ video.pet-alpha-mask { position: absolute; width: 1px; height: 1px; opacity: 0; 
 
 .pet-impact-fx {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
   z-index: 6;
   pointer-events: none;
   overflow: visible;
 }
+.pet-impact-fx[hidden] { display: none; }
 .pet-impact-contact {
   position: absolute;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   transform: translate(-50%, -50%);
 }
-.pet-impact-fx.edge-left .pet-impact-contact { left: 10%; top: 52%; }
-.pet-impact-fx.edge-right .pet-impact-contact { left: 90%; top: 52%; }
-.pet-impact-fx.edge-ceiling .pet-impact-contact { left: 50%; top: 12%; }
-.pet-impact-fx.edge-floor .pet-impact-contact { left: 50%; top: 88%; }
+.pet-impact-fx.edge-left .pet-impact-contact { left: 14%; top: 52%; }
+.pet-impact-fx.edge-right .pet-impact-contact { left: 86%; top: 52%; }
+.pet-impact-fx.edge-ceiling .pet-impact-contact { left: 50%; top: 16%; }
+.pet-impact-fx.edge-floor .pet-impact-contact { left: 50%; top: 86%; }
+
+.pet-impact-fx .pet-impact-burst,
+.pet-impact-fx .pet-impact-bubbles,
+.pet-impact-fx .pet-impact-dizzy {
+  display: none;
+}
+.pet-impact-fx.kind-app-icon .pet-impact-burst,
+.pet-impact-fx.kind-sprite .pet-impact-burst {
+  display: block;
+}
+.pet-impact-fx.kind-sprite .pet-impact-dizzy {
+  display: block;
+}
+.pet-impact-fx.kind-behavior .pet-impact-bubbles {
+  display: block;
+}
+.pet-impact-fx.kind-app-icon .pet-impact-burst path {
+  fill: rgba(255, 204, 77, 0.96);
+}
+.pet-impact-fx.kind-sprite .pet-impact-burst path {
+  fill: rgba(255, 112, 88, 0.96);
+}
 
 .pet-impact-ring {
   position: absolute;

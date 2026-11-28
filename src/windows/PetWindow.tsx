@@ -227,12 +227,6 @@ type DragGeometry = {
   content: MediaBounds | null;
 };
 
-type ImpactBurst = {
-  id: number;
-  edge: ContactEdge;
-  kind: PetImpactKind;
-};
-
 type ActiveSleep = {
   phase: "start" | "loop" | "end";
   entry: string;
@@ -299,8 +293,11 @@ export function PetWindow() {
   const [falling, setFalling] = useState(false);
   const [manualAction, setManualAction] = useState(false);
   const [squashing, setSquashing] = useState(false);
-  const [impactBurst, setImpactBurst] = useState<ImpactBurst | null>(null);
-  const impactSeq = useRef(0);
+  const [hitPulse, setHitPulse] = useState(0);
+  const hitPulseRef = useRef(0);
+  hitPulseRef.current = hitPulse;
+  const activeHitPulse = useRef<number | null>(null);
+  const impactFxRef = useRef<HTMLDivElement>(null);
   const impactTimer = useRef<number | undefined>(undefined);
   const [sleepState, setSleepState] = useState<ActiveSleep | null>(null);
   const sleepRef = useRef<ActiveSleep | null>(null);
@@ -471,29 +468,48 @@ export function PetWindow() {
     ], duration, true);
   }
 
+  function triggerImpactBurst(edge: ContactEdge, kind: PetImpactKind) {
+    if (motionReduced()) return;
+    const fx = impactFxRef.current;
+    if (!fx) return;
+    window.clearTimeout(impactTimer.current);
+    const bounds = latestAsset.current ? visibleBounds.current : null;
+    if (bounds && bounds.width > 0 && bounds.height > 0) {
+      fx.style.left = `${Math.round(bounds.left - viewOffset.current.x)}px`;
+      fx.style.top = `${Math.round(bounds.top - viewOffset.current.y)}px`;
+      fx.style.width = `${Math.round(bounds.width)}px`;
+      fx.style.height = `${Math.round(bounds.height)}px`;
+    } else {
+      fx.style.left = "2px";
+      fx.style.top = "2px";
+      fx.style.width = `${Math.max(24, petSize - 4)}px`;
+      fx.style.height = `${Math.max(24, petSize - 4)}px`;
+    }
+    fx.hidden = false;
+    fx.className = "pet-impact-fx";
+    // 同步强制重排使同方向连续碰撞也在当前帧 0ms 重启动画，不走 React 重渲染。
+    void fx.offsetWidth;
+    fx.className = `pet-impact-fx edge-${edge} kind-${kind}`;
+    impactTimer.current = window.setTimeout(() => {
+      if (impactFxRef.current) impactFxRef.current.hidden = true;
+    }, 680);
+  }
+
   function triggerMediaImpact(
     media: PetMediaElement,
     edge: ContactEdge,
     speed: number,
     kind: PetImpactKind,
     mirrored: boolean,
-    expandWindow = true,
   ) {
     if (motionReduced()) return;
     const surface = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
     if (!(surface instanceof HTMLElement)) return;
-    const { keyframes, duration } = impactDeformation(edge, speed, kind, mirrored);
-    animateSurface(surface, keyframes, duration, expandWindow);
-  }
-
-  function triggerImpactBurst(edge: ContactEdge, kind: PetImpactKind) {
-    if (motionReduced()) return;
-    window.clearTimeout(impactTimer.current);
-    const id = ++impactSeq.current;
-    setImpactBurst({ id, edge, kind });
-    impactTimer.current = window.setTimeout(() => {
-      setImpactBurst((current) => (current?.id === id ? null : current));
-    }, 700);
+    const frame = displayedRef.current;
+    const shapeBox = frame ? mediaShapes.get(mediaShapeKey(frame.assetId, frame.entry ?? "", frame.walk))?.bounds ?? null : null;
+    const { keyframes, duration } = impactDeformation(edge, speed, kind, mirrored, shapeBox);
+    // 碰撞瞬间不触发 setSquashing 异步改窗尺寸，避免阻塞 IPC 或与高速移动抢窗口坐标。
+    animateSurface(surface, keyframes, duration, false);
   }
 
   function triggerCurrentImpact(edge: ContactEdge, speed: number) {
@@ -511,7 +527,7 @@ export function PetWindow() {
     const media = petRootRef.current?.querySelector<PetMediaElement>(".pet-current");
     if (!media) return;
     const mirrored = behaviorRef.current ? facingRef.current === "right" : Boolean(displayedRef.current?.flip);
-    triggerMediaImpact(media, edge, speed, kind, mirrored, !pointerHeld.current);
+    triggerMediaImpact(media, edge, speed, kind, mirrored);
   }
 
   function setPullTension(pullDist: number, refWidth: number) {
@@ -538,7 +554,13 @@ export function PetWindow() {
     surface.style.transform = `${mirror}scale(${sx}, ${sy})`;
   }
 
-  function playBehavior(entry: string, facing: PetFacing, owner: PetPlaybackOwner, onReady?: (media: HTMLVideoElement) => void) {
+  function playBehavior(
+    entry: string,
+    facing: PetFacing,
+    owner: PetPlaybackOwner,
+    onReady?: (media: HTMLVideoElement) => void,
+    presetPulse?: number,
+  ) {
     const asset = latestAsset.current;
     if (!behaviorRef.current || !asset?.animations.includes(entry)) return Promise.resolve("failed" as const);
     behaviorRevision.current += 1;
@@ -546,8 +568,10 @@ export function PetWindow() {
     setBehaviorFacing(facing);
     autoAction.current = owner === "auto" ? entry : null;
     targetEntry.current = entry;
-    const pulse = bumpPulse();
-    const key = petImageFrame(asset.id, entry, false, facing === "right", pulse).key;
+    const pulse = presetPulse ?? bumpPulse();
+    if (presetPulse !== undefined) activeHitPulse.current = presetPulse;
+    else activeHitPulse.current = null;
+    const key = petImageFrame(asset.id, entry, false, facing === "right", pulse, owner === "hit").key;
     const result = playback.play(key, owner, (media) => {
       if (owner === "click" && behaviorRef.current?.clicks.includes(entry)) {
         triggerMediaSquash(media, facing, 0.84, 280);
@@ -607,11 +631,21 @@ export function PetWindow() {
     });
   }
 
-  function playBehaviorInteraction(entry: string, owner: "click" | "hit" = "click", onReady?: (media: HTMLVideoElement) => void) {
+  function playBehaviorInteraction(
+    entry: string,
+    owner: "click" | "hit" = "click",
+    onReady?: (media: HTMLVideoElement) => void,
+    presetPulse?: number,
+  ) {
     setManualAction(true);
-    const completed = playBehavior(entry, facingRef.current, owner, onReady);
+    const completed = playBehavior(entry, facingRef.current, owner, onReady, presetPulse);
     const revision = behaviorRevision.current;
     void completed.then((outcome) => {
+      if (presetPulse !== undefined && activeHitPulse.current === presetPulse) {
+        activeHitPulse.current = null;
+        hitPulseRef.current += 1;
+        setHitPulse(hitPulseRef.current);
+      }
       if (outcome === "cancelled" || revision !== behaviorRevision.current) return;
       showManualEntry(restingRef.current);
       setManualAction(false);
@@ -622,31 +656,36 @@ export function PetWindow() {
     if (sleepRef.current || statusFlagsRef.current.recording || statusFlagsRef.current.shortcutsPaused) return;
     const profile = behaviorRef.current;
     if (profile) {
-      const entry = pickPetHitEntry(profile, edge, targetEntry.current);
+      // 优先命中已在后台预解码、预跳帧的受击视频，实现碰撞瞬间 0ms 切换。
+      const preloadedWall = pickPetHitEntry(profile, "left", restingRef.current, () => 0);
+      const preloadedFloor = pickPetHitEntry(profile, "floor", restingRef.current, () => 0);
+      const vertical = edge === "floor" || edge === "ceiling";
+      const entry = (vertical ? preloadedFloor ?? preloadedWall : preloadedWall ?? preloadedFloor)
+        ?? pickPetHitEntry(profile, edge, targetEntry.current);
       if (!entry) return;
+      const usePreloaded = activeHitPulse.current === null && (entry === preloadedWall || entry === preloadedFloor);
+      const preset = usePreloaded ? hitPulseRef.current : undefined;
       playBehaviorInteraction(entry, "hit", (media) => {
-        // DSH 视频开头普遍有 1~1.5s 待机呼吸前摇；受击瞬间直接跳入惊跳/压缩高潮帧。
-        if (profile.id === "dsh-pet" && Number.isFinite(media.duration) && media.duration >= 2.4) {
-          try {
-            media.currentTime = Math.min(1.15, media.duration * 0.22);
-          } catch {
-            // 解码器尚未允许 seek 时保留原起点。
-          }
-        }
-        triggerMediaImpact(media, edge, speed, "behavior", facingRef.current === "right", !pointerHeld.current);
-      });
+        triggerMediaImpact(media, edge, speed, "behavior", facingRef.current === "right");
+      }, preset);
       return;
     }
     const asset = latestAsset.current;
     if (!asset) return;
     const activeEvent = eventEntryRef.current;
-    const entry = pickHitAnimation(asset, activeEvent ? null : targetEntry.current);
+    const preloadedSprite = pickHitAnimation(asset, restingRef.current, () => 0);
+    const entry = preloadedSprite ?? pickHitAnimation(asset, activeEvent ? null : targetEntry.current);
     if (!entry || activeEvent === entry) return;
     window.clearTimeout(eventTimer.current);
     void petActionDuration(asset.id, entry);
     eventEntryRef.current = entry;
+    if (entry === preloadedSprite && activeHitPulse.current === null) {
+      activeHitPulse.current = hitPulseRef.current;
+    } else {
+      activeHitPulse.current = null;
+      bumpPulse();
+    }
     setEventEntry(entry);
-    bumpPulse();
   }
 
   function cancelBehaviorAuto() {
@@ -813,8 +852,25 @@ export function PetWindow() {
   const normalEntry = behavior
     ? (dragging && dragEntry ? dragEntry : sleepState ? sleepState.entry : manualAction ? currentEntry : eventEntry ?? stateEntry ?? currentEntry)
     : stateEntry ?? eventEntry ?? currentEntry;
-  const normalPulse = behavior && dragging && dragEntry ? 0 : actionPulse;
-  const normalFrame = custom ? petImageFrame(appearanceId, normalEntry, false, Boolean(behavior && behaviorFacing === "right"), normalPulse) : null;
+  const isInstantHit = Boolean(
+    activeHitPulse.current !== null &&
+    ((behavior && (manualAction || (dragging && dragEntry && behavior.hit.includes(dragEntry)))) || (!behavior && eventEntry)),
+  );
+  const normalPulse = behavior && dragging && dragEntry
+    ? (behavior.hit.includes(dragEntry) ? hitPulse : 0)
+    : (activeHitPulse.current ?? actionPulse);
+  const hitStartTime = behavior?.id === "dsh-pet" && normalEntry && behavior.hit.includes(normalEntry) ? 1.15 : 0;
+  const normalFrame = custom
+    ? petImageFrame(
+        appearanceId,
+        normalEntry,
+        false,
+        Boolean(behavior && behaviorFacing === "right"),
+        normalPulse,
+        isInstantHit || Boolean(behavior && dragging && dragEntry && behavior.hit.includes(dragEntry)),
+        hitStartTime,
+      )
+    : null;
   if (normalFrame && behavior) {
     // usePetImages retains the displayed/leaving frame object. Keep its original
     // playback mode after the request settles; deriving loop from the current
@@ -824,8 +880,24 @@ export function PetWindow() {
   const dragHeldFrame = custom && behavior && dragging && (sleepState?.entry ?? stateEntry ?? resting)
     ? [petImageFrame(appearanceId, sleepState?.entry ?? stateEntry ?? resting, false, behaviorFacing === "right", 0)]
     : [];
-  const spriteHitClip = custom && !behavior ? pickHitAnimation(latestAsset.current, resting) : null;
-  const hitFrames = spriteHitClip ? [petImageFrame(appearanceId, spriteHitClip, false, false)] : [];
+  const spriteHitClip = custom && !behavior ? pickHitAnimation(latestAsset.current, resting, () => 0) : null;
+  const behaviorPreloadHits = behavior
+    ? [...new Set([
+        pickPetHitEntry(behavior, "left", resting, () => 0),
+        pickPetHitEntry(behavior, "floor", resting, () => 0),
+      ].filter((item): item is string => Boolean(item)))]
+    : [];
+  const hitFrames = custom
+    ? behavior
+      ? behaviorPreloadHits.map((entry) => {
+          const frame = petImageFrame(appearanceId, entry, false, behaviorFacing === "right", hitPulse, true, behavior.id === "dsh-pet" ? 1.15 : 0);
+          frame.loop = false;
+          return frame;
+        })
+      : spriteHitClip
+        ? [petImageFrame(appearanceId, spriteHitClip, false, false, hitPulse, true)]
+        : []
+    : [];
   const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
   const dragFrames = behavior?.drag.map((entry) => petImageFrame(appearanceId, entry, false, behaviorFacing === "right")) ?? [];
   const targetFrame = shownWalk && shownChoice ? petImageFrame(appearanceId, shownChoice.entry, true, shownChoice.flip) : normalFrame;
@@ -932,7 +1004,14 @@ export function PetWindow() {
     void petActionDuration(appearanceId, eventEntry).then((duration) => {
       if (cancelled) return;
       eventTimer.current = window.setTimeout(() => {
-        if (!cancelled) setEventEntry(null);
+        if (!cancelled) {
+          if (activeHitPulse.current !== null) {
+            activeHitPulse.current = null;
+            hitPulseRef.current += 1;
+            setHitPulse(hitPulseRef.current);
+          }
+          setEventEntry(null);
+        }
       }, duration);
     });
     return () => {
@@ -999,6 +1078,7 @@ export function PetWindow() {
     let previous = performance.now();
     let lastSquashAt = -Infinity;
     let lastHitClipAt = -Infinity;
+    let writing = false;
 
     const step = (now: number) => {
       if (token !== gravityToken.current || pointerHeld.current) {
@@ -1013,10 +1093,13 @@ export function PetWindow() {
       const next = stepThrow(state, dt, bounds, gravityEnabled.current);
       state = { x: next.x, y: next.y, vx: next.vx, vy: next.vy };
       if (next.bounced) syncFacing(state.vx);
-      void petWindow.setPosition(new PhysicalPosition(
-        Math.round(state.x * scale + frameShift.current.x),
-        Math.round(state.y * scale + frameShift.current.y),
-      )).catch(() => {});
+      if (!writing || next.atRest) {
+        writing = true;
+        void petWindow.setPosition(new PhysicalPosition(
+          Math.round(state.x * scale + frameShift.current.x),
+          Math.round(state.y * scale + frameShift.current.y),
+        )).catch(() => {}).finally(() => { writing = false; });
+      }
       if (next.hit && (next.hit.edge === "floor" || next.hit.speed >= 260)) {
         if (now - lastSquashAt >= 120) {
           lastSquashAt = now;
@@ -1379,11 +1462,18 @@ export function PetWindow() {
       const effectiveSpeed = Math.max(speed * 1.6, 520);
       triggerCurrentImpact(hitEdge, effectiveSpeed);
       if (behaviorRef.current) {
-        const hitClip = pickPetHitEntry(behaviorRef.current, hitEdge, targetEntry.current);
+        const hitClip = (hitEdge === "floor" || hitEdge === "ceiling"
+          ? pickPetHitEntry(behaviorRef.current, "floor", restingRef.current, () => 0)
+          : pickPetHitEntry(behaviorRef.current, "left", restingRef.current, () => 0))
+          ?? pickPetHitEntry(behaviorRef.current, hitEdge, targetEntry.current);
         if (hitClip) {
           window.clearTimeout(dragHitTimer);
+          activeHitPulse.current = hitPulseRef.current;
           setDragEntry(hitClip);
           dragHitTimer = window.setTimeout(() => {
+            activeHitPulse.current = null;
+            hitPulseRef.current += 1;
+            setHitPulse(hitPulseRef.current);
             if (!finished && dragged.current && behaviorRef.current && !sleepRef.current) {
               setDragEntry(pickPetEntry(behaviorRef.current.drag, hitClip));
             }
@@ -1845,29 +1935,14 @@ export function PetWindow() {
                   // Keep the outgoing video on its last composited frame. In
                   // particular, a finished one-shot must not restart as a loop
                   // underneath its fade while the next action becomes active.
-                  playing={frame.key !== leaving?.key}
-                  loop={frame.loop}
-                  onReady={(element) => {
-                    if (
-                      element instanceof HTMLVideoElement &&
-                      behaviorRef.current?.id === "dsh-pet" &&
-                      pointerHeld.current &&
-                      frame.entry &&
-                      behaviorRef.current.hit.includes(frame.entry) &&
-                      Number.isFinite(element.duration) &&
-                      element.duration >= 2.4 &&
-                      element.currentTime < 0.2
-                    ) {
-                      try {
-                        element.currentTime = Math.min(1.15, element.duration * 0.22);
-                      } catch {
-                        // 解码器尚未允许 seek 时保留原起点。
-                      }
-                    }
-                    readyMedia.current.set(frame.key, element);
-                    rememberMediaDimensions(frame, element);
-                    void onPetImageReady(frame, element);
-                  }}
+                   playing={frame.key !== leaving?.key}
+                   loop={frame.loop}
+                   startTime={frame.startTime}
+                   onReady={(element) => {
+                     readyMedia.current.set(frame.key, element);
+                     rememberMediaDimensions(frame, element);
+                     void onPetImageReady(frame, element);
+                   }}
                   onEnded={() => onBehaviorEnded(frame)}
                   onError={() => {
                     playback.failed(frame.key);
@@ -1892,43 +1967,31 @@ export function PetWindow() {
           </div>
         )}
       </div>
-      {impactBurst && (
-        <div
-          key={impactBurst.id}
-          className={`pet-impact-fx edge-${impactBurst.edge} kind-${impactBurst.kind}`}
-          aria-hidden="true"
-        >
-          <div className="pet-impact-contact">
-            <span className="pet-impact-ring" />
-            {impactBurst.kind === "behavior" ? (
-              <svg className="pet-impact-bubbles" viewBox="0 0 48 48">
-                <circle cx="14" cy="14" r="4.5" fill="rgba(135, 222, 255, 0.92)" />
-                <circle cx="35" cy="12" r="3.5" fill="rgba(255, 255, 255, 0.95)" />
-                <circle cx="10" cy="33" r="3" fill="rgba(135, 222, 255, 0.88)" />
-                <circle cx="36" cy="34" r="4" fill="rgba(180, 236, 255, 0.9)" />
-                <circle cx="24" cy="7" r="2.5" fill="rgba(255, 255, 255, 0.9)" />
-              </svg>
-            ) : (
-              <svg className="pet-impact-burst" viewBox="0 0 48 48">
-                <path
-                  d="M24 2 L28 17 L43 13 L31 24 L43 35 L28 31 L24 46 L20 31 L5 35 L17 24 L5 13 L20 17 Z"
-                  fill={impactBurst.kind === "app-icon" ? "rgba(255, 204, 77, 0.95)" : "rgba(255, 118, 92, 0.95)"}
-                  stroke="rgba(255, 255, 255, 0.92)"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            )}
-          </div>
-          {impactBurst.kind === "sprite" && (
-            <svg className="pet-impact-dizzy" viewBox="0 0 64 28">
-              <ellipse cx="32" cy="16" rx="22" ry="6" fill="none" stroke="rgba(255, 214, 70, 0.85)" strokeWidth="1.6" strokeDasharray="4 3" />
-              <path d="M12 14 L14 9 L16 14 L21 16 L16 18 L14 23 L12 18 L7 16 Z" fill="#FFD43B" stroke="#FFF" strokeWidth="1" />
-              <path d="M48 11 L50 6 L52 11 L57 13 L52 15 L50 20 L48 15 L43 13 Z" fill="#FFA94D" stroke="#FFF" strokeWidth="1" />
-            </svg>
-          )}
+      <div ref={impactFxRef} className="pet-impact-fx" hidden aria-hidden="true">
+        <div className="pet-impact-contact">
+          <span className="pet-impact-ring" />
+          <svg className="pet-impact-bubbles" viewBox="0 0 48 48">
+            <circle cx="14" cy="14" r="4.5" fill="rgba(135, 222, 255, 0.92)" />
+            <circle cx="35" cy="12" r="3.5" fill="rgba(255, 255, 255, 0.95)" />
+            <circle cx="10" cy="33" r="3" fill="rgba(135, 222, 255, 0.88)" />
+            <circle cx="36" cy="34" r="4" fill="rgba(180, 236, 255, 0.9)" />
+            <circle cx="24" cy="7" r="2.5" fill="rgba(255, 255, 255, 0.9)" />
+          </svg>
+          <svg className="pet-impact-burst" viewBox="0 0 48 48">
+            <path
+              d="M24 2 L28 17 L43 13 L31 24 L43 35 L28 31 L24 46 L20 31 L5 35 L17 24 L5 13 L20 17 Z"
+              stroke="rgba(255, 255, 255, 0.92)"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+          </svg>
         </div>
-      )}
+        <svg className="pet-impact-dizzy" viewBox="0 0 64 28">
+          <ellipse cx="32" cy="16" rx="22" ry="6" fill="none" stroke="rgba(255, 214, 70, 0.85)" strokeWidth="1.6" strokeDasharray="4 3" />
+          <path d="M12 14 L14 9 L16 14 L21 16 L16 18 L14 23 L12 18 L7 16 Z" fill="#FFD43B" stroke="#FFF" strokeWidth="1" />
+          <path d="M48 11 L50 6 L52 11 L57 13 L52 15 L50 20 L48 15 L43 13 Z" fill="#FFA94D" stroke="#FFF" strokeWidth="1" />
+        </svg>
+      </div>
     </div>
   );
 }

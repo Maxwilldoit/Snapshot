@@ -6,15 +6,15 @@ const interrupted = (error: unknown) => error instanceof DOMException && error.n
 
 /** Keep the real video as the playback clock; only its pixels need a WebKit fallback. */
 export function MacPetVideo({
-  src, alphaSrc, className, style, hidden, alt, playing = true, loop = true, onReady, onEnded, onError,
+  src, alphaSrc, className, style, hidden, alt, playing = true, loop = true, startTime = 0, onReady, onEnded, onError,
 }: PetMediaProps & { src: string; alphaSrc: string }) {
   const colourRef = useRef<HTMLVideoElement>(null);
   const alphaRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const callbacks = useRef({ onReady, onError });
   callbacks.current = { onReady, onError };
-  const playback = useRef({ hidden, playing });
-  playback.current = { hidden, playing };
+  const playback = useRef({ hidden, playing, startTime });
+  playback.current = { hidden, playing, startTime };
   const [opaque, setOpaque] = useState(false);
 
   useEffect(() => {
@@ -32,6 +32,7 @@ export function MacPetVideo({
     let disposed = false;
     let nativeOnly = false;
     let reported = false;
+    let preseeked = false;
     let frame: number | null = null;
     let animation: number | null = null;
     let lastDraw = -Infinity;
@@ -114,6 +115,17 @@ export function MacPetVideo({
       if (colour.readyState >= 2) ready();
     };
     const loaded = () => {
+      const targetStart = playback.current.startTime;
+      if (!preseeked && targetStart > 0 && Number.isFinite(colour.duration) && colour.duration >= targetStart + 1 && colour.currentTime < targetStart - 0.1) {
+        preseeked = true;
+        try {
+          colour.currentTime = targetStart;
+          if (alpha.readyState >= 1) alpha.currentTime = targetStart;
+          return;
+        } catch {
+          // 解码器尚不能 seek 时继续绘制首帧。
+        }
+      }
       sync();
       if (!playback.current.hidden && playback.current.playing && colour.paused) void colour.play().catch(fail);
     };

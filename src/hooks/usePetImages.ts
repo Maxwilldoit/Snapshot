@@ -14,9 +14,21 @@ export interface PetImageFrame {
   flip: boolean;
   /** Playback mode belongs to this mounted frame, including its outgoing fade. */
   loop: boolean;
+  /** 碰撞受击等瞬时反馈直接硬切，不让旧画面在 z-index:2 上层遮挡 180ms。 */
+  instant?: boolean;
+  /** 视频预加载时提前定位到的起始秒数，避免触发瞬间再临时 seek。 */
+  startTime?: number;
 }
 
-export function petImageFrame(assetId: string, entry: string | null, walk = false, flip = false, pulse = 0): PetImageFrame {
+export function petImageFrame(
+  assetId: string,
+  entry: string | null,
+  walk = false,
+  flip = false,
+  pulse = 0,
+  instant = false,
+  startTime = 0,
+): PetImageFrame {
   return {
     key: JSON.stringify([assetId, entry, walk, flip, pulse]),
     assetId,
@@ -25,6 +37,8 @@ export function petImageFrame(assetId: string, entry: string | null, walk = fals
     walk,
     flip,
     loop: true,
+    ...(instant ? { instant: true } : {}),
+    ...(startTime > 0 ? { startTime } : {}),
   };
 }
 
@@ -55,7 +69,7 @@ export function usePetImages(target: PetImageFrame | null, preload: PetImageFram
     const current = activeRef.current;
     if (current?.key === frame.key) return;
     window.clearTimeout(fadeTimer.current);
-    if (current && current.assetId === frame.assetId) {
+    if (current && current.assetId === frame.assetId && !frame.instant) {
       setPrevious(current);
       fadeTimer.current = window.setTimeout(() => setPrevious(null), PET_IMAGE_FADE_MS);
     } else {

@@ -337,18 +337,30 @@ export function impactDeformation(
   impactSpeed: number,
   kind: PetImpactKind,
   mirrored = false,
+  subjectBox?: { left: number; top: number; width: number; height: number } | null,
 ): { keyframes: Keyframe[]; duration: number } {
   const comp = Math.max(0.5, landingSquash(impactSpeed) - 0.08);
   const delta = 1 - comp;
-  const stretch = Number(Math.min(1.26, 1 + delta * 0.58).toFixed(3));
+  const stretch = Number(Math.min(1.24, 1 + delta * 0.54).toFixed(3));
   const mirror = mirrored ? "scaleX(-1) " : "";
   const horizontal = edge === "left" || edge === "right";
-  const origin = edge === "floor" ? "50% 100%" : edge === "ceiling" ? "50% 0%" : "50% 50%";
+  const box = subjectBox && subjectBox.width > 0 && subjectBox.height > 0
+    ? subjectBox
+    : { left: 0, top: 0, width: 1, height: 1 };
+  const cx = Math.round((box.left + box.width * 0.5) * 100);
+  const topY = Math.round(box.top * 100);
+  const bottomY = Math.round((box.top + box.height) * 100);
+  const midY = Math.round((box.top + box.height * 0.55) * 100);
+  const origin = edge === "floor"
+    ? `${cx}% ${bottomY}%`
+    : edge === "ceiling"
+      ? `${cx}% ${topY}%`
+      : `50% ${midY}%`;
   const sx = horizontal ? Number(comp.toFixed(3)) : stretch;
   const sy = horizontal ? stretch : Number(comp.toFixed(3));
-  // 横向贴墙压缩时以 50% 为缩放中心并在屏幕空间补偿位移，兼容 scaleX(-1) 镜像角色。
+  // 按实际人物可见宽度比例计算贴墙位移，避免宽透明画布把角色推出裁剪窗外。
   const wallShift = horizontal
-    ? `${edge === "left" ? "-" : ""}${Number((delta * 50).toFixed(2))}%`
+    ? `${edge === "left" ? "-" : ""}${Number((delta * box.width * 48).toFixed(2))}%`
     : "0%";
   const reboundX = horizontal ? Number((1 + delta * 0.28).toFixed(3)) : 0.91;
   const reboundY = horizontal ? 0.91 : Number((1 + delta * 0.28).toFixed(3));

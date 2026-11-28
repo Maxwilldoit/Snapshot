@@ -16,6 +16,8 @@ export type PetMediaProps = {
   playing?: boolean;
   /** Floating companions can play an interaction once; library previews keep looping by default. */
   loop?: boolean;
+  /** 预加载受击视频时提前跳过的起始秒数。 */
+  startTime?: number;
   fallback?: ReactNode;
   onReady?: (element: PetMediaElement) => void;
   onEnded?: (element: HTMLVideoElement) => void;
@@ -32,6 +34,7 @@ export function PetMedia({
   hidden,
   playing = true,
   loop = true,
+  startTime = 0,
   fallback = null,
   onReady,
   onEnded,
@@ -64,7 +67,7 @@ export function PetMedia({
   if (video) {
     const alphaSrc = petAlphaUrl(src);
     if (alphaSrc) return <MacPetVideo key={src} src={src} alphaSrc={alphaSrc} entry={entry}
-      className={className} style={style} alt={alt} hidden={hidden} playing={playing} loop={loop}
+      className={className} style={style} alt={alt} hidden={hidden} playing={playing} loop={loop} startTime={startTime}
       onReady={onReady} onEnded={onEnded} onError={() => { setFailed(true); onError?.(); }} />;
     // Blob 还在取（本地文件，通常一帧内就好）
     if (!videoSrc) return null;
@@ -85,7 +88,13 @@ export function PetMedia({
         aria-label={alt || undefined}
         onLoadedData={(event) => {
           const element = event.currentTarget;
-          if (!playing) {
+          if (startTime > 0 && Number.isFinite(element.duration) && element.duration >= startTime + 1 && element.currentTime < 0.2) {
+            try {
+              element.currentTime = startTime;
+            } catch {
+              // 元数据尚未稳定时保持首帧即可。
+            }
+          } else if (!playing) {
             try {
               element.currentTime = 0.001;
             } catch {
