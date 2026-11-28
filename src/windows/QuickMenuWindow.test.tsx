@@ -115,6 +115,21 @@ describe("快捷菜单：截取自身主窗口", () => {
     }
   });
 
+  it("Linux Wayland 下点击录屏直接交给系统门户选源，不先展开空的 X11 窗口列表", async () => {
+    const { user, calls } = await renderPalette((command) => {
+      if (command === "platform_capabilities") return { os: "linux", displayServer: "Wayland", recording: { available: true }, scrolling: { available: false } };
+      if (command === "get_recording_status") return { active: false, target: null, startedAt: null };
+      if (command === "list_capturable_windows") return [];
+      if (command === "toggle_recording") return { active: true, target: "屏幕录制", startedAt: Date.now() };
+      return undefined;
+    });
+    await user.click(await screen.findByRole("option", { name: "录屏" }));
+    await waitFor(() => {
+      expect(calls.find((call) => call.command === "toggle_recording")?.payload).toEqual({ targetId: null });
+    });
+    expect(screen.queryByText("选择要录制的窗口")).toBeNull();
+  });
+
   it.each([
     ["截图", "run_action", { action: "capture", targetId: 75 }],
     ["录屏", "toggle_recording", { targetId: 75 }],

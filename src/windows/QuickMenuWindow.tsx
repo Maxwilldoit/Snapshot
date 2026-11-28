@@ -299,6 +299,21 @@ export function QuickMenuWindow() {
     }
   }
 
+  async function startSystemRecording() {
+    showStatus({ kind: "busy", text: t("正在开始录 {app}…", { app: t("录制") }) });
+    try {
+      const next = await toggleRecording();
+      setRecording(next);
+      const message = next.message?.trim();
+      showStatus({
+        kind: "ok",
+        text: message ? localizeMessage(message) : t("开始录制 {target}", { target: next.target ?? t("录制") }),
+      }, true);
+    } catch (error) {
+      showStatus({ kind: "error", text: t(errorText(error)) });
+    }
+  }
+
   async function stopRecording() {
     showStatus({ kind: "busy", text: t("正在停止并保存录像…") });
     try {
@@ -307,7 +322,7 @@ export function QuickMenuWindow() {
       if (next.active) {
         showStatus({ kind: "ok", text: t("录制还在继续") });
       } else {
-        // 录屏成品已经进了历史，不再弹「已保存」提示，直接收起快捷菜单
+        // 录屏成品已经进了历史，不再弹「已保存」，直接收起快捷菜单
         void hideQuickMenu();
       }
     } catch (error) {
@@ -386,6 +401,8 @@ export function QuickMenuWindow() {
     }
   }
 
+  const usesWaylandPortal = caps?.os === "linux" && caps.displayServer.startsWith("Wayland");
+
   const items = useMemo<Item[]>(() => {
     const list: Item[] = [
       {
@@ -423,7 +440,7 @@ export function QuickMenuWindow() {
             id: "record",
             label: t("录屏"),
             hint: shortcutHint("record"),
-            run: () => void openPicker("record"),
+            run: () => void (usesWaylandPortal ? startSystemRecording() : openPicker("record")),
           },
       {
         id: "prompts",

@@ -93,14 +93,13 @@ fn capture_frames_loop(window_id: u32, initial: &Window) -> Result<Vec<RgbaImage
             && method == ScrollMethod::PageDown
             && images_nearly_equal(prev, &next)
             && active_window_id() == Some(window_id)
+            && scroll_once(&refreshed, ScrollMethod::Wheel).is_ok()
         {
-            if scroll_once(&refreshed, ScrollMethod::Wheel).is_ok() {
-                thread::sleep(Duration::from_millis(SCROLL_SETTLE_MS));
-                let after_wheel = find_window(window_id)?;
-                next = capture_one(&after_wheel)?;
-                if !images_nearly_equal(prev, &next) {
-                    method = ScrollMethod::Wheel;
-                }
+            thread::sleep(Duration::from_millis(SCROLL_SETTLE_MS));
+            let after_wheel = find_window(window_id)?;
+            next = capture_one(&after_wheel)?;
+            if !images_nearly_equal(prev, &next) {
+                method = ScrollMethod::Wheel;
             }
         }
 

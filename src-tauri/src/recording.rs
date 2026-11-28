@@ -355,15 +355,29 @@ fn toggle_recording_now(
     }
     drop(finalize_guard);
 
-    // 指定了窗口就录它；没指定才回到「上一个应用」，与窗口快照的口径一致
-    let target = match target_id {
-        Some(id) => list_tracked_window(app, id)?,
-        None => state
-            .tracker
-            .lock()
-            .previous
-            .clone()
-            .ok_or_else(|| "还没有上一个应用可录制".to_string())?,
+    // Wayland 门户录制由系统弹窗挑选窗口或屏幕，不强依赖 X11 的窗口列表或「上一个应用」；
+    // 其余后端指定了窗口就录它，没指定回到「上一个应用」。
+    let target = if os::recording_uses_system_picker() {
+        target_id
+            .filter(|_| os::can_enumerate_windows())
+            .and_then(|id| list_tracked_window(app, id).ok())
+            .or_else(|| state.tracker.lock().previous.clone())
+            .unwrap_or_else(|| tracker::TrackedWindow {
+                id: 0,
+                pid: 0,
+                app_name: ui_text("屏幕录制", "Screen Recording").into(),
+                title: String::new(),
+            })
+    } else {
+        match target_id {
+            Some(id) => list_tracked_window(app, id)?,
+            None => state
+                .tracker
+                .lock()
+                .previous
+                .clone()
+                .ok_or_else(|| "还没有上一个应用可录制".to_string())?,
+        }
     };
     let settings = state.settings.lock().clone();
     let output_dir = resolve_recording_dir(state, &settings)?;
@@ -377,8 +391,10 @@ fn toggle_recording_now(
 
     let options = RecordOptions::supported(&settings, &os::capabilities());
     let (session, message) = os::start_recording(target.id, &options, &output)?;
-    // 录的是哪个窗口就记哪个应用的稳定标识（开录时取一次）；取不到就没有角标，不影响录制
-    let app_id = os::app_stable_id(target.pid);
+    // 录的是哪个窗口就记哪个应用的稳定标识（开录时取一次）；门户选源无特定 pid 时不显示角标
+    let app_id = (target.pid != 0)
+        .then(|| os::app_stable_id(target.pid))
+        .flatten();
     let _finalize_guard = RECORDING_FINALIZE_LOCK.lock();
     let mut orphaned_session = None;
     let status = {
