@@ -14,6 +14,12 @@ const MAX_FRAMES: usize = 28;
 const SCROLL_SETTLE_MS: u64 = 280;
 const OVERLAP_SEARCH_MIN: u32 = 24;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScrollMethod {
+    PageDown,
+    Wheel,
+}
+
 /// 对指定窗口做滚动长截图（best-effort）。
 pub fn capture_scrolling_window(window_id: u32) -> Result<RgbaImage, String> {
     if is_wayland_session() || x11_display().is_none() {
@@ -22,37 +28,22 @@ pub fn capture_scrolling_window(window_id: u32) -> Result<RgbaImage, String> {
 
     ensure_xdotool()?;
 
-    let window = Window::all()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .find(|w| w.id().ok() == Some(window_id))
-        .ok_or_else(|| "目标窗口已经关闭".to_string())?;
+    let window = find_window(window_id)?;
 
     if window.is_minimized().unwrap_or(false) {
         restore_minimized(window_id)?;
     }
 
     activate_window(window_id)?;
+    let saved_mouse = query_mouse_location();
 
-    let mut frames: Vec<RgbaImage> = Vec::new();
-    frames.push(capture_one(&window)?);
+    let result = capture_frames_loop(window_id, &window);
 
-    for _ in 1..MAX_FRAMES {
-        scroll_window(window_id)?;
-        thread::sleep(Duration::from_millis(SCROLL_SETTLE_MS));
-        let window = Window::all()
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .find(|w| w.id().ok() == Some(window_id))
-            .ok_or_else(|| "目标窗口已经关闭".to_string())?;
-        let next = capture_one(&window)?;
-        let prev = frames.last().expect("frames non-empty");
-        if images_nearly_equal(prev, &next) {
-            break;
-        }
-        frames.push(next);
+    if let Some((mx, my)) = saved_mouse {
+        restore_mouse_location(mx, my);
     }
 
+    let frames = result?;
     if frames.len() < 2 {
         return frames
             .into_iter()
@@ -61,6 +52,64 @@ pub fn capture_scrolling_window(window_id: u32) -> Result<RgbaImage, String> {
     }
 
     stitch_vertical(frames)
+}
+
+fn find_window(window_id: u32) -> Result<Window, String> {
+    Window::all()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|w| w.id().ok() == Some(window_id))
+        .ok_or_else(|| "目标窗口已经关闭".to_string())
+}
+
+fn capture_frames_loop(window_id: u32, initial: &Window) -> Result<Vec<RgbaImage>, String> {
+    let mut frames: Vec<RgbaImage> = Vec::new();
+    frames.push(capture_one(initial)?);
+    let mut method = ScrollMethod::PageDown;
+
+    for step in 1..MAX_FRAMES {
+        if active_window_id() != Some(window_id) {
+            if step == 1 {
+                activate_window(window_id)?;
+                if active_window_id() != Some(window_id) {
+                    return Err("无法激活目标窗口".into());
+                }
+            } else {
+                // 用户中途切走了焦点，立刻停手并拼接已有帧，绝不往别的窗口发翻页键
+                break;
+            }
+        }
+
+        let current_window = find_window(window_id)?;
+        scroll_once(&current_window, method)?;
+        thread::sleep(Duration::from_millis(SCROLL_SETTLE_MS));
+
+        let refreshed = find_window(window_id)?;
+        let mut next = capture_one(&refreshed)?;
+        let prev = frames.last().expect("frames non-empty");
+
+        // 首帧若 Page_Down 没滚起来（如焦点落在地址栏或工具条上），再试一次窗口中心的滚轮
+        if step == 1
+            && method == ScrollMethod::PageDown
+            && images_nearly_equal(prev, &next)
+            && active_window_id() == Some(window_id)
+            && scroll_once(&refreshed, ScrollMethod::Wheel).is_ok()
+        {
+            thread::sleep(Duration::from_millis(SCROLL_SETTLE_MS));
+            let after_wheel = find_window(window_id)?;
+            next = capture_one(&after_wheel)?;
+            if !images_nearly_equal(prev, &next) {
+                method = ScrollMethod::Wheel;
+            }
+        }
+
+        if images_nearly_equal(prev, &next) {
+            break;
+        }
+        frames.push(next);
+    }
+
+    Ok(frames)
 }
 
 /// 本机能力里的「滚动长截图」也按这个判断，免得显示可用、一滚才报错
@@ -83,30 +132,91 @@ fn activate_window(id: u32) -> Result<(), String> {
     Ok(())
 }
 
-fn scroll_window(id: u32) -> Result<(), String> {
-    let page = Command::new("xdotool")
-        .args(["key", "--window", &id.to_string(), "Page_Down"])
-        .status();
-    if matches!(page, Ok(code) if code.success()) {
-        return Ok(());
+fn active_window_id() -> Option<u32> {
+    let output = Command::new("xdotool")
+        .arg("getactivewindow")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
-    let click = Command::new("xdotool")
-        .args([
-            "mousemove",
-            "--window",
-            &id.to_string(),
-            "40",
-            "40",
-            "click",
-            "--window",
-            &id.to_string(),
-            "5",
-        ])
-        .status();
-    match click {
-        Ok(code) if code.success() => Ok(()),
-        _ => Err("无法向目标窗口发送翻页（xdotool）".into()),
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u32>()
+        .ok()
+}
+
+/// 发送一次翻页：不传 `--window` 以走 XTEST（GTK3/GTK4/WebKitGTK/Electron 等 XInput2 客户端
+/// 会静默忽略 `--window` 触发的合成 XSendEvent）；调用方已核对当前活动窗口就是目标窗。
+fn scroll_once(window: &Window, method: ScrollMethod) -> Result<(), String> {
+    match method {
+        ScrollMethod::PageDown => {
+            let status = Command::new("xdotool")
+                .args(["key", "--clearmodifiers", "Page_Down"])
+                .status();
+            match status {
+                Ok(code) if code.success() => Ok(()),
+                _ => Err("无法向目标窗口发送翻页（xdotool）".into()),
+            }
+        }
+        ScrollMethod::Wheel => {
+            let x = window.x().unwrap_or(0).max(0);
+            let y = window.y().unwrap_or(0).max(0);
+            let w = window.width().unwrap_or(160).max(40) as i32;
+            let h = window.height().unwrap_or(160).max(40) as i32;
+            let cx = (x + w / 2).to_string();
+            let cy = (y + h / 2).to_string();
+            let status = Command::new("xdotool")
+                .args([
+                    "mousemove",
+                    "--sync",
+                    &cx,
+                    &cy,
+                    "click",
+                    "--clearmodifiers",
+                    "--repeat",
+                    "5",
+                    "--delay",
+                    "18",
+                    "5",
+                ])
+                .status();
+            match status {
+                Ok(code) if code.success() => Ok(()),
+                _ => Err("无法向目标窗口发送翻页（xdotool）".into()),
+            }
+        }
     }
+}
+
+fn query_mouse_location() -> Option<(i32, i32)> {
+    let output = Command::new("xdotool")
+        .args(["getmouselocation", "--shell"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_mouse_location(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_mouse_location(shell_output: &str) -> Option<(i32, i32)> {
+    let mut x = None;
+    let mut y = None;
+    for line in shell_output.lines() {
+        if let Some(val) = line.strip_prefix("X=") {
+            x = val.trim().parse::<i32>().ok();
+        } else if let Some(val) = line.strip_prefix("Y=") {
+            y = val.trim().parse::<i32>().ok();
+        }
+    }
+    Some((x?, y?))
+}
+
+fn restore_mouse_location(x: i32, y: i32) {
+    let _ = Command::new("xdotool")
+        .args(["mousemove", &x.to_string(), &y.to_string()])
+        .status();
 }
 
 fn capture_one(window: &Window) -> Result<RgbaImage, String> {
@@ -147,25 +257,33 @@ fn images_nearly_equal(a: &RgbaImage, b: &RgbaImage) -> bool {
 }
 
 fn find_overlap(prev: &RgbaImage, next: &RgbaImage) -> u32 {
+    const SCROLLBAR_GUTTER: u32 = 20;
     let width = prev.width().min(next.width());
     let max_overlap = prev.height().min(next.height()).saturating_sub(8);
     if max_overlap < OVERLAP_SEARCH_MIN || width < 8 {
         return OVERLAP_SEARCH_MIN.min(prev.height().min(next.height()) / 3);
     }
 
+    // 避开右侧滚动条滑块区域，防止滑块下移干扰内容重叠打分
+    let content_width = if width > SCROLLBAR_GUTTER * 2 {
+        width - SCROLLBAR_GUTTER
+    } else {
+        width
+    };
+
     let mut best_overlap = OVERLAP_SEARCH_MIN;
     let mut best_score = u64::MAX;
     let sample_step = 6u32;
 
-    let mut overlap = OVERLAP_SEARCH_MIN;
-    while overlap <= max_overlap {
+    for overlap in OVERLAP_SEARCH_MIN..=max_overlap {
         let mut score = 0u64;
         let mut samples = 0u64;
+        let row_step = if overlap >= 48 { sample_step } else { 3 };
         let mut row = 0u32;
         while row < overlap {
             let py = prev.height() - overlap + row;
             let mut x = 0u32;
-            while x < width {
+            while x < content_width {
                 let pa = prev.get_pixel(x, py).0;
                 let pb = next.get_pixel(x, row).0;
                 for i in 0..3 {
@@ -175,14 +293,13 @@ fn find_overlap(prev: &RgbaImage, next: &RgbaImage) -> u32 {
                 samples += 1;
                 x = x.saturating_add(sample_step);
             }
-            row = row.saturating_add(sample_step);
+            row = row.saturating_add(row_step);
         }
         let normalized = score.checked_div(samples).unwrap_or(u64::MAX);
         if normalized < best_score {
             best_score = normalized;
             best_overlap = overlap;
         }
-        overlap += 4;
     }
     best_overlap
 }
@@ -276,5 +393,52 @@ mod tests {
         assert_eq!(stitched.width(), 20);
         assert!(stitched.height() > 40);
         assert!(stitched.height() <= 64);
+    }
+
+    #[test]
+    fn find_overlap_handles_non_multiple_of_four_and_ignores_scrollbar_gutter() {
+        // 模拟 120×100 窗口翻页后重叠 42px（非 4 的倍数），且右侧 16px 滚动条位置完全不同
+        let full = RgbaImage::from_fn(120, 158, |x, y| {
+            Rgba([
+                ((x * 7 + y * 13) % 251) as u8,
+                ((y * 17) % 239) as u8,
+                ((x * 11 + y * 5) % 241) as u8,
+                255,
+            ])
+        });
+        let mut top = image::imageops::crop_imm(&full, 0, 0, 120, 100).to_image();
+        let mut bottom = image::imageops::crop_imm(&full, 0, 58, 120, 100).to_image();
+        for y in 0..100 {
+            for x in 104..120 {
+                top.put_pixel(
+                    x,
+                    y,
+                    if y < 30 {
+                        Rgba([40, 40, 40, 255])
+                    } else {
+                        Rgba([240, 240, 240, 255])
+                    },
+                );
+                bottom.put_pixel(
+                    x,
+                    y,
+                    if y > 70 {
+                        Rgba([40, 40, 40, 255])
+                    } else {
+                        Rgba([240, 240, 240, 255])
+                    },
+                );
+            }
+        }
+        assert_eq!(find_overlap(&top, &bottom), 42);
+        let stitched = stitch_vertical(vec![top, bottom]).expect("stitch");
+        assert_eq!(stitched.dimensions(), (120, 158));
+    }
+
+    #[test]
+    fn parses_xdotool_shell_mouse_location() {
+        let raw = "X=512\nY=384\nSCREEN=0\nWINDOW=12582915\n";
+        assert_eq!(parse_mouse_location(raw), Some((512, 384)));
+        assert_eq!(parse_mouse_location("SCREEN=0\n"), None);
     }
 }

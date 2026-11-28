@@ -82,6 +82,7 @@ export const backendErrorEnglish: Record<string, string> = {
   "剪贴板内容已变化，润色结果未写入": "The clipboard changed while enhancing, so the result wasn’t copied.",
   "尚未配置润色服务，请先在 Prompt 页面完成配置": "To enhance prompts, set up a model in Settings first.",
   "无法读取已保存的 API Key": "Couldn’t read the saved API key. Enter it again in Settings.",
+  "系统钥匙串不可用，请启动并解锁系统钥匙串（如 GNOME Keyring 或 KWallet）后重试": "The system keyring isn’t available. Start and unlock your keyring (such as GNOME Keyring or KWallet), then try again.",
   "润色服务未返回内容": "The model didn’t return any text. Try again.",
   "模型接口没有返回可识别的列表": "The server didn’t return a model list. Check the base URL.",
   "模型接口返回了空列表": "The server returned no models.",
@@ -140,6 +141,9 @@ export const backendErrorEnglish: Record<string, string> = {
   "x11grab 需要 $DISPLAY": "Window recording needs an X11 display, and $DISPLAY isn’t set.",
   "没有可用显示器": "There’s no display to record.",
   "ScreenCast 画面尺寸无效": "Screen sharing sent a frame with an invalid size.",
+  "已取消屏幕共享授权": "Screen sharing was canceled.",
+  "无法构造 PipeWire 格式参数": "Couldn’t configure the PipeWire video format.",
+  "ScreenCast start 失败：PipeWire 采集线程意外退出": "Screen sharing didn’t start because PipeWire stopped unexpectedly.",
   "ffmpeg stdin 不可用": "Couldn’t send commands to ffmpeg.",
   "等待 ScreenCast 画面超时（请在弹窗中选择屏幕/窗口并允许共享）": "Screen sharing didn’t start in time. Choose a screen or window in the dialog and allow sharing.",
   "滚动长截图需要 X11/`$DISPLAY`（xdotool 翻页）。纯 Wayland 尚不支持": "Scrolling screenshots need X11, because xdotool does the scrolling. Wayland-only sessions aren’t supported yet.",
@@ -284,4 +288,5 @@ export const backendErrorPatterns: Array<[RegExp, string]> = [
   [/^behavior\.categories 配置无效：(.+)$/, "Invalid behavior.categories configuration for $1."],
   [/^润色服务返回错误（(\d+)）：(.+)$/s, "The model returned an error ($1). $2"],
   [/^无法保存音效：(.+)$/s, "Couldn’t save the sound. $1"],
+  [/^无法访问系统钥匙串：(.+)$/s, "Couldn’t access the system keyring. $1"],
 ];

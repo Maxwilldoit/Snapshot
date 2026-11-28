@@ -60,12 +60,30 @@ if (typeof window !== "undefined") {
 let transitionToken = 0;
 
 /**
+ * Linux WebKitGTK（webkit2gtk-4.1 2.52+）在 WEBKIT_DISABLE_COMPOSITING_MODE=1 或无 DRI3/DMABuf
+ * 退回非加速合成时，调用 document.startViewTransition 会在 UI 进程触发空指针解引用（SIGSEGV）。
+ * Linux 端统一走 CSS 进退场过渡，避免切页或切换主题时崩溃；macOS WKWebView、Windows WebView2 与浏览器不受影响。
+ */
+function isLinuxWebKit(): boolean {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "";
+  return (
+    /\bLinux\b/i.test(ua)
+    && /AppleWebKit\//i.test(ua)
+    && !/\b(?:Chrome|Chromium|CriOS|Edg|OPR|Firefox|jsdom)\//i.test(ua)
+  );
+}
+
+/**
  * 用 View Transitions 做整块的过渡：浏览器先拍下旧画面，再换成新画面，两张图之间按 kind 播动画。
- * 不支持时（旧 WebView、测试环境）直接切换。
+ * 不支持时（旧 WebView、Linux WebKitGTK、测试环境）直接切换。
  */
 /** 这次换画面会不会走 View Transitions（不会的话，新页要自己淡入） */
 export function canViewTransition(): boolean {
-  return Boolean((document as ViewTransitionDocument).startViewTransition) && document.visibilityState !== "hidden";
+  return (
+    Boolean((document as ViewTransitionDocument).startViewTransition)
+    && document.visibilityState !== "hidden"
+    && !isLinuxWebKit()
+  );
 }
 
 export function viewTransition(kind: TransitionKind, update: () => void, options: { direction?: TransitionDirection } = {}) {
