@@ -18,6 +18,8 @@ export type PetMediaProps = {
   loop?: boolean;
   /** 预加载受击视频时提前跳过的起始秒数。 */
   startTime?: number;
+  /** 单次受击视频播放的有效表情秒数上限。 */
+  maxDuration?: number;
   fallback?: ReactNode;
   onReady?: (element: PetMediaElement) => void;
   onEnded?: (element: HTMLVideoElement) => void;
@@ -35,6 +37,7 @@ export function PetMedia({
   playing = true,
   loop = true,
   startTime = 0,
+  maxDuration = 0,
   fallback = null,
   onReady,
   onEnded,
@@ -67,7 +70,7 @@ export function PetMedia({
   if (video) {
     const alphaSrc = petAlphaUrl(src);
     if (alphaSrc) return <MacPetVideo key={src} src={src} alphaSrc={alphaSrc} entry={entry}
-      className={className} style={style} alt={alt} hidden={hidden} playing={playing} loop={loop} startTime={startTime}
+      className={className} style={style} alt={alt} hidden={hidden} playing={playing} loop={loop} startTime={startTime} maxDuration={maxDuration}
       onReady={onReady} onEnded={onEnded} onError={() => { setFailed(true); onError?.(); }} />;
     // Blob 还在取（本地文件，通常一帧内就好）
     if (!videoSrc) return null;
@@ -102,6 +105,13 @@ export function PetMedia({
             }
           }
           onReady?.(element);
+        }}
+        onTimeUpdate={(event) => {
+          const element = event.currentTarget;
+          if (!loop && maxDuration > 0 && element.currentTime >= startTime + maxDuration) {
+            element.pause();
+            onEnded?.(element);
+          }
         }}
         onEnded={(event) => onEnded?.(event.currentTarget)}
         onError={() => { setFailed(true); onError?.(); }}

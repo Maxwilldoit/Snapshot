@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { petUrl, petWalkUrl } from "../lib/media";
+import { builtinHurtUrl } from "../lib/petHurtExpression";
 import type { PetMediaElement } from "../components/PetMedia";
 
 /** 新画面准备好后，旧画面在上层短暂淡出，避免 GIF 从半途硬切回首帧。 */
@@ -18,6 +19,8 @@ export interface PetImageFrame {
   instant?: boolean;
   /** 视频预加载时提前定位到的起始秒数，避免触发瞬间再临时 seek。 */
   startTime?: number;
+  /** 单次受击视频截取的有效表情时长（秒），播完表情段即收尾回到待机，不拖沓等待片尾静帧。 */
+  maxDuration?: number;
 }
 
 export function petImageFrame(
@@ -28,17 +31,20 @@ export function petImageFrame(
   pulse = 0,
   instant = false,
   startTime = 0,
+  maxDuration = 0,
 ): PetImageFrame {
+  const src = builtinHurtUrl(entry) ?? (walk && entry ? petWalkUrl(assetId, entry) : petUrl(assetId, entry));
   return {
     key: JSON.stringify([assetId, entry, walk, flip, pulse]),
     assetId,
     entry,
-    src: walk && entry ? petWalkUrl(assetId, entry) : petUrl(assetId, entry),
+    src,
     walk,
     flip,
     loop: true,
     ...(instant ? { instant: true } : {}),
     ...(startTime > 0 ? { startTime } : {}),
+    ...(maxDuration > 0 ? { maxDuration } : {}),
   };
 }
 

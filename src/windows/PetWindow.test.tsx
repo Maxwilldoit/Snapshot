@@ -2111,12 +2111,13 @@ describe("桌宠：DSH 动作交互", () => {
 
     expect(pet.getAttribute("data-hurt-character")).toBe("makima-pixel");
     expect(["wince", "dizzy"]).toContain(pet.getAttribute("data-hurt-expression"));
-    expect(shown(container).file).toBe("makima_idle.gif");
+    expect(shown(container).img.classList.contains("pet-builtin-hit")).toBe(true);
 
-    // 碰撞后 800ms 表情仍在保持，超过 1450ms 后自动恢复平静
-    await elapse(800);
-    expect(pet.getAttribute("data-hurt-expression")).not.toBeNull();
-    await elapse(750);
+    // 碰撞后 900ms 内置受击立绘仍在保持，反弹落地并超过恢复期后自动回到待机静帧
+    await elapse(900);
+    expect(shown(container).img.classList.contains("pet-builtin-hit")).toBe(true);
+    await elapse(1800);
+    expect(shown(container).file).toBe("makima_idle.gif");
     expect(pet.getAttribute("data-hurt-expression")).toBeNull();
 
     // 应用图标模式碰撞后同样展示面部受击表情并在恢复期后退去
@@ -2129,11 +2130,11 @@ describe("桌宠：DSH 动作交互", () => {
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(16); });
     await act(async () => {
-      fireEvent.pointerMove(window, { clientX: 10, clientY: 20, screenX: 90, screenY: 580, pointerId: 12 });
+      fireEvent.pointerMove(window, { clientX: 40, clientY: 20, screenX: 550, screenY: 580, pointerId: 12 });
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(16); });
     await act(async () => {
-      fireEvent.pointerMove(window, { clientX: 0, clientY: 20, screenX: -80, screenY: 580, pointerId: 12 });
+      fireEvent.pointerMove(window, { clientX: 80, clientY: 20, screenX: 1150, screenY: 580, pointerId: 12 });
     });
     await elapse(20);
     await act(async () => {
@@ -2142,7 +2143,7 @@ describe("桌宠：DSH 动作交互", () => {
     const iconFace = container.querySelector<HTMLElement>(".pet-icon-face");
     expect(iconFace?.hidden).toBe(false);
     expect(pet.getAttribute("data-hurt-character")).toBe("app-icon");
-    await elapse(2400);
+    await elapse(2700);
     expect(iconFace?.hidden).toBe(true);
   });
 });

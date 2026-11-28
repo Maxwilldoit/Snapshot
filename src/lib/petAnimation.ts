@@ -1,6 +1,7 @@
 import { petAnimationDuration } from "./backend";
 import { isWebmEntry, petUrl } from "./media";
 import { acquireMediaUrl } from "./mediaBlob";
+import { HURT_EXPRESSION_MS, isBuiltinHurtEntry } from "./petHurtExpression";
 
 const PET_ACTION_FALLBACK_MS = 3000;
 
@@ -43,6 +44,7 @@ function webmDuration(src: string): Promise<number> {
 
 /** 一轮动作的时长；同一次运行里每个素材动作只询问一次。 */
 export function petActionDuration(assetId: string, entry: string): Promise<number> {
+  if (isBuiltinHurtEntry(entry)) return Promise.resolve(HURT_EXPRESSION_MS);
   const key = `${assetId}\0${entry}`;
   const cached = durations.get(key);
   if (cached) return cached;
