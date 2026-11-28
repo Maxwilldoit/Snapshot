@@ -31,9 +31,10 @@ export const HURT_EXPRESSION_MS = 1650;
 export const HURT_FRAME_INTERVAL_MS = 130;
 
 interface BuiltinHurtSpriteSpec {
-  id: CatalogSpriteId;
+  id: string;
   entry: string;
   url: string;
+  alphaUrl?: string;
   width: number;
   height: number;
   anchorX: number;
@@ -186,8 +187,15 @@ export function isBuiltinHurtEntry(entry: string | null | undefined): boolean {
 
 export function builtinHurtUrl(entry: string | null | undefined): string | null {
   if (!entry || !entry.startsWith(BUILTIN_HIT_PREFIX)) return null;
-  const id = entry.slice(BUILTIN_HIT_PREFIX.length) as CatalogSpriteId;
+  const id = entry.slice(BUILTIN_HIT_PREFIX.length).replace(/\.webm$/i, "") as CatalogSpriteId;
   return BUILTIN_SPECS[id]?.url ?? null;
+}
+
+export function builtinHurtAlphaUrl(entry: string | null | undefined): string | null {
+  if (!/Macintosh|Mac OS X/.test(navigator.userAgent)) return null;
+  if (!entry || !entry.startsWith(BUILTIN_HIT_PREFIX)) return null;
+  const id = entry.slice(BUILTIN_HIT_PREFIX.length).replace(/\.webm$/i, "") as CatalogSpriteId;
+  return BUILTIN_SPECS[id]?.alphaUrl ?? null;
 }
 
 /** 按碰撞方向、冲击速度与连续碰撞序号挑选紧闭忍痛（wince）或眩晕眼花（dizzy）模式。 */

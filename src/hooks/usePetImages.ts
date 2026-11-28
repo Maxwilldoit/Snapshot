@@ -17,10 +17,6 @@ export interface PetImageFrame {
   loop: boolean;
   /** 碰撞受击等瞬时反馈直接硬切，不让旧画面在 z-index:2 上层遮挡 180ms。 */
   instant?: boolean;
-  /** 视频预加载时提前定位到的起始秒数，避免触发瞬间再临时 seek。 */
-  startTime?: number;
-  /** 单次受击视频截取的有效表情时长（秒），播完表情段即收尾回到待机，不拖沓等待片尾静帧。 */
-  maxDuration?: number;
 }
 
 export function petImageFrame(
@@ -30,8 +26,6 @@ export function petImageFrame(
   flip = false,
   pulse = 0,
   instant = false,
-  startTime = 0,
-  maxDuration = 0,
 ): PetImageFrame {
   const src = builtinHurtUrl(entry) ?? (walk && entry ? petWalkUrl(assetId, entry) : petUrl(assetId, entry));
   return {
@@ -43,8 +37,6 @@ export function petImageFrame(
     flip,
     loop: true,
     ...(instant ? { instant: true } : {}),
-    ...(startTime > 0 ? { startTime } : {}),
-    ...(maxDuration > 0 ? { maxDuration } : {}),
   };
 }
 

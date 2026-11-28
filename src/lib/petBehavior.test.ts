@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PetAsset } from "../types";
 import {
-  petHitStartTime,
   pickPetBehaviorAction,
   pickPetEntry,
   pickPetHitEntry,
@@ -458,11 +457,6 @@ describe("pickPetBehaviorAction", () => {
     expect(pickPetHitEntry(behavior, "ceiling", null, () => 0)).toBe("原地重力下蹲压缩.webm");
     expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("被吓一跳.webm");
     expect(pickPetHitEntry(behavior, "right", "被吓一跳.webm", () => 0)).toBe("玩游戏气急败坏.webm");
-    expect(petHitStartTime(behavior, "被吓一跳.webm")).toBe(1.4);
-    expect(petHitStartTime(behavior, "原地重力下蹲压缩.webm")).toBe(2.38);
-    expect(petHitStartTime(behavior, "玩游戏气急败坏.webm")).toBe(2.8);
-    expect(petHitStartTime(behavior, "偷吃零食被抓住.webm")).toBe(2.75);
-    expect(petHitStartTime(behavior, "待机呼吸休闲.webm")).toBe(0);
 
     // 随包 pet.json 未写 hit 时，仍自动回填已知 DSH 受击表情视频
     const manifestAsset: PetAsset = {

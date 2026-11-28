@@ -6,15 +6,15 @@ const interrupted = (error: unknown) => error instanceof DOMException && error.n
 
 /** Keep the real video as the playback clock; only its pixels need a WebKit fallback. */
 export function MacPetVideo({
-  src, alphaSrc, className, style, hidden, alt, playing = true, loop = true, startTime = 0, maxDuration = 0, onReady, onEnded, onError,
+  src, alphaSrc, className, style, hidden, alt, playing = true, loop = true, onReady, onEnded, onError,
 }: PetMediaProps & { src: string; alphaSrc: string }) {
   const colourRef = useRef<HTMLVideoElement>(null);
   const alphaRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const callbacks = useRef({ onReady, onEnded, onError });
   callbacks.current = { onReady, onEnded, onError };
-  const playback = useRef({ hidden, playing, loop, startTime, maxDuration });
-  playback.current = { hidden, playing, loop, startTime, maxDuration };
+  const playback = useRef({ hidden, playing, loop });
+  playback.current = { hidden, playing, loop };
   const [opaque, setOpaque] = useState(false);
 
   useEffect(() => {
@@ -32,8 +32,6 @@ export function MacPetVideo({
     let disposed = false;
     let nativeOnly = false;
     let reported = false;
-    let preseeked = false;
-    let clippedEnd = false;
     let frame: number | null = null;
     let animation: number | null = null;
     let lastDraw = -Infinity;
@@ -48,20 +46,6 @@ export function MacPetVideo({
     const fail = (error?: unknown) => { if (!disposed && !interrupted(error)) callbacks.current.onError?.(); };
     const draw = () => {
       if (disposed || colour.readyState < 2) return;
-      const targetStart = playback.current.startTime;
-      // 尚未跳到目标表情起始秒前，绝不提前把第 0 秒平静帧画进画布并锁死 reported。
-      if (targetStart > 0 && Number.isFinite(colour.duration) && colour.duration >= targetStart + 1 && colour.currentTime < targetStart - 0.15) {
-        if (!preseeked) {
-          preseeked = true;
-          try {
-            colour.currentTime = targetStart;
-            if (alpha.readyState >= 1) alpha.currentTime = targetStart;
-          } catch {
-            // 解码器尚不能 seek 时等待下一回调。
-          }
-        }
-        return;
-      }
       // Hidden preloads/thumbnails still need their first frame. Once ready,
       // retain it while paused: a fading-out clip must not loop or repaint when
       // a late seek/frame callback arrives from either decoder.
@@ -71,14 +55,6 @@ export function MacPetVideo({
       // Never combine a newly sought colour frame with the old opacity frame.
       if (Math.abs(colour.currentTime - alpha.currentTime) > 0.08) {
         alpha.currentTime = colour.currentTime;
-        return;
-      }
-      if (!clippedEnd && !playback.current.loop && playback.current.maxDuration > 0 && !playback.current.hidden && playback.current.playing &&
-        colour.currentTime >= targetStart + playback.current.maxDuration) {
-        clippedEnd = true;
-        colour.pause();
-        alpha.pause();
-        callbacks.current.onEnded?.(colour);
         return;
       }
       const { videoWidth: width, videoHeight: height } = colour;
@@ -138,17 +114,6 @@ export function MacPetVideo({
       if (colour.readyState >= 2) ready();
     };
     const loaded = () => {
-      const targetStart = playback.current.startTime;
-      if (!preseeked && targetStart > 0 && Number.isFinite(colour.duration) && colour.duration >= targetStart + 1 && colour.currentTime < targetStart - 0.1) {
-        preseeked = true;
-        try {
-          colour.currentTime = targetStart;
-          if (alpha.readyState >= 1) alpha.currentTime = targetStart;
-          return;
-        } catch {
-          // 解码器尚不能 seek 时继续绘制首帧。
-        }
-      }
       sync();
       if (!playback.current.hidden && playback.current.playing && colour.paused) void colour.play().catch(fail);
     };

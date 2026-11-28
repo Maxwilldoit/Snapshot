@@ -50,13 +50,6 @@ export interface PetBehavior {
 const DSH_IDLE = ["待机呼吸休闲"];
 const DSH_DRAG = ["被鼠标拖拽悬空反馈"];
 const DSH_HIT = ["被吓一跳", "原地重力下蹲压缩", "玩游戏气急败坏", "偷吃零食被抓住"];
-const DSH_HIT_START_SECONDS: Readonly<Record<string, number>> = {
-  "被吓一跳": 1.4,
-  "原地重力下蹲压缩": 2.38,
-  "玩游戏气急败坏": 2.8,
-  "偷吃零食被抓住": 2.75,
-  "打瞌睡被惊醒": 1.15,
-};
 const DSH_TURN = ["东张西望"];
 const DSH_PRIMARY_CLICKS = [
   "点击回应-开心跃动",
@@ -310,16 +303,6 @@ export function resolvePetBehavior(
     eventActions: resolveActions(DSH_EVENT_ACTIONS),
     stateActions: resolveActions(DSH_STATE_ACTIONS),
   };
-}
-
-/** 返回受击视频直达表情变化帧的精确预跳秒数（跳过前摇静帧）。 */
-export function petHitStartTime(
-  behavior: Pick<PetBehavior, "id" | "hit"> | null | undefined,
-  entry: string | null | undefined,
-): number {
-  if (!behavior || behavior.id !== "dsh-pet" || !entry || !behavior.hit.includes(entry)) return 0;
-  const stem = webmName(entry);
-  return (stem !== null ? DSH_HIT_START_SECONDS[stem] : undefined) ?? 1.15;
 }
 
 /** 按碰撞边缘挑选受击回应：落地/撞顶优先挑重力压缩动作，撞左右侧墙优先挑受惊反馈。 */

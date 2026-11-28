@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { isWebmEntry, petAlphaUrl } from "../lib/media";
 import { usePlayableMediaUrl } from "../lib/mediaBlob";
+import { builtinHurtAlphaUrl } from "../lib/petHurtExpression";
 import { MacPetVideo } from "./MacPetVideo";
 
 export type PetMediaElement = HTMLImageElement | HTMLVideoElement;
@@ -16,10 +17,6 @@ export type PetMediaProps = {
   playing?: boolean;
   /** Floating companions can play an interaction once; library previews keep looping by default. */
   loop?: boolean;
-  /** 预加载受击视频时提前跳过的起始秒数。 */
-  startTime?: number;
-  /** 单次受击视频播放的有效表情秒数上限。 */
-  maxDuration?: number;
   fallback?: ReactNode;
   onReady?: (element: PetMediaElement) => void;
   onEnded?: (element: HTMLVideoElement) => void;
@@ -36,8 +33,6 @@ export function PetMedia({
   hidden,
   playing = true,
   loop = true,
-  startTime = 0,
-  maxDuration = 0,
   fallback = null,
   onReady,
   onEnded,
@@ -46,8 +41,9 @@ export function PetMedia({
   const [failed, setFailed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const video = isWebmEntry(entry);
+  const resolvedAlphaSrc = video && src !== null ? (builtinHurtAlphaUrl(entry) ?? petAlphaUrl(src)) : null;
   // macOS 走 MacPetVideo（另取透明通道），其余平台的 WebM 在 Linux 上要先换成 blob: 地址
-  const macVideo = video && src !== null && petAlphaUrl(src) !== null;
+  const macVideo = resolvedAlphaSrc !== null;
   const videoSrc = usePlayableMediaUrl(src, video && !macVideo);
   const errorRef = useRef(onError);
   errorRef.current = onError;
@@ -68,9 +64,8 @@ export function PetMedia({
   if (!src || failed) return <>{fallback}</>;
 
   if (video) {
-    const alphaSrc = petAlphaUrl(src);
-    if (alphaSrc) return <MacPetVideo key={src} src={src} alphaSrc={alphaSrc} entry={entry}
-      className={className} style={style} alt={alt} hidden={hidden} playing={playing} loop={loop} startTime={startTime} maxDuration={maxDuration}
+    if (resolvedAlphaSrc) return <MacPetVideo key={src} src={src} alphaSrc={resolvedAlphaSrc} entry={entry}
+      className={className} style={style} alt={alt} hidden={hidden} playing={playing} loop={loop}
       onReady={onReady} onEnded={onEnded} onError={() => { setFailed(true); onError?.(); }} />;
     // Blob 还在取（本地文件，通常一帧内就好）
     if (!videoSrc) return null;
@@ -91,13 +86,7 @@ export function PetMedia({
         aria-label={alt || undefined}
         onLoadedData={(event) => {
           const element = event.currentTarget;
-          if (startTime > 0 && Number.isFinite(element.duration) && element.duration >= startTime + 1 && element.currentTime < 0.2) {
-            try {
-              element.currentTime = startTime;
-            } catch {
-              // 元数据尚未稳定时保持首帧即可。
-            }
-          } else if (!playing) {
+          if (!playing) {
             try {
               element.currentTime = 0.001;
             } catch {
@@ -105,13 +94,6 @@ export function PetMedia({
             }
           }
           onReady?.(element);
-        }}
-        onTimeUpdate={(event) => {
-          const element = event.currentTarget;
-          if (!loop && maxDuration > 0 && element.currentTime >= startTime + maxDuration) {
-            element.pause();
-            onEnded?.(element);
-          }
         }}
         onEnded={(event) => onEnded?.(event.currentTarget)}
         onError={() => { setFailed(true); onError?.(); }}
