@@ -92,9 +92,9 @@ function viewportGround(side: number, layout: PetLayout | null, frame: PetImageF
   return normal && ground !== null ? ground + normal.shiftY - place.shiftY : null;
 }
 
-function viewportContent(place: PetPlacement, frame: PetImageFrame, shapes: Map<string, MediaShape>): MediaBounds {
-  const bounds = shapes.get(mediaShapeKey(frame.assetId, frame.entry ?? "", frame.walk))?.bounds ??
-    { left: 0, top: 0, width: 1, height: 1 };
+function viewportContent(place: PetPlacement, frame: PetImageFrame, shapes: Map<string, MediaShape>): MediaBounds | null {
+  const bounds = shapes.get(mediaShapeKey(frame.assetId, frame.entry ?? "", frame.walk))?.bounds;
+  if (!bounds) return null;
   return {
     left: place.imageX - place.shiftX + (frame.flip ? 1 - bounds.left - bounds.width : bounds.left) * place.imageWidth,
     top: place.imageY - place.shiftY + bounds.top * place.imageHeight,
@@ -340,6 +340,7 @@ export function PetWindow() {
   const needsHorizontalFit = useRef(true);
   const windowFrameReady = useRef(false);
   const requestBoundsReport = useRef<() => void>(() => {});
+  const reportBoundsSync = useRef<() => void>(() => {});
   const reframeDrag = useRef<() => void>(() => {});
   const dragNormalPosition = useRef<(() => { x: number; y: number } | null) | null>(null);
   const dragEnvelope = useRef<{ side: number; place: PetPlacement } | null>(null);
@@ -1100,15 +1101,23 @@ export function PetWindow() {
     setFalling(false);
   }
 
-  function computeThrowBounds(originNormal: { x: number; y: number }, geometry: DragGeometry): ThrowBounds {
+  function computeThrowBounds(
+    originNormal: { x: number; y: number },
+    geometry: DragGeometry,
+    dragShift: { x: number; y: number },
+  ): ThrowBounds {
     const scale = geometry.scale > 0 ? geometry.scale : 1;
-    const shift = frameShift.current;
-    const currentOuter = { x: originNormal.x + shift.x, y: originNormal.y + shift.y };
-    const hLimits = petHorizontalLimits(geometry.areas, currentOuter, geometry.size, visibleBounds.current, scale);
-    const minX = hLimits ? (hLimits.minX - shift.x) / scale : originNormal.x / scale - 2000;
-    const maxX = Math.max(minX, hLimits ? (hLimits.maxX - shift.x) / scale : originNormal.x / scale + 2000);
-    const minY = geometry.ceilingY !== null ? (geometry.ceilingY - shift.y) / scale : originNormal.y / scale - 2000;
-    const maxY = Math.max(minY, geometry.floorY !== null ? (geometry.floorY - shift.y) / scale : originNormal.y / scale + 2000);
+    // geometry（size / content / ceilingY / floorY）与按下时的 dragShift 处于同一窗口坐标系；
+    // 拖拽途中切换未缓存外框的 WebM 会把 frameShift 扩回 0，混用两者会让左边界提前约半个画布反弹。
+    const useDragContent = geometry.content !== null || visibleBounds.current === null;
+    const contentShift = useDragContent ? dragShift : frameShift.current;
+    const content = useDragContent ? geometry.content : visibleBounds.current;
+    const currentOuter = { x: originNormal.x + contentShift.x, y: originNormal.y + dragShift.y };
+    const hLimits = petHorizontalLimits(geometry.areas, currentOuter, geometry.size, content, scale);
+    const minX = hLimits ? (hLimits.minX - contentShift.x) / scale : originNormal.x / scale - 2000;
+    const maxX = Math.max(minX, hLimits ? (hLimits.maxX - contentShift.x) / scale : originNormal.x / scale + 2000);
+    const minY = geometry.ceilingY !== null ? (geometry.ceilingY - dragShift.y) / scale : originNormal.y / scale - 2000;
+    const maxY = Math.max(minY, geometry.floorY !== null ? (geometry.floorY - dragShift.y) / scale : originNormal.y / scale + 2000);
     return { minX, maxX, minY, maxY };
   }
 
@@ -1117,13 +1126,14 @@ export function PetWindow() {
     vx: number,
     vy: number,
     geometry: DragGeometry,
+    dragShift: { x: number; y: number },
     initialAway?: Partial<Record<ContactEdge, boolean>>,
   ) {
     const petWindow = getCurrentWindow();
     const token = ++gravityToken.current;
     cancelAnimationFrame(gravityFrame.current);
     const scale = geometry.scale > 0 ? geometry.scale : 1;
-    const bounds = computeThrowBounds(originNormal, geometry);
+    const bounds = computeThrowBounds(originNormal, geometry, dragShift);
 
     if (motionReduced()) {
       const restY = gravityEnabled.current ? bounds.maxY : Math.min(bounds.maxY, Math.max(bounds.minY, originNormal.y / scale));
@@ -1178,11 +1188,21 @@ export function PetWindow() {
       if (state.y > bounds.minY + awayMargin) approachedFromAway.ceiling = true;
       if (state.y < bounds.maxY - awayMargin) approachedFromAway.floor = true;
       if (next.bounced) syncFacing(state.vx);
-      if (!writing || next.atRest) {
+      if (!writing || next.bounced || next.atRest) {
         writing = true;
+        const renderX = next.hit?.edge === "left"
+          ? bounds.minX
+          : next.hit?.edge === "right"
+            ? bounds.maxX
+            : state.x;
+        const renderY = next.hit?.edge === "ceiling"
+          ? bounds.minY
+          : next.hit?.edge === "floor"
+            ? bounds.maxY
+            : state.y;
         void petWindow.setPosition(new PhysicalPosition(
-          Math.round(state.x * scale + frameShift.current.x),
-          Math.round(state.y * scale + frameShift.current.y),
+          Math.round(renderX * scale + frameShift.current.x),
+          Math.round(renderY * scale + frameShift.current.y),
         )).catch(() => {}).finally(() => { writing = false; });
       }
       if (next.hit && approachedFromAway[next.hit.edge] && (next.hit.edge === "floor" ? next.hit.speed >= 260 : next.hit.speed >= 300)) {
@@ -1352,21 +1372,36 @@ export function PetWindow() {
           }
           if (key === appliedKey.current) {
             groundOffset.current = groundY;
-            if (place && model.displayed) visibleBounds.current = viewportContent(place, model.displayed, model.mediaShapes);
+            const knownContent = place && model.displayed ? viewportContent(place, model.displayed, model.mediaShapes) : null;
+            if (knownContent) visibleBounds.current = knownContent;
             if (forceReport) requestBoundsReport.current();
             continue;
           }
           appliedKey.current = key;
           windowFrameReady.current = false;
+          const prevShift = { ...frameShift.current };
           const offset = await commitPetWindow(
             petWindow, side, place, frameShift, t, groundY, () => !pointerHeld.current, canvas, () => dragNormalPosition.current?.() ?? null,
           );
           viewOffset.current = offset ?? { x: 0, y: 0 };
           if (appliedKey.current === key) {
             groundOffset.current = groundY;
-            if (place && model.displayed) visibleBounds.current = viewportContent(place, model.displayed, model.mediaShapes);
+            const knownContent = place && model.displayed ? viewportContent(place, model.displayed, model.mediaShapes) : null;
+            if (knownContent) {
+              visibleBounds.current = knownContent;
+            } else if (visibleBounds.current && (prevShift.x !== frameShift.current.x || prevShift.y !== frameShift.current.y)) {
+              const factor = await petWindow.scaleFactor().catch(() => 0);
+              if (factor > 0 && visibleBounds.current) {
+                visibleBounds.current = {
+                  ...visibleBounds.current,
+                  left: visibleBounds.current.left + (prevShift.x - frameShift.current.x) / factor,
+                  top: visibleBounds.current.top + (prevShift.y - frameShift.current.y) / factor,
+                };
+              }
+            }
             windowFrameReady.current = true;
             reframeDrag.current();
+            reportBoundsSync.current();
             reportPlaybackReady();
             if (!model.custom && needsHorizontalFit.current && !pointerHeld.current) {
               needsHorizontalFit.current = false;
@@ -1723,14 +1758,14 @@ export function PetWindow() {
           );
           if (launch) {
             if (behaviorRef.current) showManualEntry(restingRef.current);
-            launchThrow(target, launch.vx, launch.vy, geometry, visitedAway);
+            launchThrow(target, launch.vx, launch.vy, geometry, dragShift, visitedAway);
             return;
           }
         } else if (canThrow) {
           const rawVelocity = estimateThrowVelocity(trail, releaseNow);
           if (rawVelocity) {
             const scale = geometry.scale > 0 ? geometry.scale : 1;
-            const bounds = computeThrowBounds(target, geometry);
+            const bounds = computeThrowBounds(target, geometry, dragShift);
             const { velocity: clamped, blockedHit } = clampLaunchAtBounds(
               { x: target.x / scale, y: target.y / scale },
               rawVelocity,
@@ -1738,7 +1773,7 @@ export function PetWindow() {
             );
             if (clamped) {
               if (behaviorRef.current) showManualEntry(restingRef.current);
-              launchThrow(target, clamped.vx, clamped.vy, geometry, visitedAway);
+              launchThrow(target, clamped.vx, clamped.vy, geometry, dragShift, visitedAway);
               return;
             }
             if (blockedHit && !pendingWallHit && visitedAway[blockedHit.edge] && blockedHit.speed >= 420) {
@@ -1930,8 +1965,8 @@ export function PetWindow() {
         void setPetHitbox(0, 0, 0, 0).catch(() => {});
         return;
       }
-      const pixels = media instanceof HTMLVideoElement ? petVideoPixels(media) : media;
-      const rect = (pixels instanceof HTMLElement ? pixels : media).getBoundingClientRect();
+      // 取未施加临时弹射拉伸/碰撞压扁动画的媒体节点布局框，避免形变动画污染边界测量。
+      const rect = media.getBoundingClientRect();
       // DOM coordinates are relative to the stable WebView, not the cropped
       // native window. Drag/floor limits and hit boxes still use window space.
       const box = { left: rect.left + viewOffset.current.x, top: rect.top + viewOffset.current.y,
@@ -1983,6 +2018,7 @@ export function PetWindow() {
     };
 
     requestBoundsReport.current = schedule;
+    reportBoundsSync.current = report;
     // Read the ready frame synchronously before playback advances. This makes
     // the first-frame sample part of the complete WebM envelope.
     report();
@@ -2015,6 +2051,7 @@ export function PetWindow() {
     window.addEventListener("resize", schedule);
     return () => {
       if (requestBoundsReport.current === schedule) requestBoundsReport.current = () => {};
+      if (reportBoundsSync.current === report) reportBoundsSync.current = () => {};
       cancelAnimationFrame(animationFrame);
       if (media instanceof HTMLVideoElement && typeof media.cancelVideoFrameCallback === "function") {
         media.cancelVideoFrameCallback(videoFrame);

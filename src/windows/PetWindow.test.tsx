@@ -2187,4 +2187,72 @@ describe("桌宠：DSH 动作交互", () => {
     await loadPetVideos();
     expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
   });
+
+  it("16:9 宽透明画布伴侣在频繁窗口移动与向左甩出时，直至角色本体真正触及左屏幕边缘才反弹", async () => {
+    const monitor = {
+      name: "test", scaleFactor: 2,
+      position: { x: 0, y: 0 }, size: { width: 2000, height: 1600 },
+      workArea: { position: { x: 0, y: 0 }, size: { width: 2000, height: 1480 } },
+    };
+    vi.spyOn(window.screen, "availWidth", "get").mockReturnValue(1000);
+    vi.spyOn(window.screen, "availHeight", "get").mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("pet-framed")
+        ? new DOMRect(parseFloat(this.style.left), parseFloat(this.style.top), parseFloat(this.style.width), parseFloat(this.style.height))
+        : new DOMRect(0, 0, 152, 152);
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(160);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(90);
+    // 角色仅占宽画布中间 [0.30 .. 0.70]，左右各有 30% 透明留白（且尚未播完一轮写入缓存）
+    const data = new Uint8ClampedArray(160 * 90 * 4);
+    for (let y = 15; y < 82; y += 1) {
+      for (let x = 48; x < 112; x += 1) data[(y * 160 + x) * 4 + 3] = 255;
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(), drawImage: vi.fn(), getImageData: () => ({ data }),
+    } as unknown as CanvasRenderingContext2D);
+
+    const visitedX: number[] = [];
+    const { container, position } = await renderPet(whale, { petGravity: false }, { x: 400, y: 500 }, monitor, {}, {
+      scale: 2,
+      size: { width: 304, height: 304 },
+    });
+    await loadPetVideos();
+    await elapse(32);
+
+    // 模拟真实原生窗口在移动时连续发出 tauri://move 事件，验证不会把已扫描的可见外框冲回整张 16:9 画布
+    await act(async () => {
+      await emit("tauri://move", { x: 398, y: 500 });
+    });
+    await elapse(16);
+
+    const pet = container.querySelector(".pet-window")!;
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 250, screenY: 250, pointerId: 31 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 12, clientY: 20, screenX: 210, screenY: 250, pointerId: 31 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 2, clientY: 20, screenX: 130, screenY: 250, pointerId: 31 });
+    });
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 31 });
+    });
+
+    for (let i = 0; i < 20; i += 1) {
+      await elapse(16);
+      visitedX.push(position.x);
+    }
+    const minWindowX = Math.min(...visitedX);
+    // 窗口左侧约有 ~45 逻辑像素（~90 物理像素）透明留白，窗口 x 必须深入负坐标让角色本体贴到 x=0 才反弹
+    expect(minWindowX).toBeLessThan(-60);
+    expect(position.x).toBeGreaterThan(minWindowX);
+  });
 });
