@@ -15,7 +15,7 @@ import {
   showLaunchpad,
   showQuickMenu,
 } from "../lib/backend";
-import { iconUrl } from "../lib/media";
+import { iconUrl, isWebmEntry } from "../lib/media";
 import { MediaImage } from "../components/MediaImage";
 import { PetMedia, type PetMediaElement } from "../components/PetMedia";
 import { createPetAlphaReader, unionMediaBounds } from "../lib/petMediaBounds";
@@ -401,7 +401,7 @@ export function PetWindow() {
         }, HURT_FRAME_INTERVAL_MS);
       }
     }
-    const spriteHitEntry = spriteId ? `__builtin_hit__:${spriteId}` : null;
+    const spriteHitEntry = spriteId ? `__builtin_hit__:${spriteId}.webm` : null;
     const holdMs = (spriteHitEntry ? builtinHurtDurationMs(spriteHitEntry) : null) ?? HURT_EXPRESSION_MS;
     hurtTimerRef.current = window.setTimeout(clearHurtExpression, holdMs);
   }
@@ -915,6 +915,8 @@ export function PetWindow() {
     // playback mode after the request settles; deriving loop from the current
     // request during the hand-off would restart a completed clip at frame zero.
     normalFrame.loop = !playback.matches(normalFrame.key) && normalEntry !== eventEntry;
+  } else if (normalFrame && normalEntry === eventEntry && isWebmEntry(normalEntry)) {
+    normalFrame.loop = false;
   }
   const dragHeldFrame = custom && behavior && dragging && (sleepState?.entry ?? stateEntry ?? resting)
     ? [petImageFrame(appearanceId, sleepState?.entry ?? stateEntry ?? resting, false, behaviorFacing === "right", 0)]
@@ -934,7 +936,11 @@ export function PetWindow() {
           return frame;
         })
       : spriteHitClip
-        ? [petImageFrame(appearanceId, spriteHitClip, false, false, hitPulse, true)]
+        ? (() => {
+            const frame = petImageFrame(appearanceId, spriteHitClip, false, false, hitPulse, true);
+            if (isWebmEntry(spriteHitClip)) frame.loop = false;
+            return [frame];
+          })()
         : []
     : [];
   const walkFrames = walks.flatMap(({ choice }) => choice ? [petImageFrame(appearanceId, choice.entry, true, choice.flip)] : []);
@@ -1006,7 +1012,19 @@ export function PetWindow() {
   }, [recording, shortcutsPaused]);
 
   function onBehaviorEnded(frame: PetImageFrame) {
-    if (!behavior || frame.key !== displayed?.key) return;
+    if (frame.key !== displayed?.key) return;
+    if (!behavior) {
+      if (eventEntry === frame.entry) {
+        if (activeHitPulse.current !== null) {
+          activeHitPulse.current = null;
+          hitPulseRef.current += 1;
+          setHitPulse(hitPulseRef.current);
+        }
+        clearHurtExpression();
+        setEventEntry(null);
+      }
+      return;
+    }
     playback.ended(frame.key);
     if (eventEntry === frame.entry) setEventEntry(null);
   }

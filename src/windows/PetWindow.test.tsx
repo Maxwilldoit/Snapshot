@@ -2089,10 +2089,18 @@ describe("桌宠：DSH 动作交互", () => {
       eventActions: { "capture.failure": "feedback/failure.gif" },
     };
 
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(232);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(292);
+
     const { container } = await renderPet(makimaCatalog, { petGravity: true }, { x: 300, y: 580 }, monitor);
+    await loadPetVideos();
     const pet = container.querySelector(".pet-window")!;
 
-    // 按住猛撞左墙：立即标记玛奇玛专属受击表情，且不误播平静的 feedback/failure.gif
+    // 按住猛撞左墙：立即播放玛奇玛专属透明受击视频，且不误播平静的 feedback/failure.gif
     await act(async () => {
       fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 300, screenY: 580, pointerId: 11 });
     });
@@ -2105,18 +2113,20 @@ describe("桌宠：DSH 动作交互", () => {
       fireEvent.pointerMove(window, { clientX: 0, clientY: 20, screenX: -90, screenY: 580, pointerId: 11 });
     });
     await elapse(20);
+    await loadPetVideos();
     await act(async () => {
       fireEvent.pointerUp(window, { pointerId: 11 });
     });
 
     expect(pet.getAttribute("data-hurt-character")).toBe("makima-pixel");
     expect(["wince", "dizzy"]).toContain(pet.getAttribute("data-hurt-expression"));
-    expect(shown(container).img.classList.contains("pet-builtin-hit")).toBe(true);
+    expect(shownVideo(container).media.classList.contains("pet-builtin-hit")).toBe(true);
 
-    // 碰撞后内置受击动画持续播放，超过完整受击恢复期后自动回到待机静帧
-    await elapse(900);
-    expect(shown(container).img.classList.contains("pet-builtin-hit")).toBe(true);
-    await elapse(4200);
+    // 碰撞后内置受击视频持续播放，播完完整恢复弧线（ended）后平滑回到待机静帧
+    await elapse(2500);
+    expect(shownVideo(container).media.classList.contains("pet-builtin-hit")).toBe(true);
+    await act(async () => { fireEvent.ended(shownVideo(container).media); });
+    await elapse(20);
     expect(shown(container).file).toBe("makima_idle.gif");
     expect(pet.getAttribute("data-hurt-expression")).toBeNull();
 

@@ -11,7 +11,7 @@ import {
   type CatalogSpriteId,
 } from "./petHurtExpression";
 
-const ALL_CATALOG_SPRITES: ReadonlyArray<{
+const ACTIVE_CATALOG_SPRITES: ReadonlyArray<{
   id: CatalogSpriteId;
   entry: string;
 }> = [
@@ -22,13 +22,11 @@ const ALL_CATALOG_SPRITES: ReadonlyArray<{
   { id: "nashor-v1", entry: "nashor_pet_v1/gifs/nashor_idle.gif" },
   { id: "nashor-v2", entry: "nashor_pet_v2/gifs/nashor_idle.gif" },
   { id: "hoop-23", entry: "hoop-23-idle.gif" },
-  { id: "kuro-blade", entry: "kuro-blade-idle.gif" },
-  { id: "momo", entry: "momo-idle.gif" },
 ];
 
 describe("petHurtExpression", () => {
-  it("识别素材库全部 9 款 GIF 宠物（在线 source 锚点与离线文件路径均可匹配），排除大肥鱼与普通自制包", () => {
-    for (const item of ALL_CATALOG_SPRITES) {
+  it("识别已适配的 7 款素材库 GIF 宠物，并排除暂未启用的 momo、kuro-blade 与普通自制包", () => {
+    for (const item of ACTIVE_CATALOG_SPRITES) {
       expect(
         identifyCatalogSprite({
           source: `https://github.com/Maxwilldoit/Pets#${item.id}`,
@@ -46,22 +44,29 @@ describe("petHurtExpression", () => {
     }
     expect(
       identifyCatalogSprite({
+        source: "https://github.com/Maxwilldoit/Pets#momo",
+        entry: "momo-idle.gif",
+        animations: ["momo-idle.gif"],
+      }),
+    ).toBeNull();
+    expect(
+      identifyCatalogSprite({
+        source: "https://github.com/Maxwilldoit/Pets#kuro-blade",
+        entry: "kuro-blade-idle.gif",
+        animations: ["kuro-blade-idle.gif"],
+      }),
+    ).toBeNull();
+    expect(
+      identifyCatalogSprite({
         source: "https://github.com/Maxwilldoit/Pets#dsh-pet-whale",
         entry: "待机呼吸休闲.webm",
         animations: ["待机呼吸休闲.webm"],
       }),
     ).toBeNull();
-    expect(
-      identifyCatalogSprite({
-        source: "/tmp/grok.zip",
-        entry: "gifs/grok_idle.gif",
-        animations: ["gifs/grok_idle.gif"],
-      }),
-    ).toBeNull();
   });
 
-  it("为全部 9 款素材库 GIF 宠物自动注入内置高清受击立绘、布局锚点与透明边界，且不混入普通点击循环", () => {
-    for (const item of ALL_CATALOG_SPRITES) {
+  it("为已适配的 7 款素材库角色注入内置全长透明受击 WebM、布局锚点与透明边界，且不混入普通点击循环", () => {
+    for (const item of ACTIVE_CATALOG_SPRITES) {
       const raw: PetAsset = {
         id: `pet-${item.id}`,
         name: item.id,
@@ -72,7 +77,7 @@ describe("petHurtExpression", () => {
         eventActions: { "capture.failure": "feedback/failure.gif" },
       };
       const augmented = augmentAssetWithBuiltinHurt(raw)!;
-      const expectedEntry = `${BUILTIN_HIT_PREFIX}${item.id}`;
+      const expectedEntry = `${BUILTIN_HIT_PREFIX}${item.id}.webm`;
       expect(isBuiltinHurtEntry(expectedEntry)).toBe(true);
       expect(builtinHurtUrl(expectedEntry)).toBeTruthy();
       expect(pickHitAnimation(augmented)).toBe(expectedEntry);

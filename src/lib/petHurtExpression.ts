@@ -1,16 +1,21 @@
-import clawdHitUrl from "../assets/pet-hit/clawd.gif";
+import clawdHitAlphaUrl from "../assets/pet-hit/clawd.alpha.webm";
+import clawdHitUrl from "../assets/pet-hit/clawd.webm";
 import dshFloorHitAlphaUrl from "../assets/pet-hit/dsh-floor.alpha.webm";
 import dshFloorHitUrl from "../assets/pet-hit/dsh-floor.webm";
 import dshWallHitAlphaUrl from "../assets/pet-hit/dsh-wall.alpha.webm";
 import dshWallHitUrl from "../assets/pet-hit/dsh-wall.webm";
-import hoop23HitUrl from "../assets/pet-hit/hoop-23.gif";
-import kuroBladeHitUrl from "../assets/pet-hit/kuro-blade.gif";
-import makimaHitUrl from "../assets/pet-hit/makima-pixel.gif";
-import momoHitUrl from "../assets/pet-hit/momo.gif";
-import nashorV1HitUrl from "../assets/pet-hit/nashor-v1.gif";
-import nashorV2HitUrl from "../assets/pet-hit/nashor-v2.gif";
-import yamadaClerkHitUrl from "../assets/pet-hit/yamada-clerk.gif";
-import yamadaPixelHitUrl from "../assets/pet-hit/yamada-pixel.gif";
+import hoop23HitAlphaUrl from "../assets/pet-hit/hoop-23.alpha.webm";
+import hoop23HitUrl from "../assets/pet-hit/hoop-23.webm";
+import makimaHitAlphaUrl from "../assets/pet-hit/makima-pixel.alpha.webm";
+import makimaHitUrl from "../assets/pet-hit/makima-pixel.webm";
+import nashorV1HitAlphaUrl from "../assets/pet-hit/nashor-v1.alpha.webm";
+import nashorV1HitUrl from "../assets/pet-hit/nashor-v1.webm";
+import nashorV2HitAlphaUrl from "../assets/pet-hit/nashor-v2.alpha.webm";
+import nashorV2HitUrl from "../assets/pet-hit/nashor-v2.webm";
+import yamadaClerkHitAlphaUrl from "../assets/pet-hit/yamada-clerk.alpha.webm";
+import yamadaClerkHitUrl from "../assets/pet-hit/yamada-clerk.webm";
+import yamadaPixelHitAlphaUrl from "../assets/pet-hit/yamada-pixel.alpha.webm";
+import yamadaPixelHitUrl from "../assets/pet-hit/yamada-pixel.webm";
 import type { PetAsset, PetLayout } from "../types";
 import type { MediaBounds } from "./petSize";
 import type { ContactEdge } from "./petThrowPhysics";
@@ -22,9 +27,7 @@ export type CatalogSpriteId =
   | "clawd"
   | "nashor-v1"
   | "nashor-v2"
-  | "hoop-23"
-  | "kuro-blade"
-  | "momo";
+  | "hoop-23";
 
 type BuiltinHitId = CatalogSpriteId | "dsh-wall" | "dsh-floor";
 
@@ -43,7 +46,7 @@ interface BuiltinHurtSpriteSpec {
   id: BuiltinHitId;
   entry: string;
   url: string;
-  alphaUrl?: string;
+  alphaUrl: string;
   width: number;
   height: number;
   anchorX: number;
@@ -66,8 +69,8 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
     anchorY: 330,
     baseWidth: 640,
     baseHeight: 360,
-    durationMs: 4375,
-    bounds: { left: 0.292187, top: 0.155556, width: 0.404687, height: 0.788889 },
+    durationMs: 8571,
+    bounds: { left: 0.334375, top: 0.166667, width: 0.359375, height: 0.786111 },
   },
   "dsh-floor": {
     id: "dsh-floor",
@@ -80,125 +83,106 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
     anchorY: 330,
     baseWidth: 640,
     baseHeight: 360,
-    durationMs: 4375,
-    bounds: { left: 0.096875, top: 0.175, width: 0.821875, height: 0.8 },
+    durationMs: 8762,
+    bounds: { left: 0.321875, top: 0, width: 0.36875, height: 0.955556 },
   },
   "makima-pixel": {
     id: "makima-pixel",
-    entry: `${BUILTIN_HIT_PREFIX}makima-pixel`,
+    entry: `${BUILTIN_HIT_PREFIX}makima-pixel.webm`,
     url: makimaHitUrl,
-    width: 220,
+    alphaUrl: makimaHitAlphaUrl,
+    width: 232,
     height: 292,
     anchorX: 116.5,
     anchorY: 287,
     baseWidth: 202,
     baseHeight: 292,
-    durationMs: 4400,
-    bounds: { left: 0.063636, top: 0.027397, width: 0.913636, height: 0.958904 },
+    durationMs: 8810,
+    bounds: { left: 0.172414, top: 0.027397, width: 0.806034, height: 0.958904 },
   },
   "yamada-clerk": {
     id: "yamada-clerk",
-    entry: `${BUILTIN_HIT_PREFIX}yamada-clerk`,
+    entry: `${BUILTIN_HIT_PREFIX}yamada-clerk.webm`,
     url: yamadaClerkHitUrl,
+    alphaUrl: yamadaClerkHitAlphaUrl,
     width: 208,
     height: 308,
     anchorX: 102,
     anchorY: 302,
     baseWidth: 208,
     baseHeight: 306,
-    durationMs: 4400,
-    bounds: { left: 0.033654, top: 0.064935, width: 0.879808, height: 0.915584 },
+    durationMs: 8476,
+    bounds: { left: 0.259615, top: 0.107143, width: 0.480769, height: 0.876623 },
   },
   "yamada-pixel": {
     id: "yamada-pixel",
-    entry: `${BUILTIN_HIT_PREFIX}yamada-pixel`,
+    entry: `${BUILTIN_HIT_PREFIX}yamada-pixel.webm`,
     url: yamadaPixelHitUrl,
-    width: 202,
+    alphaUrl: yamadaPixelHitAlphaUrl,
+    width: 168,
     height: 294,
     anchorX: 87.5,
     anchorY: 288,
     baseWidth: 163,
     baseHeight: 292,
-    durationMs: 4400,
-    bounds: { left: 0.108911, top: 0.098639, width: 0.866337, height: 0.887755 },
+    durationMs: 8619,
+    bounds: { left: 0.172619, top: 0.095238, width: 0.803571, height: 0.887755 },
   },
   clawd: {
     id: "clawd",
-    entry: `${BUILTIN_HIT_PREFIX}clawd`,
+    entry: `${BUILTIN_HIT_PREFIX}clawd.webm`,
     url: clawdHitUrl,
-    width: 284,
+    alphaUrl: clawdHitAlphaUrl,
+    width: 256,
     height: 256,
-    anchorX: 137.1,
+    anchorX: 128,
     anchorY: 184,
     baseWidth: 256,
     baseHeight: 256,
-    durationMs: 4400,
-    bounds: { left: 0.014085, top: 0.109375, width: 0.96831, height: 0.722656 },
+    durationMs: 8714,
+    bounds: { left: 0.046875, top: 0.191406, width: 0.9375, height: 0.53125 },
   },
   "nashor-v1": {
     id: "nashor-v1",
-    entry: `${BUILTIN_HIT_PREFIX}nashor-v1`,
+    entry: `${BUILTIN_HIT_PREFIX}nashor-v1.webm`,
     url: nashorV1HitUrl,
-    width: 804,
-    height: 482,
-    anchorX: 461.2,
-    anchorY: 440.5,
+    alphaUrl: nashorV1HitAlphaUrl,
+    width: 554,
+    height: 432,
+    anchorX: 346.8,
+    anchorY: 402.4,
     baseWidth: 420,
     baseHeight: 420,
-    durationMs: 4400,
-    bounds: { left: 0.004975, top: 0.008299, width: 0.99005, height: 0.981328 },
+    durationMs: 9048,
+    bounds: { left: 0.005415, top: 0.006944, width: 0.962094, height: 0.958333 },
   },
   "nashor-v2": {
     id: "nashor-v2",
-    entry: `${BUILTIN_HIT_PREFIX}nashor-v2`,
+    entry: `${BUILTIN_HIT_PREFIX}nashor-v2.webm`,
     url: nashorV2HitUrl,
-    width: 696,
-    height: 488,
-    anchorX: 350.9,
+    alphaUrl: nashorV2HitAlphaUrl,
+    width: 578,
+    height: 546,
+    anchorX: 232.9,
     anchorY: 458,
     baseWidth: 473,
     baseHeight: 473,
-    durationMs: 4400,
-    bounds: { left: 0.00431, top: 0.036885, width: 0.903736, height: 0.952869 },
+    durationMs: 9000,
+    bounds: { left: 0.00692, top: 0.177656, width: 0.795848, height: 0.815018 },
   },
   "hoop-23": {
     id: "hoop-23",
-    entry: `${BUILTIN_HIT_PREFIX}hoop-23`,
+    entry: `${BUILTIN_HIT_PREFIX}hoop-23.webm`,
     url: hoop23HitUrl,
-    width: 320,
-    height: 392,
+    alphaUrl: hoop23HitAlphaUrl,
+    width: 314,
+    height: 314,
     anchorX: 174.5,
-    anchorY: 380.2,
+    anchorY: 303,
     baseWidth: 314,
     baseHeight: 314,
-    durationMs: 4400,
-    bounds: { left: 0.190625, top: 0.010204, width: 0.790625, height: 0.964286 },
-  },
-  "kuro-blade": {
-    id: "kuro-blade",
-    entry: `${BUILTIN_HIT_PREFIX}kuro-blade`,
-    url: kuroBladeHitUrl,
-    width: 406,
-    height: 386,
-    anchorX: 219.6,
-    anchorY: 380.2,
-    baseWidth: 220,
-    baseHeight: 359,
-    durationMs: 4400,
-    bounds: { left: 0.007389, top: 0.010363, width: 0.980296, height: 0.976684 },
-  },
-  momo: {
-    id: "momo",
-    entry: `${BUILTIN_HIT_PREFIX}momo`,
-    url: momoHitUrl,
-    width: 264,
-    height: 224,
-    anchorX: 141,
-    anchorY: 217.4,
-    baseWidth: 200,
-    baseHeight: 206,
-    durationMs: 4400,
-    bounds: { left: 0.011364, top: 0.017857, width: 0.973485, height: 0.959821 },
+    durationMs: 9048,
+    bounds: { left: 0.219745, top: 0.035032, width: 0.538217, height: 0.936306 },
   },
 };
 
@@ -208,7 +192,7 @@ function resolveSpec(entry: string | null | undefined): BuiltinHurtSpriteSpec | 
   return BUILTIN_SPECS[id] ?? null;
 }
 
-/** 识别官方素材库中的 9 款 GIF 宠物（兼容在线安装 source 锚点与本地离线 ZIP 导入）。 */
+/** 识别已适配内置受击透明视频的素材库 GIF 宠物（兼容在线安装 source 锚点与本地离线 ZIP 导入）。 */
 export function identifyCatalogSprite(
   asset: Pick<PetAsset, "source" | "entry" | "animations"> | null | undefined,
 ): CatalogSpriteId | null {
@@ -231,8 +215,6 @@ export function identifyCatalogSprite(
   if (paths.some((p) => p.includes("nashor_pet_v1/"))) return "nashor-v1";
   if (paths.some((p) => p.includes("nashor_pet_v2/"))) return "nashor-v2";
   if (paths.some((p) => p.includes("hoop-23-idle.gif") || p.startsWith("hoop-23-"))) return "hoop-23";
-  if (paths.some((p) => p.includes("kuro-blade-idle.gif") || p.startsWith("kuro-blade-"))) return "kuro-blade";
-  if (paths.some((p) => p.includes("momo-idle.gif") || p.startsWith("momo-"))) return "momo";
   return null;
 }
 
@@ -309,7 +291,7 @@ function appendSpecLayout(
 }
 
 /**
- * 为大肥鱼（dsh-pet）与素材库 9 款 GIF 宠物注入随应用打包的零前摇受击动作动画、脚底锚点与透明包围盒：
+ * 为大肥鱼（dsh-pet）与已适配的 7 款素材库角色注入随应用打包的丝滑全长透明受击视频、脚底锚点与包围盒：
  * - 不改动磁盘上的原压缩包与 settings.json；
  * - 若压缩包作者已显式声明 pet.hit，则优先尊重包内配置。
  */
