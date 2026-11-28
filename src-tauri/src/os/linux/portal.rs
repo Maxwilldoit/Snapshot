@@ -424,6 +424,36 @@ fn run_pipewire_stream(
         .register()
         .map_err(|e| e.to_string())?;
 
+    let values = build_video_format_pod()?;
+    let mut params =
+        [Pod::from_bytes(&values).ok_or_else(|| "无法构造 PipeWire 格式参数".to_string())?];
+
+    stream
+        .connect(
+            Direction::Input,
+            Some(stream_id),
+            StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS,
+            &mut params,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let loop_ref = main_loop.clone();
+    let stream_ref = stream.clone();
+    let _attached = stop_rx.attach(main_loop.loop_(), move |()| {
+        let _ = stream_ref.set_active(false);
+        let _ = stream_ref.disconnect();
+        loop_ref.quit();
+    });
+
+    let _ = init_tx.send(Ok(()));
+    main_loop.run();
+    Ok(())
+}
+
+/// 构造 PipeWire 视频格式协商 Pod。
+/// 注意 `pod::property!(..., Choice, Enum, Id, default, alt1, alt2, ...)` 第一个值是 `default`，
+/// 后续才是 `spa_pod_filter` 校验的候选列表，因此 `BGRx` 必须同时出现在默认项与候选列表中。
+fn build_video_format_pod() -> Result<Vec<u8>, String> {
     let obj = pod::object!(
         SpaTypes::ObjectParamFormat,
         ParamType::EnumFormat,
@@ -434,6 +464,7 @@ fn run_pipewire_stream(
             Choice,
             Enum,
             Id,
+            VideoFormat::BGRx,
             VideoFormat::BGRx,
             VideoFormat::BGRA,
             VideoFormat::RGBx,
@@ -471,33 +502,12 @@ fn run_pipewire_stream(
             }
         ),
     );
-    let values = PodSerializer::serialize(Cursor::new(Vec::new()), &pod::Value::Object(obj))
-        .map_err(|e| e.to_string())?
-        .0
-        .into_inner();
-    let mut params =
-        [Pod::from_bytes(&values).ok_or_else(|| "无法构造 PipeWire 格式参数".to_string())?];
-
-    stream
-        .connect(
-            Direction::Input,
-            Some(stream_id),
-            StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS,
-            &mut params,
-        )
-        .map_err(|e| e.to_string())?;
-
-    let loop_ref = main_loop.clone();
-    let stream_ref = stream.clone();
-    let _attached = stop_rx.attach(main_loop.loop_(), move |()| {
-        let _ = stream_ref.set_active(false);
-        let _ = stream_ref.disconnect();
-        loop_ref.quit();
-    });
-
-    let _ = init_tx.send(Ok(()));
-    main_loop.run();
-    Ok(())
+    Ok(
+        PodSerializer::serialize(Cursor::new(Vec::new()), &pod::Value::Object(obj))
+            .map_err(|e| e.to_string())?
+            .0
+            .into_inner(),
+    )
 }
 
 /// 按行跨度（stride）把 PipeWire 帧转换成紧凑 RGBA 字节流，避免非对齐窗口宽度产生斜向错位。
@@ -588,6 +598,10 @@ fn pixel_bytes_to_rgba(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pipewire::spa::{
+        pod::{deserialize::PodDeserializer, ChoiceValue},
+        utils::ChoiceEnum,
+    };
 
     #[test]
     fn source_types_requests_both_monitor_and_window_when_supported() {
@@ -613,6 +627,46 @@ mod tests {
             choose_cursor_mode(false, CURSOR_EMBEDDED),
             Some(CURSOR_EMBEDDED)
         );
+    }
+
+    #[test]
+    fn video_format_pod_includes_bgrx_in_enum_alternatives() {
+        let bytes = build_video_format_pod().expect("pod bytes");
+        let (_, value) = PodDeserializer::deserialize_any_from(&bytes).expect("valid pod");
+        let pod::Value::Object(obj) = value else {
+            panic!("expected Object pod");
+        };
+        let fmt_prop = obj
+            .properties
+            .iter()
+            .find(|prop| prop.key == FormatProperties::VideoFormat.as_raw())
+            .expect("VideoFormat property");
+        let pod::Value::Choice(ChoiceValue::Id(choice)) = &fmt_prop.value else {
+            panic!("expected ChoiceValue::Id");
+        };
+        let ChoiceEnum::Enum {
+            default,
+            alternatives,
+        } = &choice.1
+        else {
+            panic!("expected ChoiceEnum::Enum");
+        };
+        assert_eq!(default.0, VideoFormat::BGRx.as_raw());
+        let raw_alts: Vec<u32> = alternatives.iter().map(|id| id.0).collect();
+        for expected in [
+            VideoFormat::BGRx,
+            VideoFormat::BGRA,
+            VideoFormat::RGBx,
+            VideoFormat::RGBA,
+            VideoFormat::RGB,
+        ] {
+            assert!(
+                raw_alts.contains(&expected.as_raw()),
+                "missing format {:?} in {:?}",
+                expected,
+                raw_alts
+            );
+        }
     }
 
     #[test]
