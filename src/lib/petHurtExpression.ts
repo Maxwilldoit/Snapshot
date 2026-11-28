@@ -4,6 +4,8 @@ import dshForeheadHitAlphaUrl from "../assets/pet-hit/dsh-forehead.alpha.webm";
 import dshForeheadHitUrl from "../assets/pet-hit/dsh-forehead.webm";
 import dshHeadtopHitAlphaUrl from "../assets/pet-hit/dsh-headtop.alpha.webm";
 import dshHeadtopHitUrl from "../assets/pet-hit/dsh-headtop.webm";
+import dshOuchHitAlphaUrl from "../assets/pet-hit/dsh-ouch.alpha.webm";
+import dshOuchHitUrl from "../assets/pet-hit/dsh-ouch.webm";
 import dshSitHitAlphaUrl from "../assets/pet-hit/dsh-sit.alpha.webm";
 import dshSitHitUrl from "../assets/pet-hit/dsh-sit.webm";
 import type { PetAsset, PetLayout } from "../types";
@@ -12,11 +14,12 @@ import type { ContactEdge } from "./petThrowPhysics";
 
 export type CatalogSpriteId = never;
 
-type BuiltinHitId = "dsh-forehead" | "dsh-cheek" | "dsh-headtop" | "dsh-sit";
+type BuiltinHitId = "dsh-ouch" | "dsh-forehead" | "dsh-cheek" | "dsh-headtop" | "dsh-sit";
 
 export type PetHurtMode = "wince" | "dizzy";
 
 const BUILTIN_HIT_PREFIX = "__builtin_hit__:";
+export const DSH_OUCH_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-ouch.webm`;
 export const DSH_FOREHEAD_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-forehead.webm`;
 export const DSH_CHEEK_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-cheek.webm`;
 export const DSH_HEADTOP_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-headtop.webm`;
@@ -43,6 +46,20 @@ interface BuiltinHurtSpriteSpec {
 }
 
 const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
+  "dsh-ouch": {
+    id: "dsh-ouch",
+    entry: DSH_OUCH_HIT_ENTRY,
+    url: dshOuchHitUrl,
+    alphaUrl: dshOuchHitAlphaUrl,
+    width: 640,
+    height: 360,
+    anchorX: 319,
+    anchorY: 329,
+    baseWidth: 640,
+    baseHeight: 360,
+    durationMs: 7875,
+    bounds: { left: 0.315625, top: 0.169444, width: 0.382812, height: 0.747222 },
+  },
   "dsh-forehead": {
     id: "dsh-forehead",
     entry: DSH_FOREHEAD_HIT_ENTRY,
@@ -184,13 +201,14 @@ function appendSpecLayout(
   };
 }
 
-/** 为大肥鱼（dsh-pet）注入随应用打包的 4 段原色专属碰撞受击透明视频、脚底锚点与透明包围盒。 */
+/** 为大肥鱼（dsh-pet）注入随应用打包的 5 段原色专属碰撞受击透明视频、脚底锚点与透明包围盒。 */
 export function augmentAssetWithBuiltinHurt(
   asset: PetAsset | undefined,
   behaviorId?: string | null,
 ): PetAsset | undefined {
   if (!asset || behaviorId !== "dsh-pet") return asset;
   return appendSpecLayout(asset, [
+    BUILTIN_SPECS["dsh-ouch"],
     BUILTIN_SPECS["dsh-forehead"],
     BUILTIN_SPECS["dsh-cheek"],
     BUILTIN_SPECS["dsh-headtop"],

@@ -447,6 +447,7 @@ describe("pickPetBehaviorAction", () => {
   it("大肥鱼解析专属碰撞受击动作池（含旧版 pet.json 自动回填），并按落地/侧墙碰撞偏好挑选零前摇表情动作", () => {
     const behavior = resolved();
     const expectedHits = [
+      "__builtin_hit__:dsh-ouch.webm",
       "__builtin_hit__:dsh-forehead.webm",
       "__builtin_hit__:dsh-cheek.webm",
       "__builtin_hit__:dsh-headtop.webm",
@@ -459,8 +460,8 @@ describe("pickPetBehaviorAction", () => {
     expect(behavior.hit).toEqual(expectedHits);
     expect(pickPetHitEntry(behavior, "floor", null, () => 0)).toBe("__builtin_hit__:dsh-sit.webm");
     expect(pickPetHitEntry(behavior, "ceiling", null, () => 0.9)).toBe("__builtin_hit__:dsh-headtop.webm");
-    expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("__builtin_hit__:dsh-forehead.webm");
-    expect(pickPetHitEntry(behavior, "right", "__builtin_hit__:dsh-forehead.webm", () => 0)).toBe("__builtin_hit__:dsh-cheek.webm");
+    expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("__builtin_hit__:dsh-ouch.webm");
+    expect(pickPetHitEntry(behavior, "right", "__builtin_hit__:dsh-ouch.webm", () => 0)).toBe("__builtin_hit__:dsh-forehead.webm");
 
     // 随包 pet.json 未写 hit 时，仍自动回填已知 DSH 受击表情视频
     const manifestAsset: PetAsset = {

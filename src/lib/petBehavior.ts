@@ -9,6 +9,7 @@ import {
   DSH_CHEEK_HIT_ENTRY,
   DSH_FOREHEAD_HIT_ENTRY,
   DSH_HEADTOP_HIT_ENTRY,
+  DSH_OUCH_HIT_ENTRY,
   DSH_SIT_HIT_ENTRY,
   isBuiltinHurtEntry,
 } from "./petHurtExpression";
@@ -57,6 +58,7 @@ export interface PetBehavior {
 const DSH_IDLE = ["待机呼吸休闲"];
 const DSH_DRAG = ["被鼠标拖拽悬空反馈"];
 const DSH_BUILTIN_HITS = [
+  DSH_OUCH_HIT_ENTRY,
   DSH_FOREHEAD_HIT_ENTRY,
   DSH_CHEEK_HIT_ENTRY,
   DSH_HEADTOP_HIT_ENTRY,
@@ -333,7 +335,7 @@ export function pickPetHitEntry(
   const source = builtinHits.length ? builtinHits : behavior.hit;
   const preferred = source.filter((entry) => {
     if (edge === "floor") return /sit|floor|重力|下蹲|压缩|squash|land/i.test(entry);
-    if (edge === "ceiling") return /headtop|forehead|重力|下蹲|压缩/i.test(entry);
+    if (edge === "ceiling") return /ouch|headtop|forehead|重力|下蹲|压缩/i.test(entry);
     return !/sit|floor|下蹲|squash/i.test(entry);
   });
   return pickPetEntry(preferred.length ? preferred : source, current, random);
