@@ -33,7 +33,16 @@ import { useI18n, useWindowTitle } from "../lib/i18n";
 import { motionReduced } from "../lib/motion";
 import { usePetAutonomy } from "../hooks/usePetAutonomy";
 import { petActionDuration } from "../lib/petAnimation";
-import { pickPetEntry, pickPetHitEntry, resolvePetBehavior, type PetBehavior } from "../lib/petBehavior";
+import { petHitStartTime, pickPetEntry, pickPetHitEntry, resolvePetBehavior, type PetBehavior } from "../lib/petBehavior";
+import {
+  buildHurtSpriteFrames,
+  HURT_EXPRESSION_MS,
+  HURT_FRAME_INTERVAL_MS,
+  identifyCatalogSprite,
+  pickPetHurtMode,
+  type HurtSpriteFrames,
+  type PetHurtMode,
+} from "../lib/petHurtExpression";
 import { createPetPlayback, type PetPlaybackOwner } from "../lib/petPlayback";
 import {
   clampLaunchAtBounds,
@@ -299,6 +308,12 @@ export function PetWindow() {
   const activeHitPulse = useRef<number | null>(null);
   const impactFxRef = useRef<HTMLDivElement>(null);
   const impactTimer = useRef<number | undefined>(undefined);
+  const hurtCanvasRef = useRef<HTMLCanvasElement>(null);
+  const iconFaceRef = useRef<HTMLDivElement>(null);
+  const hurtFramesRef = useRef<{ key: string; frames: HurtSpriteFrames } | null>(null);
+  const hurtTimerRef = useRef<number | undefined>(undefined);
+  const hurtBlinkRef = useRef<number | undefined>(undefined);
+  const hurtSeqRef = useRef(0);
   const [sleepState, setSleepState] = useState<ActiveSleep | null>(null);
   const sleepRef = useRef<ActiveSleep | null>(null);
   const flyingRef = useRef(false);
@@ -340,7 +355,123 @@ export function PetWindow() {
   const alphaReader = useRef<ReturnType<typeof createPetAlphaReader> | null>(null);
   const readAlpha = alphaReader.current ??= createPetAlphaReader();
   const squash = useRef<Animation | null>(null);
+  const hurtSquash = useRef<Animation | null>(null);
   const tensionSurface = useRef<HTMLElement | null>(null);
+
+  const hitRoll = (pulse: number) => () => ((pulse % 4) + 0.1) / 4;
+
+  function drawHurtCanvas(source: HTMLCanvasElement) {
+    const target = hurtCanvasRef.current;
+    if (!target) return false;
+    if (target.width !== source.width || target.height !== source.height) {
+      target.width = source.width;
+      target.height = source.height;
+    }
+    const ctx = target.getContext("2d");
+    if (!ctx) return false;
+    ctx.clearRect(0, 0, target.width, target.height);
+    ctx.drawImage(source, 0, 0);
+    return true;
+  }
+
+  function ensureHurtFrames(candidate?: HTMLImageElement): HurtSpriteFrames | null {
+    const asset = latestAsset.current;
+    if (!asset || behaviorRef.current) return null;
+    const baseEntry = restingRef.current ?? asset.entry;
+    const cacheKey = `${asset.id}|${baseEntry}`;
+    if (hurtFramesRef.current?.key === cacheKey) return hurtFramesRef.current.frames;
+    const baseKey = petImageFrame(asset.id, baseEntry, false, false).key;
+    const media = candidate ?? readyMedia.current.get(baseKey) ?? petRootRef.current?.querySelector(".pet-current");
+    if (!(media instanceof HTMLImageElement)) return null;
+    const spriteId = identifyCatalogSprite(asset);
+    const shapeBounds = asset.actionBounds?.[baseEntry]?.bounds
+      ?? mediaShapes.get(mediaShapeKey(asset.id, baseEntry, false))?.bounds
+      ?? null;
+    const frames = buildHurtSpriteFrames(media, spriteId, shapeBounds);
+    if (!frames) return null;
+    hurtFramesRef.current = { key: cacheKey, frames };
+    return frames;
+  }
+
+  function clearHurtExpression() {
+    window.clearTimeout(hurtTimerRef.current);
+    window.clearInterval(hurtBlinkRef.current);
+    hurtTimerRef.current = undefined;
+    hurtBlinkRef.current = undefined;
+    hurtSquash.current?.cancel();
+    hurtSquash.current = null;
+    const root = petRootRef.current;
+    if (root) {
+      root.classList.remove("is-hurt-active");
+      root.removeAttribute("data-hurt-expression");
+      root.removeAttribute("data-hurt-character");
+    }
+    if (hurtCanvasRef.current) hurtCanvasRef.current.hidden = true;
+    if (iconFaceRef.current) {
+      iconFaceRef.current.hidden = true;
+      iconFaceRef.current.className = "pet-icon-face";
+    }
+  }
+
+  function triggerCollisionExpression(edge: ContactEdge, speed: number) {
+    if (motionReduced() || sleepRef.current || statusFlagsRef.current.recording || statusFlagsRef.current.shortcutsPaused) return;
+    window.clearTimeout(hurtTimerRef.current);
+    window.clearInterval(hurtBlinkRef.current);
+    hurtSeqRef.current += 1;
+    const mode: PetHurtMode = pickPetHurtMode(edge, speed, hurtSeqRef.current);
+    const asset = latestAsset.current;
+    const spriteId = identifyCatalogSprite(asset);
+    const characterTag = spriteId ?? (behaviorRef.current ? behaviorRef.current.id : asset ? "custom-sprite" : "app-icon");
+    const root = petRootRef.current;
+    if (root) {
+      root.setAttribute("data-hurt-expression", mode);
+      root.setAttribute("data-hurt-character", characterTag);
+    }
+
+    if (!asset) {
+      const face = iconFaceRef.current;
+      if (face) {
+        face.hidden = false;
+        face.className = `pet-icon-face mode-${mode}`;
+        let phase: 0 | 1 = 0;
+        hurtBlinkRef.current = window.setInterval(() => {
+          phase = phase === 0 ? 1 : 0;
+          if (iconFaceRef.current) {
+            iconFaceRef.current.className = `pet-icon-face mode-${mode}${phase ? " phase-1" : ""}`;
+          }
+        }, HURT_FRAME_INTERVAL_MS);
+      }
+      hurtTimerRef.current = window.setTimeout(clearHurtExpression, HURT_EXPRESSION_MS);
+      return;
+    }
+
+    if (behaviorRef.current) {
+      hurtTimerRef.current = window.setTimeout(clearHurtExpression, HURT_EXPRESSION_MS);
+      return;
+    }
+
+    const dedicatedClip = pickHitAnimation(asset, restingRef.current, () => 0);
+    if (!dedicatedClip) {
+      const built = ensureHurtFrames();
+      if (built && hurtCanvasRef.current && drawHurtCanvas(built[mode][0])) {
+        hurtCanvasRef.current.hidden = false;
+        root?.classList.add("is-hurt-active");
+        const baseEntry = restingRef.current ?? asset.entry;
+        const shapeBox = mediaShapes.get(mediaShapeKey(asset.id, baseEntry, false))?.bounds ?? null;
+        const { keyframes, duration } = impactDeformation(edge, speed, "sprite", false, shapeBox);
+        if (typeof hurtCanvasRef.current.animate === "function") {
+          hurtSquash.current?.cancel();
+          hurtSquash.current = hurtCanvasRef.current.animate(keyframes, { duration, easing: "ease-out" });
+        }
+        let phase: 0 | 1 = 0;
+        hurtBlinkRef.current = window.setInterval(() => {
+          phase = phase === 0 ? 1 : 0;
+          drawHurtCanvas(built[mode][phase]);
+        }, HURT_FRAME_INTERVAL_MS);
+      }
+    }
+    hurtTimerRef.current = window.setTimeout(clearHurtExpression, HURT_EXPRESSION_MS);
+  }
 
   function rememberMediaDimensions(frame: PetImageFrame, media: PetMediaElement) {
     const width = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
@@ -514,6 +645,7 @@ export function PetWindow() {
 
   function triggerCurrentImpact(edge: ContactEdge, speed: number) {
     if (motionReduced()) return;
+    triggerCollisionExpression(edge, speed);
     if (!latestAsset.current) {
       triggerImpactBurst(edge, "app-icon");
       const actor = petRootRef.current?.querySelector<HTMLElement>(".pet-icon-actor");
@@ -656,9 +788,10 @@ export function PetWindow() {
     if (sleepRef.current || statusFlagsRef.current.recording || statusFlagsRef.current.shortcutsPaused) return;
     const profile = behaviorRef.current;
     if (profile) {
-      // 优先命中已在后台预解码、预跳帧的受击视频，实现碰撞瞬间 0ms 切换。
-      const preloadedWall = pickPetHitEntry(profile, "left", restingRef.current, () => 0);
-      const preloadedFloor = pickPetHitEntry(profile, "floor", restingRef.current, () => 0);
+      // 优先命中已在后台按当前轮次预解码并跳至表情帧的受击视频，实现碰撞瞬间 0ms 变脸。
+      const roll = hitRoll(hitPulseRef.current);
+      const preloadedWall = pickPetHitEntry(profile, "left", restingRef.current, roll);
+      const preloadedFloor = pickPetHitEntry(profile, "floor", restingRef.current, roll);
       const vertical = edge === "floor" || edge === "ceiling";
       const entry = (vertical ? preloadedFloor ?? preloadedWall : preloadedWall ?? preloadedFloor)
         ?? pickPetHitEntry(profile, edge, targetEntry.current);
@@ -702,6 +835,7 @@ export function PetWindow() {
       window.clearTimeout(clickTimer.current);
       window.clearTimeout(eventTimer.current);
       window.clearTimeout(impactTimer.current);
+      clearHurtExpression();
       cancelPointerDrag.current?.();
       cancelBehaviorPlayback();
     },
@@ -722,6 +856,8 @@ export function PetWindow() {
         asset?.actionBounds, asset?.eventActions, asset?.stateActions, asset?.behavior]);
       if (appearanceKey.current !== key) {
         appearanceKey.current = key;
+        hurtFramesRef.current = null;
+        clearHurtExpression();
         cancelBehaviorPlayback();
         behaviorRef.current = profile;
         setBehavior(profile);
@@ -859,7 +995,7 @@ export function PetWindow() {
   const normalPulse = behavior && dragging && dragEntry
     ? (behavior.hit.includes(dragEntry) ? hitPulse : 0)
     : (activeHitPulse.current ?? actionPulse);
-  const hitStartTime = behavior?.id === "dsh-pet" && normalEntry && behavior.hit.includes(normalEntry) ? 1.15 : 0;
+  const hitStartTime = petHitStartTime(behavior, normalEntry);
   const normalFrame = custom
     ? petImageFrame(
         appearanceId,
@@ -883,14 +1019,14 @@ export function PetWindow() {
   const spriteHitClip = custom && !behavior ? pickHitAnimation(latestAsset.current, resting, () => 0) : null;
   const behaviorPreloadHits = behavior
     ? [...new Set([
-        pickPetHitEntry(behavior, "left", resting, () => 0),
-        pickPetHitEntry(behavior, "floor", resting, () => 0),
+        pickPetHitEntry(behavior, "left", resting, hitRoll(hitPulse)),
+        pickPetHitEntry(behavior, "floor", resting, hitRoll(hitPulse)),
       ].filter((item): item is string => Boolean(item)))]
     : [];
   const hitFrames = custom
     ? behavior
       ? behaviorPreloadHits.map((entry) => {
-          const frame = petImageFrame(appearanceId, entry, false, behaviorFacing === "right", hitPulse, true, behavior.id === "dsh-pet" ? 1.15 : 0);
+          const frame = petImageFrame(appearanceId, entry, false, behaviorFacing === "right", hitPulse, true, petHitStartTime(behavior, entry));
           frame.loop = false;
           return frame;
         })
@@ -960,6 +1096,7 @@ export function PetWindow() {
   });
 
   useEffect(() => {
+    if (recording || shortcutsPaused) clearHurtExpression();
     if (!behaviorRef.current || sleepRef.current) return;
     cancelBehaviorPlayback();
     setManualAction(false);
@@ -1167,7 +1304,7 @@ export function PetWindow() {
         if (landed) {
           const impactSpeed = velocity / scale;
           if (impactSpeed >= 240) triggerCurrentImpact("floor", impactSpeed);
-          if (impactSpeed >= 700) triggerCharacterHitClip("floor", impactSpeed);
+          if (impactSpeed >= 380) triggerCharacterHitClip("floor", impactSpeed);
           resolve();
         } else {
           gravityFrame.current = requestAnimationFrame(step);
@@ -1462,9 +1599,10 @@ export function PetWindow() {
       const effectiveSpeed = Math.max(speed * 1.6, 520);
       triggerCurrentImpact(hitEdge, effectiveSpeed);
       if (behaviorRef.current) {
+        const roll = hitRoll(hitPulseRef.current);
         const hitClip = (hitEdge === "floor" || hitEdge === "ceiling"
-          ? pickPetHitEntry(behaviorRef.current, "floor", restingRef.current, () => 0)
-          : pickPetHitEntry(behaviorRef.current, "left", restingRef.current, () => 0))
+          ? pickPetHitEntry(behaviorRef.current, "floor", restingRef.current, roll)
+          : pickPetHitEntry(behaviorRef.current, "left", restingRef.current, roll))
           ?? pickPetHitEntry(behaviorRef.current, hitEdge, targetEntry.current);
         if (hitClip) {
           window.clearTimeout(dragHitTimer);
@@ -1549,6 +1687,7 @@ export function PetWindow() {
       cleanup();
       if (!dragged.current) {
         if (cancelled) return;
+        clearHurtExpression();
         if (wasFlying) {
           // 飞行途中点中 = 空中接住停稳，不触发普通点击动作，若开启重力则自然落地
           if (behaviorRef.current && !sleepRef.current) showManualEntry(restingRef.current);
@@ -1941,6 +2080,9 @@ export function PetWindow() {
                    onReady={(element) => {
                      readyMedia.current.set(frame.key, element);
                      rememberMediaDimensions(frame, element);
+                     if (!behaviorRef.current && !frame.walk && frame.entry === restingRef.current && element instanceof HTMLImageElement) {
+                       ensureHurtFrames(element);
+                     }
                      void onPetImageReady(frame, element);
                    }}
                   onEnded={() => onBehaviorEnded(frame)}
@@ -1951,6 +2093,18 @@ export function PetWindow() {
                 />
               );
             })}
+            {!behavior && (() => {
+              const hurtStyle = framedStyle(resting ?? "", false, false);
+              return (
+                <canvas
+                  ref={hurtCanvasRef}
+                  className={["pet-action", "pet-hurt-sprite", hurtStyle ? "pet-framed" : ""].filter(Boolean).join(" ")}
+                  style={hurtStyle}
+                  hidden
+                  aria-hidden="true"
+                />
+              );
+            })()}
             {!displayed && <PawPrint size={petSize - 10} style={{ gridArea: "1 / 1" }} />}
           </>
         ) : (
@@ -1964,6 +2118,23 @@ export function PetWindow() {
               alt={app.name}
               fallback={<AppWindow size={petSize - 12} />}
             />
+            <div ref={iconFaceRef} className="pet-icon-face" hidden aria-hidden="true">
+              <svg viewBox="0 0 64 64">
+                <g className="face-wince">
+                  <path d="M16 25 L25 30 L16 35 M48 25 L39 30 L48 35" fill="none" stroke="#FFF" strokeWidth="4.6" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M16 25 L25 30 L16 35 M48 25 L39 30 L48 35" fill="none" stroke="#231815" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M25 43 Q32 37 39 43" fill="none" stroke="#FFF" strokeWidth="4.2" strokeLinecap="round" />
+                  <path d="M25 43 Q32 37 39 43" fill="none" stroke="#231815" strokeWidth="2.4" strokeLinecap="round" />
+                  <path d="M46 10 L46 15 L41 15 M52 10 L52 15 L57 15 M46 24 L46 19 L41 19 M52 24 L52 19 L57 19" fill="none" stroke="#EF3340" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </g>
+                <g className="face-dizzy">
+                  <path d="M16 24 L25 33 M25 24 L16 33 M39 24 L48 33 M48 24 L39 33" fill="none" stroke="#FFF" strokeWidth="4.6" strokeLinecap="round" />
+                  <path d="M16 24 L25 33 M25 24 L16 33 M39 24 L48 33 M48 24 L39 33" fill="none" stroke="#231815" strokeWidth="2.6" strokeLinecap="round" />
+                  <circle cx="32" cy="42" r="4.2" fill="#EF5350" stroke="#231815" strokeWidth="2" />
+                  <path d="M51 11 C54 16 55 19 55 21 A4 4 0 1 1 47 21 C47 19 48 16 51 11 Z" fill="#74D2FF" stroke="#1E6EB8" strokeWidth="1.8" />
+                </g>
+              </svg>
+            </div>
           </div>
         )}
       </div>

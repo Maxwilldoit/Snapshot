@@ -1,4 +1,5 @@
 import type { PetAsset } from "../types";
+import { identifyCatalogSprite } from "./petHurtExpression";
 import { cycleEntries } from "./petWalk";
 
 const HIT_WORDS = new Set([
@@ -14,9 +15,9 @@ function isHitEntry(entry: string): boolean {
   return stem.split(/[^a-z0-9]+/).some((word) => HIT_WORDS.has(word));
 }
 
-/** 优先使用 pet.json 显式绑定的 pet.hit，其次匹配受击命名动作，最后回退到包内的失败受挫反馈动画。 */
+/** 优先使用 pet.json 显式绑定的 pet.hit，其次匹配受击命名动作；非内置像素表情适配包回退到失败反馈动画。 */
 export function pickHitAnimation(
-  asset: Pick<PetAsset, "animations" | "eventActions"> | null | undefined,
+  asset: Pick<PetAsset, "animations" | "eventActions" | "source" | "entry"> | null | undefined,
   current?: string | null,
   random: () => number = Math.random,
 ): string | null {
@@ -29,6 +30,7 @@ export function pickHitAnimation(
     const candidates = alternatives.length ? alternatives : pool;
     return candidates[Math.floor(random() * candidates.length)] ?? null;
   }
+  if (identifyCatalogSprite(asset)) return null;
   const failure = asset.eventActions?.["capture.failure"];
   if (failure && asset.animations.includes(failure)) return failure;
   return null;

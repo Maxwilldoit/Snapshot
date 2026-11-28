@@ -2068,4 +2068,81 @@ describe("桌宠：DSH 动作交互", () => {
       fireEvent.pointerUp(window, { pointerId: 9 });
     });
   });
+
+  it("素材库宠物碰撞后呈现专属受击/眩晕表情，停留恢复期后自动消退，点击可立即中断恢复", async () => {
+    const monitor = {
+      name: "test", scaleFactor: 1,
+      position: { x: 0, y: 0 }, size: { width: 1000, height: 800 },
+      workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 740 } },
+    };
+    const makimaCatalog: PetAsset = {
+      id: "pet-makima",
+      name: "玛奇玛 · 像素",
+      path: "makima-pixel-1.0.0.zip",
+      source: "https://github.com/Maxwilldoit/Pets#makima-pixel",
+      entry: "makima_pixel/gifs/makima_idle.gif",
+      animations: [
+        "makima_pixel/gifs/makima_idle.gif",
+        "makima_pixel/gifs/makima_wave.gif",
+        "feedback/failure.gif",
+      ],
+      eventActions: { "capture.failure": "feedback/failure.gif" },
+    };
+
+    const { container } = await renderPet(makimaCatalog, { petGravity: true }, { x: 300, y: 580 }, monitor);
+    const pet = container.querySelector(".pet-window")!;
+
+    // 按住猛撞左墙：立即标记玛奇玛专属受击表情，且不误播平静的 feedback/failure.gif
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 300, screenY: 580, pointerId: 11 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 20, screenX: 140, screenY: 580, pointerId: 11 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 20, screenX: -90, screenY: 580, pointerId: 11 });
+    });
+    await elapse(20);
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 11 });
+    });
+
+    expect(pet.getAttribute("data-hurt-character")).toBe("makima-pixel");
+    expect(["wince", "dizzy"]).toContain(pet.getAttribute("data-hurt-expression"));
+    expect(shown(container).file).toBe("makima_idle.gif");
+
+    // 碰撞后 800ms 表情仍在保持，超过 1450ms 后自动恢复平静
+    await elapse(800);
+    expect(pet.getAttribute("data-hurt-expression")).not.toBeNull();
+    await elapse(750);
+    expect(pet.getAttribute("data-hurt-expression")).toBeNull();
+
+    // 应用图标模式碰撞后同样展示面部受击表情并在恢复期后退去
+    await act(async () => {
+      await emit("settings-changed", { ...settingsWith(makimaCatalog), selectedAppearanceId: "app-icon", petGravity: true });
+    });
+    await elapse(20);
+    await act(async () => {
+      fireEvent.pointerDown(pet, { button: 0, clientX: 20, clientY: 20, screenX: 200, screenY: 580, pointerId: 12 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 20, screenX: 90, screenY: 580, pointerId: 12 });
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16); });
+    await act(async () => {
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 20, screenX: -80, screenY: 580, pointerId: 12 });
+    });
+    await elapse(20);
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 12 });
+    });
+    const iconFace = container.querySelector<HTMLElement>(".pet-icon-face");
+    expect(iconFace?.hidden).toBe(false);
+    expect(pet.getAttribute("data-hurt-character")).toBe("app-icon");
+    await elapse(2400);
+    expect(iconFace?.hidden).toBe(true);
+  });
 });

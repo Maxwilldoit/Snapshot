@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PetAsset } from "../types";
 import {
+  petHitStartTime,
   pickPetBehaviorAction,
   pickPetEntry,
   pickPetHitEntry,
@@ -444,15 +445,26 @@ describe("pickPetBehaviorAction", () => {
     expect(pickPetBehaviorAction(behavior, "left", null, () => 0.999999)).toBe("valid");
   });
 
-  it("大肥鱼解析专属碰撞受击动作池（含旧版 pet.json 自动回填），并按落地/侧墙碰撞偏好挑选动作", () => {
+  it("大肥鱼解析专属碰撞受击动作池（含旧版 pet.json 自动回填），并按落地/侧墙碰撞偏好挑选零前摇表情动作", () => {
     const behavior = resolved();
-    expect(behavior.hit).toEqual(["被吓一跳.webm", "原地重力下蹲压缩.webm", "打瞌睡被惊醒.webm", "玩游戏气急败坏.webm"]);
+    const expectedHits = [
+      "被吓一跳.webm",
+      "原地重力下蹲压缩.webm",
+      "玩游戏气急败坏.webm",
+      "偷吃零食被抓住.webm",
+    ];
+    expect(behavior.hit).toEqual(expectedHits);
     expect(pickPetHitEntry(behavior, "floor", null, () => 0)).toBe("原地重力下蹲压缩.webm");
     expect(pickPetHitEntry(behavior, "ceiling", null, () => 0)).toBe("原地重力下蹲压缩.webm");
     expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("被吓一跳.webm");
-    expect(pickPetHitEntry(behavior, "right", "被吓一跳.webm", () => 0)).toBe("打瞌睡被惊醒.webm");
+    expect(pickPetHitEntry(behavior, "right", "被吓一跳.webm", () => 0)).toBe("玩游戏气急败坏.webm");
+    expect(petHitStartTime(behavior, "被吓一跳.webm")).toBe(1.4);
+    expect(petHitStartTime(behavior, "原地重力下蹲压缩.webm")).toBe(2.38);
+    expect(petHitStartTime(behavior, "玩游戏气急败坏.webm")).toBe(2.8);
+    expect(petHitStartTime(behavior, "偷吃零食被抓住.webm")).toBe(2.75);
+    expect(petHitStartTime(behavior, "待机呼吸休闲.webm")).toBe(0);
 
-    // 随包 pet.json 未写 hit 时，仍自动回填已知 DSH 受击视频
+    // 随包 pet.json 未写 hit 时，仍自动回填已知 DSH 受击表情视频
     const manifestAsset: PetAsset = {
       id: "catalog-whale", name: "大肥鱼", path: "dsh-pet-whale.zip",
       entry: imported.entry, animations: imported.animations,
@@ -462,6 +474,6 @@ describe("pickPetBehaviorAction", () => {
         idle: [webm(IDLE)], clicks: [webm(CLICKS[0])], drag: [webm(DRAG)],
       },
     };
-    expect(resolved(manifestAsset).hit).toEqual(["被吓一跳.webm", "原地重力下蹲压缩.webm", "打瞌睡被惊醒.webm", "玩游戏气急败坏.webm"]);
+    expect(resolved(manifestAsset).hit).toEqual(expectedHits);
   });
 });
