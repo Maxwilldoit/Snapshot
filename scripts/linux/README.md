@@ -42,6 +42,8 @@ One catch on 22.04: xcap depends on pipewire-rs 0.10, whose bindings need PipeWi
 | `ffmpeg` | Window recording (both backends below); screenshots that include the mouse pointer |
 | `pactl` (`pulseaudio-utils`; also works with PipeWire-Pulse) | Recording system audio and the microphone; ffmpeg must be built with PulseAudio support |
 | `xdotool` | Restoring a minimized window before capture; scrolling capture |
+| `rsvg-convert` (`librsvg2-bin`) | Rasterizing `.svg` application icons for History badges and Launchpad |
+| Secret Service (`gnome-keyring` / `kwallet`) | Storing the prompt-rewriting API key (`org.freedesktop.secrets`) |
 | StatusNotifierHost | System tray (built into KDE; GNOME needs the AppIndicator extension) |
 
 ## X11 vs Wayland
@@ -51,18 +53,18 @@ The app goes by the **session type**, not by whether `$DISPLAY` is set: a sessio
 | Capability | X11 session | Wayland session |
 |---|---|---|
 | Window capture (xcap) | yes | depends on the compositor / portal |
-| Recording | ffmpeg `x11grab` on the window's rectangle; follows the pointer setting | portal ScreenCast → PipeWire → ffmpeg; you pick the window or screen in the portal dialog, and the compositor decides whether the pointer is drawn |
+| Recording | ffmpeg `x11grab` on the window's rectangle; follows the pointer setting | portal ScreenCast → PipeWire → ffmpeg; you pick a window or screen in the portal dialog, and `include_cursor` requests Embedded/Hidden pointer mode when supported |
 | Recording without a portal | — | falls back to `x11grab` if XWayland is running, which only sees X11 windows (native Wayland windows come out black) |
 | Restore a minimized window | `xdotool` | X11 windows only (`xdotool`); restore native Wayland windows by hand |
 | Scrolling capture | yes (`xdotool`) | no |
 | Global shortcuts | yes | depends on the compositor |
 | System tray | StatusNotifierHost | StatusNotifierHost |
 
-Portal recording needs a session D-Bus, `xdg-desktop-portal` with a desktop backend (gtk / gnome / kde / wlr), and PipeWire. Without them, and without XWayland to fall back to, recording fails with an error saying what is missing. Both backends save to the folder set under Shortcuts → Recording (快捷操作 → 录制).
+Portal recording needs a session D-Bus, `xdg-desktop-portal` with a desktop backend (gtk / gnome / kde / wlr), and PipeWire (works on both pure Wayland and Wayland + XWayland). Without them, and without XWayland to fall back to, recording fails with an error saying what is missing.
 
 ## Launch at login
 
-Turn on 开机时静默启动 in Preferences (偏好设置). The app then writes `~/.config/autostart/com.appsnapshot.snapshot.desktop`, and removes it when the option is turned off. Nothing is installed by default.
+Turn on 开机时静默启动 in the system tray menu. The app then writes `~/.config/autostart/com.appsnapshot.snapshot.desktop`, and removes it when the option is turned off. Nothing is installed by default.
 
 ### Optional: systemd `--user` unit
 

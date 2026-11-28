@@ -82,13 +82,25 @@ pub(crate) fn default_template() -> PromptTemplate {
     }
 }
 
+fn format_keyring_error(error: keyring::Error) -> String {
+    let detail = error.to_string();
+    if matches!(error, keyring::Error::NoStorageAccess(_))
+        || detail.contains("org.freedesktop.secrets")
+        || detail.contains("Secret Service")
+    {
+        return "系统钥匙串不可用，请启动并解锁系统钥匙串（如 GNOME Keyring 或 KWallet）后重试"
+            .into();
+    }
+    format!("无法访问系统钥匙串：{detail}")
+}
+
 fn keyring_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|error| error.to_string())
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(format_keyring_error)
 }
 
 pub(crate) fn has_api_key() -> bool {
     keyring_entry()
-        .and_then(|entry| entry.get_password().map_err(|error| error.to_string()))
+        .and_then(|entry| entry.get_password().map_err(format_keyring_error))
         .map(|key| !key.is_empty())
         .unwrap_or(false)
 }
@@ -105,7 +117,7 @@ pub(crate) async fn save_prompt_settings(
         if let Some(key) = input.api_key.as_ref().filter(|key| !key.trim().is_empty()) {
             keyring_entry()?
                 .set_password(key.trim())
-                .map_err(|error| error.to_string())?;
+                .map_err(format_keyring_error)?;
         }
         let mut settings = state.settings.lock();
         settings.base_url = input.base_url.trim().into();
@@ -127,7 +139,7 @@ pub(crate) async fn clear_api_key(app: AppHandle) -> Result<Settings, String> {
     on_worker(app, move |app, state| {
         match keyring_entry()?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
-            Err(error) => return Err(error.to_string()),
+            Err(error) => return Err(format_keyring_error(error)),
         }
         let mut settings = state.settings.lock();
         settings.has_api_key = false;
@@ -538,5 +550,19 @@ mod tests {
             Ok(None)
         ));
         assert!(models_key(None, "", true, saved).is_err());
+    }
+
+    #[test]
+    fn keyring_error_maps_missing_secret_service_to_actionable_copy() {
+        let missing = keyring::Error::PlatformFailure(Box::new(std::io::Error::other(
+            "DBus error: The name org.freedesktop.secrets was not provided by any .service files",
+        )));
+        assert_eq!(
+            format_keyring_error(missing),
+            "系统钥匙串不可用，请启动并解锁系统钥匙串（如 GNOME Keyring 或 KWallet）后重试"
+        );
+
+        let generic = keyring::Error::TooLong("api_key".into(), 64);
+        assert!(format_keyring_error(generic).starts_with("无法访问系统钥匙串："));
     }
 }

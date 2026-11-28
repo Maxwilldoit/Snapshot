@@ -82,6 +82,7 @@ export const backendErrorEnglish: Record<string, string> = {
   "剪贴板内容已变化，润色结果未写入": "The clipboard changed while enhancing, so the result wasn’t copied.",
   "尚未配置润色服务，请先在 Prompt 页面完成配置": "To enhance prompts, set up a model in Settings first.",
   "无法读取已保存的 API Key": "Couldn’t read the saved API key. Enter it again in Settings.",
+  "系统钥匙串不可用，请启动并解锁系统钥匙串（如 GNOME Keyring 或 KWallet）后重试": "The system keyring isn’t available. Start and unlock your keyring (such as GNOME Keyring or KWallet), then try again.",
   "润色服务未返回内容": "The model didn’t return any text. Try again.",
   "模型接口没有返回可识别的列表": "The server didn’t return a model list. Check the base URL.",
   "模型接口返回了空列表": "The server returned no models.",
@@ -287,4 +288,5 @@ export const backendErrorPatterns: Array<[RegExp, string]> = [
   [/^behavior\.categories 配置无效：(.+)$/, "Invalid behavior.categories configuration for $1."],
   [/^润色服务返回错误（(\d+)）：(.+)$/s, "The model returned an error ($1). $2"],
   [/^无法保存音效：(.+)$/s, "Couldn’t save the sound. $1"],
+  [/^无法访问系统钥匙串：(.+)$/s, "Couldn’t access the system keyring. $1"],
 ];

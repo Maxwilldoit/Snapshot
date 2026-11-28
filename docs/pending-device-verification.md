@@ -410,4 +410,8 @@ macOS 本机已完成：
   - [x] 单色/反色光标叠加（`os/windows/cursor.rs`）：实测发现 `IDC_IBEAM`/`IDC_CROSS` 为纯 XOR 反色光标在黑底 DIB 会变实心纯白导致白底文本框隐身；已在 `codex/windows-cursor-and-wgc-resize` 改为黑/白双底反推 GDI `(dst & and) ^ xor` 掩码，并补齐真实系统 `IDC_IBEAM`/`IDC_CROSS`/`IDC_ARROW` 单测通过。
   - [x] **修复后 WGC 帧池重建补验（2026-11-25，`codex/windows-cursor-and-wgc-resize`）**：在真实 Windows 11 桌面重跑全部 6 项 `os::` 交互单测（6/6 passed，无跳过）及动态改尺寸录屏（90 帧 / 329,748 字节有效 MP4），确认新增的 `frame_pool.Recreate(...)` 与 `StagingTexture` 重建复用路径运行稳定。
   - [ ] **可选人工观感补验**：按需手验带系统音频+麦克风录屏、双屏跨 DPI 拖窗录制，以及真实白色输入框内 I-beam 光标截图观感。
-- [ ] **Linux X11 / Wayland 真机桌面验收**：在 Ubuntu 22.04/24.04（X11 与 Wayland）实机验证共享常驻 `arboard::Clipboard` 在无剪贴板管理器环境下连续复制图片/文本及程序退出释放、`xdg-desktop-portal` 选窗等待期间点击托盘退出不阻塞且无残留 `ffmpeg` 进程、窗口位于负坐标时的 X11 截屏/录屏裁剪、WebKitGTK 历史墙与剪贴板虚拟化滚动及高分屏缩放。
+- [ ] **Linux X11 / Wayland 真机桌面验收（2026-11-28 已完成无头真栈验收并修复 5 项问题，`codex/linux-desktop-fixes`）**：
+  - [x] Ubuntu 22.04（Docker 容器打包 + `check-glibc.sh` `GLIBC_2.35` 门禁）与 Ubuntu 24.04（原生 `.deb` / Type-2 `.AppImage` 构建、安装、`v0.3.0 -> HEAD` 升级与 `smoke-test.sh` 含 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 侧栏切换防崩校验）均实跑通过。
+  - [x] 共享常驻 `arboard::Clipboard` 在无剪贴板管理器 X11 会话下连续复制图片/文本及程序退出释放、负坐标窗口（`-60, -40`）X11 截屏与录屏裁剪、XTEST 焦点驱动的 GTK3/XI2 窗口滚动长截图拼接、WebKitGTK 1,200 条历史墙与剪贴板虚拟化滚动及 `GDK_SCALE=2` 缩放、启动台与历史来源角标的桌面主题/SVG 图标解析、无 Secret Service 时的钥匙串可恢复报错均已在原生二进制 E2E 实测通过。
+  - [x] Wayland（Weston + D-Bus + PipeWire + `org.freedesktop.portal.ScreenCast`）下含纯 Wayland（无 `$DISPLAY` / XWayland）门户窗口与屏幕录制、光标模式透传、门户选窗阻塞等待期间点击 StatusNotifierItem 托盘退出 `<2.5s` 干净收尾且无残留 `ffmpeg` 进程均已实测通过。
+  - [ ] **物理桌面合成器人工补验**：在真实 GNOME Shell（Mutter + `xdg-desktop-portal-gnome` + AppIndicator）与 KDE Plasma（KWin + `xdg-desktop-portal-kde`）硬件加速会话下手验真实系统门户弹窗选窗/选屏观感、全局快捷键系统绑定，以及物理双屏非整数缩放（`125%`/`150%`）拖窗切换。

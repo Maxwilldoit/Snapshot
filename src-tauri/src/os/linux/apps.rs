@@ -72,16 +72,11 @@ fn gio_launch(target: &str) -> bool {
     }
 }
 
-pub(crate) fn launch_icon_png(target: &str, _size: u32) -> Option<Vec<u8>> {
+pub(crate) fn launch_icon_png(target: &str, size: u32) -> Option<Vec<u8>> {
     let text = fs::read_to_string(target).ok()?;
     let name = parse_desktop(&text).get("Icon")?.to_string();
-    let path = find_icon(&name)?;
-    let bytes = fs::read(&path).ok()?;
-    if path.extension().and_then(|ext| ext.to_str()) == Some("png") {
-        return Some(bytes);
-    }
-    let image = image::load_from_memory(&bytes).ok()?;
-    crate::capture::encode_png(&image.to_rgba8()).ok()
+    let image = super::icon::resolve_icon_rgba(&name, size)?;
+    crate::capture::encode_png(&image).ok()
 }
 
 /// 系统目录在前，用户目录在后：同名 id 后来的盖掉先前的。
@@ -273,47 +268,4 @@ fn push_field(args: &mut Vec<String>, field: &str) {
     if !cleaned.is_empty() {
         args.push(cleaned);
     }
-}
-
-fn find_icon(name: &str) -> Option<PathBuf> {
-    let direct = PathBuf::from(name);
-    if direct.is_absolute() && direct.is_file() {
-        return Some(direct);
-    }
-    let file = name.trim_end_matches(".png").trim_end_matches(".svg");
-    let mut roots = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".local/share/icons"));
-        roots.push(home.join(".icons"));
-    }
-    if let Ok(data) = std::env::var("XDG_DATA_DIRS") {
-        for dir in data.split(':') {
-            if !dir.is_empty() {
-                roots.push(PathBuf::from(dir).join("icons"));
-            }
-        }
-    }
-    roots.push(PathBuf::from("/usr/share/icons"));
-    roots.push(PathBuf::from("/usr/share/pixmaps"));
-    let sizes = ["256x256", "128x128", "96x96", "64x64", "48x48", "32x32"];
-    let themes = ["hicolor", "Adwaita", "Papirus", "breeze", "Yaru"];
-    for root in &roots {
-        let pix = root.join(format!("{file}.png"));
-        if pix.is_file() {
-            return Some(pix);
-        }
-        for theme in &themes {
-            for size in &sizes {
-                let candidate = root
-                    .join(theme)
-                    .join(size)
-                    .join("apps")
-                    .join(format!("{file}.png"));
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-        }
-    }
-    None
 }
