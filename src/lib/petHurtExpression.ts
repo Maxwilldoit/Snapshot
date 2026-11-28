@@ -6,24 +6,22 @@ import dshHeadtopHitAlphaUrl from "../assets/pet-hit/dsh-headtop.alpha.webm";
 import dshHeadtopHitUrl from "../assets/pet-hit/dsh-headtop.webm";
 import dshOuchHitAlphaUrl from "../assets/pet-hit/dsh-ouch.alpha.webm";
 import dshOuchHitUrl from "../assets/pet-hit/dsh-ouch.webm";
-import dshSitHitAlphaUrl from "../assets/pet-hit/dsh-sit.alpha.webm";
-import dshSitHitUrl from "../assets/pet-hit/dsh-sit.webm";
 import type { PetAsset, PetLayout } from "../types";
 import type { MediaBounds } from "./petSize";
 import type { ContactEdge } from "./petThrowPhysics";
 
 export type CatalogSpriteId = never;
 
-type BuiltinHitId = "dsh-ouch" | "dsh-forehead" | "dsh-cheek" | "dsh-headtop" | "dsh-sit";
+type BuiltinHitId = "dsh-ouch" | "dsh-forehead" | "dsh-cheek" | "dsh-headtop";
 
 export type PetHurtMode = "wince" | "dizzy";
 
 const BUILTIN_HIT_PREFIX = "__builtin_hit__:";
-export const DSH_OUCH_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-ouch.webm`;
+export const DSH_OUCH_ACTION_FILE = "碰撞回应-吃痛抚头.webm";
+export const DSH_OUCH_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}${DSH_OUCH_ACTION_FILE}`;
 export const DSH_FOREHEAD_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-forehead.webm`;
 export const DSH_CHEEK_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-cheek.webm`;
 export const DSH_HEADTOP_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-headtop.webm`;
-export const DSH_SIT_HIT_ENTRY = `${BUILTIN_HIT_PREFIX}dsh-sit.webm`;
 
 /** 应用图标碰撞受击表情持续停留毫秒数。 */
 export const HURT_EXPRESSION_MS = 1650;
@@ -102,26 +100,13 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
     durationMs: 7833,
     bounds: { left: 0.325, top: 0.172222, width: 0.354687, height: 0.744444 },
   },
-  "dsh-sit": {
-    id: "dsh-sit",
-    entry: DSH_SIT_HIT_ENTRY,
-    url: dshSitHitUrl,
-    alphaUrl: dshSitHitAlphaUrl,
-    width: 640,
-    height: 360,
-    anchorX: 319,
-    anchorY: 329,
-    baseWidth: 640,
-    baseHeight: 360,
-    durationMs: 7833,
-    bounds: { left: 0.320312, top: 0.166667, width: 0.360938, height: 0.758333 },
-  },
 };
 
 function resolveSpec(entry: string | null | undefined): BuiltinHurtSpriteSpec | null {
   if (!entry || !entry.startsWith(BUILTIN_HIT_PREFIX)) return null;
-  const id = entry.slice(BUILTIN_HIT_PREFIX.length).replace(/\.webm$/i, "") as BuiltinHitId;
-  return BUILTIN_SPECS[id] ?? null;
+  const stem = entry.slice(BUILTIN_HIT_PREFIX.length).replace(/\.webm$/i, "");
+  if (stem === "碰撞回应-吃痛抚头" || stem === "dsh-ouch") return BUILTIN_SPECS["dsh-ouch"];
+  return BUILTIN_SPECS[stem as BuiltinHitId] ?? null;
 }
 
 /** 当前仅对大肥鱼启用内置受击视频；素材库普通 GIF 角色暂不启用内置受击覆盖。 */
@@ -201,17 +186,32 @@ function appendSpecLayout(
   };
 }
 
-/** 为大肥鱼（dsh-pet）注入随应用打包的 5 段原色专属碰撞受击透明视频、脚底锚点与透明包围盒。 */
+function hasZipOuchEntry(animations: readonly string[]): boolean {
+  return animations.some(
+    (entry) => !isBuiltinHurtEntry(entry) && /(?:^|[\\/])碰撞回应-吃痛抚头\.webm$/i.test(entry),
+  );
+}
+
+/** 为伴侣页动作列表补齐已采纳的「碰撞回应-吃痛抚头」；若素材包已含同名文件则不重复追加。 */
+export function augmentAssetWithAdoptedHit(
+  asset: PetAsset | undefined,
+  behaviorId?: string | null,
+): PetAsset | undefined {
+  if (!asset || behaviorId !== "dsh-pet" || hasZipOuchEntry(asset.animations)) return asset;
+  return appendSpecLayout(asset, [BUILTIN_SPECS["dsh-ouch"]]);
+}
+
+/** 为大肥鱼（dsh-pet）注入随应用打包的 4 段站立抚头碰撞透明视频、脚底锚点与透明包围盒。 */
 export function augmentAssetWithBuiltinHurt(
   asset: PetAsset | undefined,
   behaviorId?: string | null,
 ): PetAsset | undefined {
   if (!asset || behaviorId !== "dsh-pet") return asset;
-  return appendSpecLayout(asset, [
-    BUILTIN_SPECS["dsh-ouch"],
+  const specs: BuiltinHurtSpriteSpec[] = [
+    ...(hasZipOuchEntry(asset.animations) ? [] : [BUILTIN_SPECS["dsh-ouch"]]),
     BUILTIN_SPECS["dsh-forehead"],
     BUILTIN_SPECS["dsh-cheek"],
     BUILTIN_SPECS["dsh-headtop"],
-    BUILTIN_SPECS["dsh-sit"],
-  ]);
+  ];
+  return appendSpecLayout(asset, specs);
 }

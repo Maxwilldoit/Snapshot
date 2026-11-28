@@ -444,24 +444,23 @@ describe("pickPetBehaviorAction", () => {
     expect(pickPetBehaviorAction(behavior, "left", null, () => 0.999999)).toBe("valid");
   });
 
-  it("大肥鱼解析专属碰撞受击动作池（含旧版 pet.json 自动回填），并按落地/侧墙碰撞偏好挑选零前摇表情动作", () => {
+  it("大肥鱼解析专属碰撞受击动作池（含旧版与 1.2.0 pet.json 去重合并），上下碰撞与左右碰撞均选站立抚头动作", () => {
     const behavior = resolved();
     const expectedHits = [
-      "__builtin_hit__:dsh-ouch.webm",
+      "__builtin_hit__:碰撞回应-吃痛抚头.webm",
       "__builtin_hit__:dsh-forehead.webm",
       "__builtin_hit__:dsh-cheek.webm",
       "__builtin_hit__:dsh-headtop.webm",
-      "__builtin_hit__:dsh-sit.webm",
       "被吓一跳.webm",
       "原地重力下蹲压缩.webm",
       "玩游戏气急败坏.webm",
       "偷吃零食被抓住.webm",
     ];
     expect(behavior.hit).toEqual(expectedHits);
-    expect(pickPetHitEntry(behavior, "floor", null, () => 0)).toBe("__builtin_hit__:dsh-sit.webm");
+    expect(pickPetHitEntry(behavior, "floor", null, () => 0)).toBe("__builtin_hit__:碰撞回应-吃痛抚头.webm");
     expect(pickPetHitEntry(behavior, "ceiling", null, () => 0.9)).toBe("__builtin_hit__:dsh-headtop.webm");
-    expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("__builtin_hit__:dsh-ouch.webm");
-    expect(pickPetHitEntry(behavior, "right", "__builtin_hit__:dsh-ouch.webm", () => 0)).toBe("__builtin_hit__:dsh-forehead.webm");
+    expect(pickPetHitEntry(behavior, "left", null, () => 0)).toBe("__builtin_hit__:碰撞回应-吃痛抚头.webm");
+    expect(pickPetHitEntry(behavior, "right", "__builtin_hit__:碰撞回应-吃痛抚头.webm", () => 0)).toBe("__builtin_hit__:dsh-forehead.webm");
 
     // 随包 pet.json 未写 hit 时，仍自动回填已知 DSH 受击表情视频
     const manifestAsset: PetAsset = {
@@ -474,5 +473,21 @@ describe("pickPetBehaviorAction", () => {
       },
     };
     expect(resolved(manifestAsset).hit).toEqual(expectedHits);
+
+    // 1.2.0 素材库包内置 碰撞回应-吃痛抚头.webm 时自动去重，不重复塞入 __builtin_hit__ 副本
+    const v12Asset: PetAsset = {
+      ...manifestAsset,
+      animations: [...imported.animations, "碰撞回应-吃痛抚头.webm"],
+      behavior: {
+        ...manifestAsset.behavior!,
+        hit: ["碰撞回应-吃痛抚头.webm"],
+      },
+    };
+    expect(resolved(v12Asset).hit.slice(0, 4)).toEqual([
+      "碰撞回应-吃痛抚头.webm",
+      "__builtin_hit__:dsh-forehead.webm",
+      "__builtin_hit__:dsh-cheek.webm",
+      "__builtin_hit__:dsh-headtop.webm",
+    ]);
   });
 });

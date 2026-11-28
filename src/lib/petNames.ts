@@ -63,6 +63,7 @@ const ACTION_NAMES: Record<string, string> = {
   click: "点击",
   sit: "坐下",
   stand: "站立",
+  "碰撞回应-吃痛抚头": "碰撞回应-吃痛抚头",
 };
 
 type EntryLabelTranslator = (source: string) => string;
@@ -70,7 +71,8 @@ type EntryLabelTranslator = (source: string) => string;
 const keepSource: EntryLabelTranslator = (source) => source;
 
 function stemOf(entry: string) {
-  return (entry.split("/").pop() ?? entry).replace(/\.[^.]+$/, "");
+  const clean = entry.replace(/^__builtin_hit__:/, "");
+  return (clean.split("/").pop() ?? clean).replace(/\.[^.]+$/, "");
 }
 
 /** 整包共有的前缀（如 clawd-）对用户没有信息量，逐条截掉 */

@@ -303,6 +303,33 @@ describe("桌面伴侣页面滚动", () => {
     expect(within(main).getByRole("heading", { name: "桌面" })).toBeTruthy();
     expect(grid?.querySelector(".pet-actions-pane")).toBeNull();
   });
+
+  it("大肥鱼动作列表自动展示已采纳的「碰撞回应-吃痛抚头」并支持点击预览，新包自带时绝不重复", async () => {
+    await renderPetPage(undefined, {
+      ...base,
+      selectedAppearanceId: "whale",
+      petAssets: [{
+        id: "whale",
+        name: "大肥鱼",
+        path: "pets/whale.zip",
+        entry: "待机呼吸休闲.webm",
+        animations: [
+          "待机呼吸休闲.webm",
+          "被鼠标拖拽悬空反馈.webm",
+          "点击回应-开心跃动.webm",
+          "点击回应-害羞惊讶.webm",
+        ],
+      }],
+    });
+
+    const group = screen.getByRole("radiogroup", { name: "预览动作" });
+    const ouchRadio = within(group).getByRole("radio", { name: "碰撞回应-吃痛抚头" });
+    expect(ouchRadio.getAttribute("aria-checked")).toBe("false");
+    await act(async () => {
+      ouchRadio.click();
+    });
+    expect(ouchRadio.getAttribute("aria-checked")).toBe("true");
+  });
 });
 
 if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};

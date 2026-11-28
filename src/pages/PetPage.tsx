@@ -13,6 +13,8 @@ import { usePetImport } from "../app/usePetImport";
 import { Menu, MenuItem, MenuSeparator, useMenuAnchor } from "../components/Menu";
 import { PetSettings } from "../components/PetSettings";
 import { useI18n } from "../lib/i18n";
+import { resolvePetBehavior } from "../lib/petBehavior";
+import { augmentAssetWithAdoptedHit, builtinHurtUrl } from "../lib/petHurtExpression";
 import { ensurePetAutoScale } from "../lib/petScale";
 
 /**
@@ -33,7 +35,11 @@ export function PetPage() {
   const selectedId = settings.selectedAppearanceId;
   const requested = viewedPetId ?? selectedId;
   const viewedId = requested === "app-icon" || settings.petAssets.some((item) => item.id === requested) ? requested : selectedId;
-  const asset = settings.petAssets.find((item) => item.id === viewedId) ?? null;
+  const rawAsset = settings.petAssets.find((item) => item.id === viewedId) ?? null;
+  const asset = useMemo(
+    () => (rawAsset ? augmentAssetWithAdoptedHit(rawAsset, resolvePetBehavior(rawAsset)?.id) ?? rawAsset : null),
+    [rawAsset],
+  );
   const prefix = useMemo(() => commonPrefix(asset?.animations ?? []), [asset?.animations]);
 
   useEffect(() => {
@@ -105,7 +111,7 @@ export function PetPage() {
   }
 
   const name = asset ? asset.name : t("应用图标");
-  const stageSrc = asset && !asset.missing ? petUrl(asset.id, activeEntry) : null;
+  const stageSrc = asset && !asset.missing ? (builtinHurtUrl(activeEntry) ?? petUrl(asset.id, activeEntry)) : null;
 
   return (
     <div className="mw-page pet-page">

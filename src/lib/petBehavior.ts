@@ -9,8 +9,8 @@ import {
   DSH_CHEEK_HIT_ENTRY,
   DSH_FOREHEAD_HIT_ENTRY,
   DSH_HEADTOP_HIT_ENTRY,
+  DSH_OUCH_ACTION_FILE,
   DSH_OUCH_HIT_ENTRY,
-  DSH_SIT_HIT_ENTRY,
   isBuiltinHurtEntry,
 } from "./petHurtExpression";
 
@@ -62,9 +62,8 @@ const DSH_BUILTIN_HITS = [
   DSH_FOREHEAD_HIT_ENTRY,
   DSH_CHEEK_HIT_ENTRY,
   DSH_HEADTOP_HIT_ENTRY,
-  DSH_SIT_HIT_ENTRY,
 ] as const;
-const DSH_HIT = ["被吓一跳", "原地重力下蹲压缩", "玩游戏气急败坏", "偷吃零食被抓住"];
+const DSH_HIT = ["碰撞回应-吃痛抚头", "被吓一跳", "原地重力下蹲压缩", "玩游戏气急败坏", "偷吃零食被抓住"];
 const DSH_TURN = ["东张西望"];
 const DSH_PRIMARY_CLICKS = [
   "点击回应-开心跃动",
@@ -213,11 +212,18 @@ function resolveManifestBehavior(
     const entry = knownByWebm.get(name);
     return entry === undefined ? [] : [entry];
   });
-  const hit = explicitHit.length
-    ? explicitHit
-    : manifest.id === "dsh-pet"
-      ? [...DSH_BUILTIN_HITS, ...fallbackDshHits]
-      : fallbackDshHits;
+  let hit: string[];
+  if (manifest.id === "dsh-pet") {
+    const hasZipOuch = [...explicitHit, ...fallbackDshHits].some((entry) =>
+      entry.endsWith(DSH_OUCH_ACTION_FILE),
+    );
+    const builtins = hasZipOuch
+      ? DSH_BUILTIN_HITS.filter((entry) => entry !== DSH_OUCH_HIT_ENTRY)
+      : [...DSH_BUILTIN_HITS];
+    hit = Array.from(new Set([...explicitHit, ...builtins, ...fallbackDshHits]));
+  } else {
+    hit = explicitHit.length ? explicitHit : fallbackDshHits;
+  }
 
   return {
     id: manifest.id || "custom-behavior",
@@ -296,12 +302,18 @@ export function resolvePetBehavior(
     return result;
   };
 
+  const fallbackHits = available(DSH_HIT);
+  const hasZipOuch = fallbackHits.some((entry) => /(?:^|[\\/])碰撞回应-吃痛抚头\.webm$/i.test(entry));
+  const builtinHits = hasZipOuch
+    ? DSH_BUILTIN_HITS.filter((entry) => entry !== DSH_OUCH_HIT_ENTRY)
+    : [...DSH_BUILTIN_HITS];
+
   return {
     id: "dsh-pet",
     idle,
     clicks,
     drag,
-    hit: [...DSH_BUILTIN_HITS, ...available(DSH_HIT)],
+    hit: Array.from(new Set([...(hasZipOuch ? [fallbackHits[0]!] : []), ...builtinHits, ...fallbackHits])),
     turn: available(DSH_TURN),
     sleep,
     moves: DSH_MOVES.flatMap((move) => {
@@ -323,7 +335,7 @@ export function resolvePetBehavior(
   };
 }
 
-/** 按碰撞边缘挑选受击回应：底部重摔挑跌坐摸头，撞顶挑摸头顶/额角，左右侧撞在三段单手抚头/揉脸动作间轮换。 */
+/** 按碰撞边缘挑选受击回应：上下碰撞优先挑吃痛抚头/摸头顶/额角（绝不坐下），左右碰撞在四段站立抚头揉脸动作间轮换。 */
 export function pickPetHitEntry(
   behavior: PetBehavior,
   edge: "left" | "right" | "ceiling" | "floor",
@@ -331,12 +343,16 @@ export function pickPetHitEntry(
   random: () => number = Math.random,
 ): string | null {
   if (!behavior.hit.length) return null;
-  const builtinHits = behavior.hit.filter(isBuiltinHurtEntry);
-  const source = builtinHits.length ? builtinHits : behavior.hit;
+  const ouchPattern = new RegExp(`(?:^|[\\\\/])${DSH_OUCH_ACTION_FILE}$`, "i");
+  const customHits = behavior.hit.filter(
+    (entry) => isBuiltinHurtEntry(entry) || ouchPattern.test(entry),
+  );
+  const source = customHits.length ? customHits : behavior.hit;
   const preferred = source.filter((entry) => {
-    if (edge === "floor") return /sit|floor|重力|下蹲|压缩|squash|land/i.test(entry);
-    if (edge === "ceiling") return /ouch|headtop|forehead|重力|下蹲|压缩/i.test(entry);
-    return !/sit|floor|下蹲|squash/i.test(entry);
+    if (edge === "floor" || edge === "ceiling") {
+      return /吃痛抚头|ouch|headtop|forehead/i.test(entry);
+    }
+    return true;
   });
   return pickPetEntry(preferred.length ? preferred : source, current, random);
 }

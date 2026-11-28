@@ -111,4 +111,5 @@ export const petEnglish: Record<string, string> = {
   "点击": "Poke",
   "坐下": "Sit",
   "站立": "Stand",
+  "碰撞回应-吃痛抚头": "Bump Reaction · Rub Head",
 };
