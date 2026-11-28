@@ -2024,7 +2024,7 @@ describe("桌宠：DSH 动作交互", () => {
     });
     await elapse(240);
     await loadPetVideos();
-    expect(shownVideo(container).file).toMatch(/^dsh-wall\b.*\.webm$/);
+    expect(shownVideo(container).file).toMatch(/^dsh-(?:forehead|cheek|headtop)\b.*\.webm$/);
     await act(async () => { fireEvent.ended(shownVideo(container).media); });
     await loadPetVideos();
     expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");

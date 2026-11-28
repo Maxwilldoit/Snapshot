@@ -4,15 +4,17 @@ import {
   augmentAssetWithBuiltinHurt,
   builtinHurtDurationMs,
   builtinHurtUrl,
-  DSH_FLOOR_HIT_ENTRY,
-  DSH_WALL_HIT_ENTRY,
+  DSH_CHEEK_HIT_ENTRY,
+  DSH_FOREHEAD_HIT_ENTRY,
+  DSH_HEADTOP_HIT_ENTRY,
+  DSH_SIT_HIT_ENTRY,
   identifyCatalogSprite,
   isBuiltinHurtEntry,
   pickPetHurtMode,
 } from "./petHurtExpression";
 
 describe("petHurtExpression", () => {
-  it("仅对大肥鱼（dsh-pet）注入专属碰撞受击视频与脚底锚点，普通素材库角色保持原样", () => {
+  it("仅对大肥鱼（dsh-pet）注入全部 4 段专属碰撞受击视频与脚底锚点，普通素材库角色保持原样", () => {
     const whale: PetAsset = {
       id: "pet-whale",
       name: "大肥鱼",
@@ -22,13 +24,12 @@ describe("petHurtExpression", () => {
       animations: ["待机呼吸休闲.webm"],
     };
     const augmented = augmentAssetWithBuiltinHurt(whale, "dsh-pet")!;
-    expect(isBuiltinHurtEntry(DSH_WALL_HIT_ENTRY)).toBe(true);
-    expect(isBuiltinHurtEntry(DSH_FLOOR_HIT_ENTRY)).toBe(true);
-    expect(builtinHurtUrl(DSH_WALL_HIT_ENTRY)).toBeTruthy();
-    expect(builtinHurtUrl(DSH_FLOOR_HIT_ENTRY)).toBeTruthy();
-    expect(builtinHurtDurationMs(DSH_WALL_HIT_ENTRY)).toBeGreaterThan(3000);
-    expect(augmented.layout?.frames.some((f) => f.entry === DSH_WALL_HIT_ENTRY)).toBe(true);
-    expect(augmented.layout?.frames.some((f) => f.entry === DSH_FLOOR_HIT_ENTRY)).toBe(true);
+    for (const entry of [DSH_FOREHEAD_HIT_ENTRY, DSH_CHEEK_HIT_ENTRY, DSH_HEADTOP_HIT_ENTRY, DSH_SIT_HIT_ENTRY]) {
+      expect(isBuiltinHurtEntry(entry)).toBe(true);
+      expect(builtinHurtUrl(entry)).toBeTruthy();
+      expect(builtinHurtDurationMs(entry)).toBeGreaterThan(7000);
+      expect(augmented.layout?.frames.some((f) => f.entry === entry)).toBe(true);
+    }
 
     const makima: PetAsset = {
       id: "pet-makima",

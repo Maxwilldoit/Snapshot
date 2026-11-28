@@ -697,12 +697,13 @@ export function PetWindow() {
       // 优先命中已在后台按当前轮次预解码并跳至表情帧的受击视频，实现碰撞瞬间 0ms 变脸。
       const roll = hitRoll(hitPulseRef.current);
       const preloadedWall = pickPetHitEntry(profile, "left", restingRef.current, roll);
+      const preloadedCeiling = pickPetHitEntry(profile, "ceiling", restingRef.current, roll);
       const preloadedFloor = pickPetHitEntry(profile, "floor", restingRef.current, roll);
-      const vertical = edge === "floor" || edge === "ceiling";
-      const entry = (vertical ? preloadedFloor ?? preloadedWall : preloadedWall ?? preloadedFloor)
+      const entry = (edge === "floor" ? preloadedFloor : edge === "ceiling" ? preloadedCeiling : preloadedWall)
         ?? pickPetHitEntry(profile, edge, targetEntry.current);
       if (!entry) return;
-      const usePreloaded = activeHitPulse.current === null && (entry === preloadedWall || entry === preloadedFloor);
+      const usePreloaded = activeHitPulse.current === null &&
+        (entry === preloadedWall || entry === preloadedCeiling || entry === preloadedFloor);
       const preset = usePreloaded ? hitPulseRef.current : undefined;
       playBehaviorInteraction(entry, "hit", (media) => {
         triggerMediaImpact(media, edge, speed, "behavior", facingRef.current === "right");
@@ -925,6 +926,7 @@ export function PetWindow() {
   const behaviorPreloadHits = behavior
     ? [...new Set([
         pickPetHitEntry(behavior, "left", resting, hitRoll(hitPulse)),
+        pickPetHitEntry(behavior, "ceiling", resting, hitRoll(hitPulse)),
         pickPetHitEntry(behavior, "floor", resting, hitRoll(hitPulse)),
       ].filter((item): item is string => Boolean(item)))]
     : [];
@@ -1546,9 +1548,11 @@ export function PetWindow() {
       triggerCurrentImpact(hitEdge, effectiveSpeed);
       if (behaviorRef.current) {
         const roll = hitRoll(hitPulseRef.current);
-        const hitClip = (hitEdge === "floor" || hitEdge === "ceiling"
+        const hitClip = (hitEdge === "floor"
           ? pickPetHitEntry(behaviorRef.current, "floor", restingRef.current, roll)
-          : pickPetHitEntry(behaviorRef.current, "left", restingRef.current, roll))
+          : hitEdge === "ceiling"
+            ? pickPetHitEntry(behaviorRef.current, "ceiling", restingRef.current, roll)
+            : pickPetHitEntry(behaviorRef.current, "left", restingRef.current, roll))
           ?? pickPetHitEntry(behaviorRef.current, hitEdge, targetEntry.current);
         if (hitClip) {
           window.clearTimeout(dragHitTimer);
