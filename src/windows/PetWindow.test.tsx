@@ -2024,7 +2024,7 @@ describe("桌宠：DSH 动作交互", () => {
     });
     await elapse(240);
     await loadPetVideos();
-    expect(shownVideo(container).file).toMatch(/^(?:碰撞回应-吃痛抚头|dsh-(?:ouch|forehead|cheek|headtop))\b.*\.webm$/);
+    expect(shownVideo(container).file).toMatch(/^__builtin_hit__:(?:碰撞回应-吃痛抚头|dsh-(?:ouch|forehead|cheek|headtop))\.webm$/);
     await act(async () => { fireEvent.ended(shownVideo(container).media); });
     await loadPetVideos();
     expect(shownVideo(container).file).toBe("待机呼吸休闲.webm");
@@ -2165,8 +2165,10 @@ describe("桌宠：DSH 动作交互", () => {
       fireEvent.pointerMove(window, { clientX: 0, clientY: 20, screenX: -40, screenY: 300, pointerId: 21 });
     });
     await loadPetVideos();
-    // 按住贴紧边界期间，碰撞视频也绝不能开启 loop
-    expect(shownVideo(container).file).toMatch(/^(?:碰撞回应-吃痛抚头|dsh-(?:ouch|forehead|cheek|headtop))\b.*\.webm$/);
+    // 按住贴紧边界期间，碰撞视频也绝不能开启 loop，且必须走 media 协议而非静态资源
+    expect(shownVideo(container).file).toMatch(/^__builtin_hit__:(?:碰撞回应-吃痛抚头|dsh-(?:ouch|forehead|cheek|headtop))\.webm$/);
+    expect(shownVideo(container).media.src).toMatch(/^(?:media:\/\/|http:\/\/media\.localhost\/)/);
+    expect(shownVideo(container).media.src).not.toContain("/assets/");
     expect(shownVideo(container).media.loop).toBe(false);
 
     // 在边界停稳 250ms 后松手（无反弹速度，且重力下落滑到底角也不应二次重播受击动作）
@@ -2177,7 +2179,7 @@ describe("桌宠：DSH 动作交互", () => {
     await elapse(600);
     await loadPetVideos();
     const activeHit = shownVideo(container);
-    expect(activeHit.file).toMatch(/^(?:碰撞回应-吃痛抚头|dsh-(?:ouch|forehead|cheek|headtop))\b.*\.webm$/);
+    expect(activeHit.file).toMatch(/^__builtin_hit__:(?:碰撞回应-吃痛抚头|dsh-(?:ouch|forehead|cheek|headtop))\.webm$/);
     expect(activeHit.media.loop).toBe(false);
 
     // 播放完这一轮立即回到待机呼吸，不再重复播放第二轮

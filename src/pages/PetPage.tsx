@@ -14,7 +14,7 @@ import { Menu, MenuItem, MenuSeparator, useMenuAnchor } from "../components/Menu
 import { PetSettings } from "../components/PetSettings";
 import { useI18n } from "../lib/i18n";
 import { resolvePetBehavior } from "../lib/petBehavior";
-import { augmentAssetWithAdoptedHit, builtinHurtUrl } from "../lib/petHurtExpression";
+import { augmentAssetWithAdoptedHit } from "../lib/petHurtExpression";
 import { ensurePetAutoScale } from "../lib/petScale";
 
 /**
@@ -111,7 +111,7 @@ export function PetPage() {
   }
 
   const name = asset ? asset.name : t("应用图标");
-  const stageSrc = asset && !asset.missing ? (builtinHurtUrl(activeEntry) ?? petUrl(asset.id, activeEntry)) : null;
+  const stageSrc = asset && !asset.missing ? petUrl(asset.id, activeEntry) : null;
 
   return (
     <div className="mw-page pet-page">

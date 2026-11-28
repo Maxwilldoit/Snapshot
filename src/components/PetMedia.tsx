@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { isWebmEntry, petAlphaUrl } from "../lib/media";
 import { usePlayableMediaUrl } from "../lib/mediaBlob";
-import { builtinHurtAlphaUrl } from "../lib/petHurtExpression";
 import { MacPetVideo } from "./MacPetVideo";
 
 export type PetMediaElement = HTMLImageElement | HTMLVideoElement;
@@ -41,7 +40,7 @@ export function PetMedia({
   const [failed, setFailed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const video = isWebmEntry(entry);
-  const resolvedAlphaSrc = video && src !== null ? (builtinHurtAlphaUrl(entry) ?? petAlphaUrl(src)) : null;
+  const resolvedAlphaSrc = video && src !== null ? petAlphaUrl(src) : null;
   // macOS 走 MacPetVideo（另取透明通道），其余平台的 WebM 在 Linux 上要先换成 blob: 地址
   const macVideo = resolvedAlphaSrc !== null;
   const videoSrc = usePlayableMediaUrl(src, video && !macVideo);

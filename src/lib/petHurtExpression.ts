@@ -1,11 +1,3 @@
-import dshCheekHitAlphaUrl from "../assets/pet-hit/dsh-cheek.alpha.webm";
-import dshCheekHitUrl from "../assets/pet-hit/dsh-cheek.webm";
-import dshForeheadHitAlphaUrl from "../assets/pet-hit/dsh-forehead.alpha.webm";
-import dshForeheadHitUrl from "../assets/pet-hit/dsh-forehead.webm";
-import dshHeadtopHitAlphaUrl from "../assets/pet-hit/dsh-headtop.alpha.webm";
-import dshHeadtopHitUrl from "../assets/pet-hit/dsh-headtop.webm";
-import dshOuchHitAlphaUrl from "../assets/pet-hit/dsh-ouch.alpha.webm";
-import dshOuchHitUrl from "../assets/pet-hit/dsh-ouch.webm";
 import type { PetAsset, PetLayout } from "../types";
 import type { MediaBounds } from "./petSize";
 import type { ContactEdge } from "./petThrowPhysics";
@@ -31,8 +23,6 @@ export const HURT_FRAME_INTERVAL_MS = 130;
 interface BuiltinHurtSpriteSpec {
   id: BuiltinHitId;
   entry: string;
-  url: string;
-  alphaUrl: string;
   width: number;
   height: number;
   anchorX: number;
@@ -47,8 +37,6 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
   "dsh-ouch": {
     id: "dsh-ouch",
     entry: DSH_OUCH_HIT_ENTRY,
-    url: dshOuchHitUrl,
-    alphaUrl: dshOuchHitAlphaUrl,
     width: 640,
     height: 360,
     anchorX: 319,
@@ -61,8 +49,6 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
   "dsh-forehead": {
     id: "dsh-forehead",
     entry: DSH_FOREHEAD_HIT_ENTRY,
-    url: dshForeheadHitUrl,
-    alphaUrl: dshForeheadHitAlphaUrl,
     width: 640,
     height: 360,
     anchorX: 319,
@@ -75,8 +61,6 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
   "dsh-cheek": {
     id: "dsh-cheek",
     entry: DSH_CHEEK_HIT_ENTRY,
-    url: dshCheekHitUrl,
-    alphaUrl: dshCheekHitAlphaUrl,
     width: 640,
     height: 360,
     anchorX: 319,
@@ -89,8 +73,6 @@ const BUILTIN_SPECS: Readonly<Record<BuiltinHitId, BuiltinHurtSpriteSpec>> = {
   "dsh-headtop": {
     id: "dsh-headtop",
     entry: DSH_HEADTOP_HIT_ENTRY,
-    url: dshHeadtopHitUrl,
-    alphaUrl: dshHeadtopHitAlphaUrl,
     width: 640,
     height: 360,
     anchorX: 319,
@@ -118,15 +100,6 @@ export function identifyCatalogSprite(
 
 export function isBuiltinHurtEntry(entry: string | null | undefined): boolean {
   return Boolean(entry?.startsWith(BUILTIN_HIT_PREFIX));
-}
-
-export function builtinHurtUrl(entry: string | null | undefined): string | null {
-  return resolveSpec(entry)?.url ?? null;
-}
-
-export function builtinHurtAlphaUrl(entry: string | null | undefined): string | null {
-  if (!/Macintosh|Mac OS X/.test(navigator.userAgent) || /jsdom/i.test(navigator.userAgent)) return null;
-  return resolveSpec(entry)?.alphaUrl ?? null;
 }
 
 export function builtinHurtDurationMs(entry: string | null | undefined): number | null {

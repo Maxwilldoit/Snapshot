@@ -798,6 +798,24 @@ fn find_asset(state: &AppState, id: &str) -> Result<PetAsset, String> {
         .ok_or_else(|| "找不到这个形象".to_string())
 }
 
+fn builtin_hit_webm(entry: &str) -> Option<&'static [u8]> {
+    match entry {
+        "__builtin_hit__:碰撞回应-吃痛抚头.webm" | "__builtin_hit__:dsh-ouch.webm" => {
+            Some(include_bytes!("../assets/pet-hit/dsh-ouch.webm"))
+        }
+        "__builtin_hit__:dsh-forehead.webm" => {
+            Some(include_bytes!("../assets/pet-hit/dsh-forehead.webm"))
+        }
+        "__builtin_hit__:dsh-cheek.webm" => {
+            Some(include_bytes!("../assets/pet-hit/dsh-cheek.webm"))
+        }
+        "__builtin_hit__:dsh-headtop.webm" => {
+            Some(include_bytes!("../assets/pet-hit/dsh-headtop.webm"))
+        }
+        _ => None,
+    }
+}
+
 fn read_raw_animation(
     state: &AppState,
     id: &str,
@@ -806,6 +824,11 @@ fn read_raw_animation(
     let asset = find_asset(state, id)?;
     let archive_path = PathBuf::from(&asset.path);
     let requested = entry.filter(|value| !value.is_empty());
+    if let Some(requested) = requested {
+        if let Some(bytes) = builtin_hit_webm(requested) {
+            return Ok((requested.to_string(), bytes.to_vec()));
+        }
+    }
     let entry_name = if let Some(requested) = requested {
         // 只认登记过的动作名，不能借路径读压缩包里的任意条目
         if !asset
@@ -1566,6 +1589,23 @@ mod tests {
             encoder.write_frame(&frame).unwrap();
         }
         assert!(measure_gif_action(&bytes).is_err());
+    }
+
+    #[test]
+    fn builtin_hit_clips_are_valid_alpha_webms_for_media_protocol() {
+        for entry in [
+            "__builtin_hit__:碰撞回应-吃痛抚头.webm",
+            "__builtin_hit__:dsh-ouch.webm",
+            "__builtin_hit__:dsh-forehead.webm",
+            "__builtin_hit__:dsh-cheek.webm",
+            "__builtin_hit__:dsh-headtop.webm",
+        ] {
+            let bytes = builtin_hit_webm(entry).expect(entry);
+            assert_eq!(animation_mime(bytes), "video/webm");
+            let alpha = pet_alpha::extract(bytes).expect("应能提取内置受击片段的透明通道");
+            assert_eq!(animation_mime(&alpha), "video/webm");
+        }
+        assert!(builtin_hit_webm("待机呼吸休闲.webm").is_none());
     }
 
     #[cfg(target_os = "windows")]

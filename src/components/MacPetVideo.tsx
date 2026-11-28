@@ -4,6 +4,51 @@ import type { PetMediaProps } from "./PetMedia";
 
 const interrupted = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
 
+const DATA_URL_CACHE_LIMIT = 16;
+let cachedFetch: typeof fetch | null = null;
+const dataUrlCache = new Map<string, Promise<string>>();
+
+/**
+ * 复用已解码为 data: 的视频字节：拖拽左右转向与连续碰撞切换会频繁重建 <MacPetVideo>，
+ * 共享同一份进行中或已完成的请求可避免对 WKURLSchemeTask 反复发起/取消并发请求。
+ */
+function loadVideoDataUrl(url: string): Promise<string> {
+  if (cachedFetch !== fetch) {
+    cachedFetch = fetch;
+    dataUrlCache.clear();
+  }
+  const existing = dataUrlCache.get(url);
+  if (existing) {
+    dataUrlCache.delete(url);
+    dataUrlCache.set(url, existing);
+    return existing;
+  }
+  const pending = fetch(url)
+    .then((response) => {
+      if (!response.ok) throw new Error(`Pet video: ${response.status}`);
+      return response.blob();
+    })
+    .then(
+      (blob) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(reader.error ?? new Error("Pet video read failed"));
+          reader.readAsDataURL(blob);
+        }),
+    )
+    .catch((error) => {
+      if (dataUrlCache.get(url) === pending) dataUrlCache.delete(url);
+      throw error;
+    });
+  if (dataUrlCache.size >= DATA_URL_CACHE_LIMIT) {
+    const oldest = dataUrlCache.keys().next().value;
+    if (oldest !== undefined) dataUrlCache.delete(oldest);
+  }
+  dataUrlCache.set(url, pending);
+  return pending;
+}
+
 /** Keep the real video as the playback clock; only its pixels need a WebKit fallback. */
 export function MacPetVideo({
   src, alphaSrc, className, style, hidden, alt, playing = true, loop = true, onReady, onEnded, onError,
@@ -35,8 +80,6 @@ export function MacPetVideo({
     let frame: number | null = null;
     let animation: number | null = null;
     let lastDraw = -Infinity;
-    const abort = new AbortController();
-    const readers = new Set<FileReader>();
 
     const ready = () => {
       if (reported || disposed) return;
@@ -127,26 +170,13 @@ export function MacPetVideo({
     // WebKit taints both media:// videos and blob:tauri:// videos in packaged
     // apps. Data URLs remain origin-clean in both development and production.
     const load = async (url: string, video: HTMLVideoElement) => {
-      const response = await fetch(url, { signal: abort.signal });
-      if (!response.ok) throw new Error(`Pet video: ${response.status}`);
-      const blob = await response.blob();
-      if (disposed) return;
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        readers.add(reader);
-        reader.onload = () => { readers.delete(reader); resolve(reader.result as string); };
-        reader.onerror = () => { readers.delete(reader); reject(reader.error); };
-        reader.onabort = () => { readers.delete(reader); reject(new DOMException("Pet video disposed", "AbortError")); };
-        reader.readAsDataURL(blob);
-      });
+      const dataUrl = await loadVideoDataUrl(url);
       if (!disposed) video.src = dataUrl;
     };
     void load(src, colour).catch(fail);
     void load(alphaSrc, alpha).catch(() => { if (!disposed) nativeFallback(); });
     return () => {
       disposed = true;
-      abort.abort();
-      for (const reader of readers) reader.abort();
       unregister();
       for (const [target, event, listener] of listeners) target.removeEventListener(event, listener);
       if (frame !== null) colour.cancelVideoFrameCallback(frame);

@@ -196,4 +196,18 @@ describe("MacPetVideo", () => {
     fireEvent.seeked(alpha);
     expect(visible.putImageData).toHaveBeenCalledTimes(count + 1);
   });
+
+  it("reuses cached data URLs across rapid remounts without issuing duplicate fetches", async () => {
+    const first = render(<MacPetVideo {...props} />);
+    await flush();
+    await waitFor(() => expect(first.container.querySelector("video")!.hasAttribute("src")).toBe(true));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    first.unmount();
+
+    const second = render(<MacPetVideo {...props} />);
+    await flush();
+    await waitFor(() => expect(second.container.querySelector("video")!.hasAttribute("src")).toBe(true));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    second.unmount();
+  });
 });
