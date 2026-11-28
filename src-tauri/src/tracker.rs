@@ -191,6 +191,10 @@ fn enumerate_capturable_windows(app: &AppHandle) -> Result<Vec<CapturableWindow>
     // xcap 的 macOS 枚举及其每个元数据 getter 都限定为 on-screen，
     // 无法靠在它返回的列表上追加过滤找回后台窗口。Windows/Linux 保持原实现。
     #[cfg(not(target_os = "macos"))]
+    if !os::can_enumerate_windows() {
+        return Ok(Vec::new());
+    }
+    #[cfg(not(target_os = "macos"))]
     let mut result = Window::all()
         .map_err(|error| WindowListError::Enumeration(error.to_string()))?
         .into_iter()
@@ -288,6 +292,10 @@ fn poll_focused_window(app: &AppHandle, tracker: &Mutex<TrackerState>) {
         Some(pid) if pid != std::process::id() => pid,
         _ => return,
     };
+    #[cfg(not(target_os = "macos"))]
+    if !os::can_enumerate_windows() {
+        return;
+    }
 
     if let Ok(windows) = Window::all() {
         // 焦点可能落在桌宠/快捷菜单这类自有窗口上，先向前找最近一个

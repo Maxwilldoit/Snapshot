@@ -45,6 +45,14 @@ pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[
     "palette",
 ];
 
+pub(crate) fn recording_uses_system_picker() -> bool {
+    false
+}
+
+pub(crate) fn can_enumerate_windows() -> bool {
+    true
+}
+
 /// xcap 截不到光标：截完按窗口原点与 DPI 比例把当前系统光标合成上去。
 /// 返回的第二项是光标没合成上的原因（截图本身仍然成功）。
 pub(crate) fn capture_with_cursor(

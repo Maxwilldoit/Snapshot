@@ -36,6 +36,14 @@ pub(crate) fn autostart_available() -> bool {
     true
 }
 
+pub(crate) fn recording_uses_system_picker() -> bool {
+    false
+}
+
+pub(crate) fn can_enumerate_windows() -> bool {
+    true
+}
+
 /// 本平台支持的全局快捷键动作，顺序即设置页的显示顺序
 pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[
     "snapshot",

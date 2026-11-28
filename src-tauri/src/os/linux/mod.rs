@@ -8,6 +8,7 @@ mod apps;
 mod autostart;
 mod clipboard;
 mod icon;
+mod portal;
 mod recording;
 mod scrolling;
 mod session;
@@ -28,6 +29,19 @@ pub(crate) use clipboard::{
 };
 pub(crate) use scrolling::capture_scrolling_window;
 pub(crate) use window::restore_minimized;
+
+/// Wayland 门户录制由系统对话框挑选窗口或屏幕，不依赖应用内的 X11 窗口列表或「上一个应用」。
+pub(crate) fn recording_uses_system_picker() -> bool {
+    matches!(
+        recording::pick_recording_backend(),
+        Ok(recording::RecordingBackend::Portal)
+    )
+}
+
+/// X11 / XWayland 有 `$DISPLAY` 时才能枚举其他应用的窗口；纯 Wayland 下不可用。
+pub(crate) fn can_enumerate_windows() -> bool {
+    session::x11_display().is_some()
+}
 
 /// 本平台支持的全局快捷键动作，顺序即设置页的显示顺序（滚动长截图只有 Linux/X11 有）
 pub(crate) const SHORTCUT_ACTIONS: &[&str] = &[

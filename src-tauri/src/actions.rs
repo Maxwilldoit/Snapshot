@@ -474,7 +474,9 @@ pub(crate) async fn perform(app: &AppHandle, action: &str) -> Result<String, Str
     if state.settings.lock().shortcut_pick_window {
         match action {
             "snapshot" => return show_picker_at_pet(app, "capture").map(|_| String::new()),
-            "record" if !state.recorder.lock().is_active() => {
+            "record"
+                if !state.recorder.lock().is_active() && !os::recording_uses_system_picker() =>
+            {
                 return show_picker_at_pet(app, "record").map(|_| String::new());
             }
             _ => {}

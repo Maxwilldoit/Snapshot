@@ -10,8 +10,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::{fs, io::Write};
 
-use xcap::{Monitor, Window};
+use xcap::Window;
 
+use super::portal::PortalRecorder;
 use super::session::{display_server_label, is_wayland_session, x11_display};
 
 /// 录制后端。
@@ -293,7 +294,7 @@ pub enum StopKind {
 
 /// portal 路径持有的句柄（停录时 stop + 打断写帧线程）。
 pub struct PortalHandle {
-    video_recorder: xcap::VideoRecorder,
+    video_recorder: PortalRecorder,
     stop_flag: Arc<AtomicBool>,
 }
 
@@ -390,10 +391,8 @@ fn wait_for_child(
 
 /// 启动录制：后端由 [`pick_recording_backend`] 决定（Wayland 会话优先 portal）。
 ///
-/// `target_id` / `include_cursor` 在 x11grab 路径生效。portal 路径由桌面选择器挑源；
-/// `include_cursor` 目前随门户/合成器默认（xcap ScreenCast 未暴露 cursor_mode）。
-///
-/// 第二个返回值是启动时给 UI 的提示（portal 需用户重新选窗/屏）；x11grab 为 `None`。
+/// `target_id` 在 x11grab 路径生效；portal 路径由桌面选择器挑窗口或屏幕，
+/// 并按 `include_cursor` 向门户请求对应的光标模式。
 pub fn start_recording(
     target_id: u32,
     include_cursor: bool,
@@ -406,11 +405,7 @@ pub fn start_recording(
     match pick_recording_backend()? {
         RecordingBackend::Portal => {
             let active = start_portal_recording(include_cursor, &audio_inputs, output)?;
-            // xdg portal 无法沿用应用内选中的 target_id；光标亦由合成器决定。
-            let warn =
-                "录制已开始：门户将请你重新选择窗口/屏幕；光标由合成器决定（include_cursor 无效）"
-                    .to_string();
-            Ok((active, Some(warn)))
+            Ok((active, None))
         }
         RecordingBackend::X11Grab { .. } => {
             let active = start_x11_recording(target_id, include_cursor, &audio_inputs, output)?;
@@ -456,32 +451,18 @@ fn start_portal_recording(
     audio_inputs: &[AudioInput],
     output: &Path,
 ) -> Result<ActiveRecording, String> {
-    // xcap 的 ScreenCast 未暴露 cursor_mode；保留参数避免调用方分叉，并在能力文案里说明。
-    let _ = include_cursor;
-
     portal_screencast_available()?;
 
-    let monitor = Monitor::all()
-        .map_err(|error| format!("无法列出显示器（ScreenCast）：{error}"))?
-        .into_iter()
-        .next()
-        .ok_or_else(|| "没有可用显示器".to_string())?;
+    // 直接触发门户选择器（支持窗口与屏幕）并连接 PipeWire，不依赖 XWayland / Monitor::all。
+    let (video_recorder, frame_rx) = PortalRecorder::start(include_cursor)?;
 
-    // 此处会触发门户选择器；无图形会话 / 用户取消会失败。
-    let (video_recorder, frame_rx) = monitor.video_recorder().map_err(|error| {
-        format!(
-            "启动 xdg-desktop-portal ScreenCast 失败：{error}。请在图形 Wayland 会话中允许屏幕共享，并确认已安装 xdg-desktop-portal 与桌面后端。"
-        )
-    })?;
-
-    video_recorder
-        .start()
-        .map_err(|error| format!("ScreenCast start 失败：{error}"))?;
-
-    // 等首帧以确定真实分辨率（门户裁剪/缩放可能与 Monitor 元数据不一致）
+    // 等首帧以确定真实分辨率（门户裁剪/缩放由用户实际选中的窗口或屏幕决定）
     let first = frame_rx
         .recv_timeout(Duration::from_secs(90))
-        .map_err(|_| "等待 ScreenCast 画面超时（请在弹窗中选择屏幕/窗口并允许共享）".to_string())?;
+        .map_err(|_| {
+            let _ = video_recorder.stop();
+            "等待 ScreenCast 画面超时（请在弹窗中选择屏幕/窗口并允许共享）".to_string()
+        })?;
 
     let width = first.width.max(2) & !1;
     let height = first.height.max(2) & !1;

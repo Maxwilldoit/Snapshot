@@ -99,5 +99,6 @@ panic = "abort"
 strip = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+pipewire = "0.10"
 x11-dl = "2"
 zbus = "5"

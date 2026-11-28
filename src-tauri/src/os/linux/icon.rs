@@ -27,9 +27,25 @@ pub fn icon_for_exe(exe: &Path, size: u32) -> Option<RgbaImage> {
         .to_string();
 
     let icon_name = find_desktop_icon(&stem).unwrap_or(stem);
-    load_icon_file(&icon_name)
-        .or_else(|| load_named_icon(&icon_name, size))
-        .map(|image| fit(image, size))
+    resolve_icon_rgba(&icon_name, size)
+}
+
+/// 按 `.desktop` 里的 `Icon=` 值（绝对路径或主题图标名）解析并缩放到不超过 `size` 的 RGBA 图像。
+/// 历史来源角标、进程图标与启动台共用这一份查找逻辑（含桌面主题与 `scalable/apps/*.svg`）。
+pub(super) fn resolve_icon_rgba(icon: &str, size: u32) -> Option<RgbaImage> {
+    let icon = icon.trim();
+    if icon.is_empty() {
+        return None;
+    }
+    let edge = size.max(16);
+    if let Some(image) = load_icon_file(icon, edge) {
+        return Some(fit(image, edge));
+    }
+    let stem = icon
+        .trim_end_matches(".png")
+        .trim_end_matches(".svg")
+        .trim_end_matches(".xpm");
+    load_named_icon(stem, edge).map(|image| fit(image, edge))
 }
 
 /// 比要的大就等比缩下来：窗口列表只显示 24px，没必要把 256px 的原图传给页面。
@@ -42,7 +58,7 @@ fn fit(image: RgbaImage, size: u32) -> RgbaImage {
         .into_rgba8()
 }
 
-/// hicolor 主题的尺寸目录，按「刚好够用」排序：先由小到大取不小于 `size` 的，
+/// 图标主题的位图尺寸目录，按「刚好够用」排序：先由小到大取不小于 `size` 的，
 /// 都没有再由大到小取更小的。这样既不糊，也不白白读一张大图再缩。
 fn size_dirs_for(size: u32) -> Vec<&'static str> {
     const AVAILABLE: [(u32, &str); 5] = [
@@ -83,6 +99,36 @@ fn xdg_data_dirs() -> Vec<PathBuf> {
         dirs.push(PathBuf::from("/usr/share"));
     }
     dirs
+}
+
+fn icon_theme_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for data in xdg_data_dirs() {
+        roots.push(data.join("icons"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join(".icons"));
+    }
+    let sys_icons = PathBuf::from("/usr/share/icons");
+    if !roots.contains(&sys_icons) {
+        roots.push(sys_icons);
+    }
+    roots
+}
+
+fn pixmap_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for data in xdg_data_dirs() {
+        roots.push(data.join("pixmaps"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join(".icons"));
+    }
+    let sys_pixmaps = PathBuf::from("/usr/share/pixmaps");
+    if !roots.contains(&sys_pixmaps) {
+        roots.push(sys_pixmaps);
+    }
+    roots
 }
 
 fn find_desktop_icon(app: &str) -> Option<String> {
@@ -136,43 +182,70 @@ fn find_desktop_icon(app: &str) -> Option<String> {
     store_cache(lower, None)
 }
 
-fn load_icon_file(icon: &str) -> Option<RgbaImage> {
+fn load_candidate_path(path: &Path, edge: u32) -> Option<RgbaImage> {
+    if !path.is_file() {
+        return None;
+    }
+    if path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+    {
+        return rasterize_svg(path, edge);
+    }
+    image::open(path).ok().map(|img| img.into_rgba8())
+}
+
+fn load_icon_file(icon: &str, edge: u32) -> Option<RgbaImage> {
     let path = Path::new(icon);
-    if path.is_absolute() && path.is_file() {
-        return image::open(path).ok().map(|img| img.into_rgba8());
+    if path.is_absolute() {
+        return load_candidate_path(path, edge);
     }
     None
 }
 
 fn load_named_icon(name: &str, edge: u32) -> Option<RgbaImage> {
-    // 直接搜 hicolor，避免链 GTK。
-    let exts = ["png", "svg"];
-    for root in xdg_data_dirs() {
-        for size in size_dirs_for(edge) {
-            for ext in exts {
-                let candidate = root
-                    .join("icons/hicolor")
-                    .join(size)
-                    .join("apps")
-                    .join(format!("{name}.{ext}"));
-                if candidate.is_file() {
-                    if ext == "svg" {
-                        if let Some(png) = rasterize_svg(&candidate, edge) {
-                            return Some(png);
-                        }
-                    } else if let Ok(img) = image::open(&candidate) {
-                        return Some(img.into_rgba8());
+    load_named_icon_in_roots(name, edge, &icon_theme_roots(), &pixmap_roots())
+}
+
+fn load_named_icon_in_roots(
+    name: &str,
+    edge: u32,
+    theme_roots: &[PathBuf],
+    pixmaps: &[PathBuf],
+) -> Option<RgbaImage> {
+    // 覆盖常见桌面图标主题与 scalable 矢量目录，避免链 GTK 图标缓存。
+    const THEMES: [&str; 5] = ["hicolor", "Yaru", "Adwaita", "Papirus", "breeze"];
+    const EXTS: [&str; 2] = ["png", "svg"];
+
+    let mut dirs = size_dirs_for(edge);
+    dirs.push("96x96");
+    dirs.push("scalable");
+
+    for root in theme_roots {
+        for theme in THEMES {
+            let theme_dir = root.join(theme);
+            if !theme_dir.is_dir() {
+                continue;
+            }
+            for size_dir in &dirs {
+                for ext in EXTS {
+                    let candidate = theme_dir
+                        .join(size_dir)
+                        .join("apps")
+                        .join(format!("{name}.{ext}"));
+                    if let Some(img) = load_candidate_path(&candidate, edge) {
+                        return Some(img);
                     }
                 }
             }
         }
-        // pixmaps 兜底
-        for ext in exts {
-            let candidate = root.join("pixmaps").join(format!("{name}.{ext}"));
-            if candidate.is_file() {
-                if let Ok(img) = image::open(&candidate) {
-                    return Some(img.into_rgba8());
-                }
+    }
+    for root in pixmaps {
+        for ext in EXTS {
+            let candidate = root.join(format!("{name}.{ext}"));
+            if let Some(img) = load_candidate_path(&candidate, edge) {
+                return Some(img);
             }
         }
     }
@@ -222,5 +295,38 @@ mod tests {
     fn fit_shrinks_but_never_enlarges() {
         assert_eq!(fit(RgbaImage::new(256, 256), 64).dimensions(), (64, 64));
         assert_eq!(fit(RgbaImage::new(32, 32), 64).dimensions(), (32, 32));
+    }
+
+    #[test]
+    fn resolves_desktop_theme_png_and_scalable_svg_icons() {
+        let dir = std::env::temp_dir().join(format!("snapshot-icon-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let papirus_apps = dir.join("icons/Papirus/256x256/apps");
+        let scalable_apps = dir.join("icons/hicolor/scalable/apps");
+        fs::create_dir_all(&papirus_apps).unwrap();
+        fs::create_dir_all(&scalable_apps).unwrap();
+
+        let big = RgbaImage::from_pixel(256, 256, Rgba([20, 120, 220, 255]));
+        big.save(papirus_apps.join("theme-only.png")).unwrap();
+        let loaded = load_named_icon_in_roots("theme-only", 48, &[dir.join("icons")], &[])
+            .map(|img| fit(img, 48))
+            .expect("Papirus icon");
+        assert_eq!(loaded.dimensions(), (48, 48));
+
+        fs::write(
+            scalable_apps.join("vector-only.svg"),
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#ff6600"/></svg>"##,
+        )
+        .unwrap();
+        if Command::new("rsvg-convert")
+            .arg("--version")
+            .output()
+            .is_ok()
+        {
+            let svg = load_named_icon_in_roots("vector-only", 64, &[dir.join("icons")], &[])
+                .expect("scalable svg icon");
+            assert_eq!(svg.dimensions(), (64, 64));
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }
